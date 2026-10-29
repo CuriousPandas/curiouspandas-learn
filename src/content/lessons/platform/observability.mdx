@@ -1,0 +1,95 @@
+---
+title: The dashboard that lies
+summary: Metrics, logs and traces, and the most dangerous graph of all, the empty one. Break the watching instead of the thing being watched, and find where the truth is written.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+tiltLab: 08-empty-dashboard
+sources:
+  - title: TemplateMechanics/tilt lab 08 - The dashboard that lies
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/08-empty-dashboard
+  - title: Prometheus docs - Querying basics (staleness)
+    url: https://prometheus.io/docs/prometheus/latest/querying/basics/
+  - title: Prometheus Operator - ServiceMonitor API
+    url: https://prometheus-operator.dev/docs/api-reference/api/
+---
+
+**Observability** is how you find out what a system is doing without stopping it. It rests on three signals:
+
+- **Metrics:** numbers over time, such as requests per second or memory used. Cheap to keep, good for graphs and alerts. On the tilt platform: Prometheus, drawn by Grafana.
+- **Logs:** what the program said, line by line. On the platform: Loki.
+- **Traces:** the path one request took through several services, and how long each hop took. On the platform: Tempo.
+
+Every other lesson breaks the thing you're watching. This one breaks **the watching**.
+
+## Three empty dashboards on a healthy cluster
+
+This happened three times on the tilt platform:
+
+- Argo CD's monitor asked for a port named `metrics`, but every Argo CD service publishes `http-metrics`.
+- Loki's monitor selected the label `app: loki`, but the chart had moved to `app.kubernetes.io/name`.
+- cert-manager had no monitor at all.
+
+Each time, Kubernetes was content, Prometheus reported nothing wrong, and eighteen panels read as a calm, healthy system.
+
+## How a scrape is wired
+
+With the Prometheus Operator, you don't edit Prometheus's config. You create a **ServiceMonitor**, which says "scrape the **Services** with *this label*, on the port with *this name*". Both are matched exactly. Get either wrong and the operator generates no scrape target, and it doesn't consider that an error. Nothing failed, so nothing alerts.
+
+<ScrapeSim mission="obs-empty-dashboard" />
+
+<Callout kind="tip">
+The only place the truth appears is Prometheus's own **targets page**. When a panel is empty, open `/targets` before you open anything else.
+</Callout>
+
+## Existence is not freshness
+
+Look at what the lab's grader checks. It asserts four separate facts on purpose, because the first can pass while the other three fail:
+
+1. the ServiceMonitor exists;
+2. the port it names actually exists on the Service;
+3. Prometheus has a healthy target;
+4. the data is **fresh**: the last scrape was recent.
+
+"There's a series called `hello`" and "something scraped `hello` a moment ago" are different questions. Ask the second.
+
+<Quiz
+  id="platform-obs-1"
+  q="A Grafana panel is empty. The pods are Ready and the ServiceMonitor exists with no events. What's the quickest place to find the problem?"
+  options={["The pod logs", "Prometheus's targets page: is there a target for it at all, and is it up?", "kubectl describe node"]}
+  answer={1}
+  explain="An empty panel usually means nothing is being scraped. Kubernetes can't tell you that, because from its point of view nothing failed. Prometheus's targets page shows what it was actually told to scrape."
+/>
+
+<Quiz
+  id="platform-obs-2"
+  q="A ServiceMonitor says port: metrics. The Service's port is named http and is number 9898. What happens?"
+  options={["Prometheus scrapes 9898 anyway", "No target is generated: ports are matched by name, and nothing reports an error", "The ServiceMonitor is rejected when you apply it"]}
+  answer={1}
+  explain="ServiceMonitors name ports, not numbers. A mismatch is accepted, generates nothing, and stays silent. That's exactly the Argo CD story."
+/>
+
+<Quiz
+  id="platform-obs-3"
+  q="Which signal answers 'which of my five services made this one request slow?'"
+  options={["Metrics", "Logs", "Traces"]}
+  answer={2}
+  explain="A trace follows one request across services with timings for each hop. Metrics give totals and logs give lines, and neither connects the hops on its own."
+/>
+
+<Callout kind="real">
+Prometheus also reloads its configuration on a timer, so a fixed ServiceMonitor can take up to a minute to show up. Testing straight away and concluding "my fix did nothing" is its own trap. Wait, then look at `/targets` again.
+</Callout>
+
+<DoItForReal id="platform-obs-real" lab="08-empty-dashboard" profile="observability">
+
+```bash
+PROFILE=observability ./scripts/platform.sh up
+kubectl apply -f labs/08-empty-dashboard/servicemonitor.yaml
+./scripts/platform.sh lab 08          # 4/4
+./labs/08-empty-dashboard/break.sh
+# open https://prometheus.localhost/targets and search for hello
+./labs/08-empty-dashboard/fix.sh && ./scripts/platform.sh lab 08
+```
+
+</DoItForReal>

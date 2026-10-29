@@ -1,0 +1,32 @@
+---
+import Base from '../../layouts/Base.astro';
+import GitPlayground from '../../components/GitPlayground.astro';
+import KubeSim from '../../components/KubeSim.astro';
+import NeuralPlayground from '../../components/NeuralPlayground.astro';
+import TokenLab from '../../components/TokenLab.astro';
+import NextToken from '../../components/NextToken.astro';
+import KVCacheSim from '../../components/KVCacheSim.astro';
+---
+<Base title="Playground" description="Every simulator on the site with no lesson attached: git, a Kubernetes cluster, a neural network, a tokenizer, a language model and a model server.">
+  <section class="wrap page">
+    <p class="eyebrow">Playground</p>
+    <h1>Free play</h1>
+    <p class="lede">Every simulator on the site, no lesson attached. Break anything - "Start over" puts it back. Missions and XP live in the lessons.</p>
+    <nav class="jump">
+      <a href="#git">Git</a><a href="#kube">Kubernetes</a><a href="#nn">Neural network</a><a href="#tokens">Tokenizer</a><a href="#next">Next token</a><a href="#kv">Model serving</a>
+    </nav>
+    <div id="git"><GitPlayground title="Git sandbox" /></div>
+    <div id="kube"><KubeSim title="Cluster sandbox" /></div>
+    <div id="nn"><NeuralPlayground dataset="spiral" hidden="6,6" title="Neural network" /></div>
+    <div id="tokens"><TokenLab /></div>
+    <div id="next"><NextToken /></div>
+    <div id="kv"><KVCacheSim /></div>
+  </section>
+</Base>
+<style>
+  .page { padding-top: 32px; }
+  .lede { max-width: 680px; color: var(--ink-2); }
+  .jump { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+  .jump a { padding: 5px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); text-decoration: none; color: var(--ink-2); font-weight: 600; font-size: 0.88rem; }
+  [id] { scroll-margin-top: 80px; }
+</style>

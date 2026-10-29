@@ -1,0 +1,69 @@
+---
+title: Conflicts are honesty
+summary: When two branches change the same lines, git stops and asks you. Read the markers, choose, and finish a real merge.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: Pro Git, chapter 3.2 - Basic Merge Conflicts
+    url: https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging
+---
+
+A merge conflict feels like something broke. Nothing did. Git found two changes to the **same lines** on two branches, and it refuses to guess which one you meant. That refusal is the safest thing git does all day.
+
+Git merges line by line. Lines that only one side changed are taken automatically. Git stops only when both sides changed the same stretch, or neighbouring lines with nothing unchanged between them. Then it writes both versions into the file between markers:
+
+```
+<<<<<<< HEAD
+apples
+=======
+pears
+>>>>>>> snack
+```
+
+The part above `=======` is your current branch (`HEAD`). The part below is the branch you're merging in. You edit the file to say what it *should* say, delete the markers, `git add` the file to mark it resolved, and commit.
+
+## Resolve a real one
+
+On `main` someone replaced "leaves" with "apples". On `snack` someone replaced the same line with "pears". Merge them and decide.
+
+<GitPlayground mission="git-conflict" title="The menu argument" />
+
+<Callout kind="real">
+The conflict markers here are byte-for-byte what real git writes. The playground's tests replay this exact merge through the git binary and compare the files. Real git also offers tools such as `git mergetool` and editor integrations that show the two sides next to each other. The markers underneath are the same.
+</Callout>
+
+<Quiz
+  id="git-conflict-1"
+  q="Main changes line 2 of a file. Your branch changes line 9 of the same file. Will merging conflict?"
+  options={["Yes: the same file changed on both sides", "No: the changes are in different places with unchanged lines between, so git combines them", "Only if the file is large"]}
+  answer={1}
+  explain="Git merges by lines, not whole files. Unchanged lines between the two edits act as anchors, so both changes are applied. Conflicts need overlapping or touching changes."
+/>
+
+<Quiz
+  id="git-conflict-2"
+  q="You fixed the file and removed the markers. git commit still refuses. What did you probably forget?"
+  options={["git add on the conflicted file, to mark it resolved", "git push", "Restarting the merge"]}
+  answer={0}
+  explain="Git tracks conflicted files as unmerged until you git add them. Editing the file isn't enough; adding it tells git the conflict is resolved."
+/>
+
+<Callout kind="trap">
+Committing a file that still has `<<<<<<<` markers in it is easy. Git only checks that you ran `git add`, not what you wrote. Many teams add a pre-commit check that rejects files containing conflict markers.
+</Callout>
+
+<DoItForReal id="git-conflict-real">
+
+```bash
+git init menu && cd menu
+printf "bamboo\nleaves\nshoots\n" > menu.txt && git add . && git commit -m menu
+git branch snack
+sed -i.bak 's/leaves/apples/' menu.txt && git commit -am apples
+git switch snack
+sed -i.bak 's/leaves/pears/' menu.txt && git commit -am pears
+git switch main && git merge snack
+cat menu.txt
+```
+
+</DoItForReal>

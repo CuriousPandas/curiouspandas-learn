@@ -1,0 +1,84 @@
+---
+title: A process that thinks it is alone
+summary: A container isn't a tiny virtual machine. It's an ordinary process the kernel lies to about what it can see, and limits in what it can use.
+minutes: 12
+xp: 30
+tiers: [browser, machine]
+sources:
+  - title: namespaces(7) - Linux manual page
+    url: https://man7.org/linux/man-pages/man7/namespaces.7.html
+  - title: cgroups(7) - Linux manual page
+    url: https://man7.org/linux/man-pages/man7/cgroups.7.html
+  - title: Open Container Initiative - image and runtime specifications
+    url: https://opencontainers.org/
+---
+
+People say "a container is a lightweight virtual machine". It's a handy picture and it's wrong in a way that will bite you. A virtual machine runs its own kernel on pretend hardware. A container runs on **your** kernel, the same one every other process on the machine uses. It's just a process.
+
+What makes it feel like a separate machine are two Linux kernel features, applied to that process:
+
+- **Namespaces** change what the process can **see**. In its own PID namespace it's process number 1 and can't see anyone else's processes. In its own mount namespace it sees a different root filesystem. In its own network namespace it has its own interfaces and ports. The manual page puts it this way: a namespace wraps a global resource so that processes inside it appear to have their own isolated instance of it.
+- **cgroups** (control groups) limit what the process can **use**: how much memory, how much CPU time, how many processes. Go over a memory limit and the kernel's out-of-memory killer ends the process.
+
+| Namespace | Makes the process think it has its own... |
+|---|---|
+| PID | process list (and it is PID 1) |
+| Mount | filesystem tree |
+| Network | network interfaces, IP addresses, ports |
+| UTS | hostname |
+| IPC | shared memory and message queues |
+| User | user and group IDs (root inside, nobody outside) |
+| Cgroup | view of the cgroup hierarchy |
+| Time | boot and monotonic clocks |
+
+The **image** is the other half: a bundle of files (a whole minimal Linux userland plus your app) and some settings, like which command to run. A container is an image's files, unpacked into a mount namespace, with one process started inside it.
+
+<Quiz
+  id="ctr-what-1"
+  q="You run `ps aux` on the host while a container is running nginx. What do you see?"
+  options={["Nothing: containers are invisible to the host", "The nginx processes, as ordinary processes on the host", "A single process called 'docker'"]}
+  answer={1}
+  explain="A container's processes are host processes. The host sees them with their real PIDs. Only the process inside the container has the narrowed view: its PID namespace shows it as PID 1, with no neighbours."
+/>
+
+## Why the difference matters
+
+Because every container shares the host's kernel:
+
+- A Linux container needs a Linux kernel. On a Mac or Windows laptop, Docker Desktop quietly runs a small Linux virtual machine and runs your containers inside it.
+- A memory limit is enforced by that shared kernel. The out-of-memory kill you'll meet in the Kubernetes track, `OOMKilled`, exit code 137, is a cgroup doing exactly its job.
+- Isolation is good but not a VM boundary. A kernel bug is a bug for every container on the machine at once, which is why people running untrusted code add sandboxes or real VMs.
+
+<Quiz
+  id="ctr-what-2"
+  q="A container has a 64 MiB memory limit and its process tries to use 200 MiB. What enforces the limit?"
+  options={["The container image", "The Linux kernel, through the container's cgroup", "Docker checks memory every few seconds"]}
+  answer={1}
+  explain="Limits are cgroup settings that the kernel enforces on every allocation. When the group is out of memory and nothing can be reclaimed, the kernel's OOM killer kills a process in it. That's the 137 / OOMKilled you'll diagnose later."
+/>
+
+<Callout kind="real">
+Docker, containerd and Kubernetes all build containers the same way underneath. They follow the Open Container Initiative's specifications for what an image is and how to run one, which is why an image built with Docker runs unchanged on a Kubernetes cluster that has never heard of Docker.
+</Callout>
+
+<Quiz
+  id="ctr-what-3"
+  q="Can a container built for Linux run directly on the Windows kernel?"
+  options={["Yes: containers are portable everywhere", "No: it shares the host's kernel, so a Linux container needs a Linux kernel; Docker Desktop provides one in a lightweight VM", "Only if it is small"]}
+  answer={1}
+  explain="Portability is between machines with a compatible kernel. That's the real promise: same image, any Linux host. Docker Desktop on Windows and macOS runs a Linux VM so the shared-kernel model still holds."
+/>
+
+<DoItForReal id="ctr-what-real">
+
+With Docker installed, see the narrowed view from inside and the plain process from outside:
+
+```bash
+docker run --rm -d --name panda alpine sleep 300
+docker exec panda ps            # inside: sleep is PID 1; the only other process is ps itself
+docker exec panda hostname      # its own hostname (UTS namespace)
+docker top panda                # outside: the same process, with its host PID
+docker rm -f panda
+```
+
+</DoItForReal>

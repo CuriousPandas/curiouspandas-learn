@@ -1,0 +1,13 @@
+---
+import Base from '../layouts/Base.astro';
+import Panda from '../components/Panda.astro';
+---
+<Base title="Not found">
+  <section class="wrap page">
+    <Panda size={72} />
+    <h1>404: this bamboo was eaten</h1>
+    <p>That page does not exist. If a link on this site sent you here, that is a bug worth reporting.</p>
+    <p><a class="btn primary" href="/">Back to the forest</a></p>
+  </section>
+</Base>
+<style>.page { padding: 64px 16px; text-align: center; }</style>

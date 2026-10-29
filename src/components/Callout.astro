@@ -1,0 +1,16 @@
+---
+// trap: a mistake that looks like success. tip: a shortcut. real: how it
+// works on a real system, where the sandbox simplifies.
+interface Props { kind?: 'tip' | 'trap' | 'real'; title?: string }
+const { kind = 'tip', title } = Astro.props;
+const label = { tip: 'Tip', trap: 'Trap', real: 'In the real world' }[kind];
+---
+<aside class={`callout ${kind}`}><strong>{title ?? label}</strong><div><slot /></div></aside>
+<style>
+  .callout { margin: 22px 0; padding: 12px 16px; border-radius: 12px; border-left: 4px solid; background: var(--bg-2); }
+  .callout > strong { display: block; font-size: 0.82rem; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 2px; }
+  .callout :global(p) { margin: 4px 0; }
+  .tip { border-color: var(--sky); } .tip > strong { color: var(--sky); }
+  .trap { border-color: var(--berry); background: var(--berry-soft); } .trap > strong { color: var(--berry); }
+  .real { border-color: var(--sun); background: var(--sun-soft); } .real > strong { color: var(--sun); }
+</style>

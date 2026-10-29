@@ -1,0 +1,53 @@
+---
+// A single question. Wrong answers explain themselves too: the explanation is
+// the lesson, the score is just the excuse to read it.
+interface Props { id: string; q: string; options: string[]; answer: number; explain: string; xp?: number }
+const { id, q, options, answer, explain, xp = 10 } = Astro.props;
+if (answer < 0 || answer >= options.length) throw new Error(`Quiz ${id}: answer ${answer} is not one of its ${options.length} options`);
+---
+<div class="quiz card" data-quiz={id} data-answer={answer} data-xp={xp}>
+  <div class="q-head"><span class="eyebrow">Check yourself</span><span class="pill gold">+{xp} XP</span></div>
+  <p class="q">{q}</p>
+  <div class="opts">
+    {options.map((o, i) => <button type="button" class="opt" data-i={i}>{o}</button>)}
+  </div>
+  <p class="explain" hidden>{explain}</p>
+</div>
+<script>
+  import { award } from '../lib/ui.ts';
+  import { store } from '../lib/progress.ts';
+  for (const root of document.querySelectorAll<HTMLElement>('[data-quiz]')) {
+    const id = root.dataset.quiz!, answer = Number(root.dataset.answer), xp = Number(root.dataset.xp);
+    let tries = 0;
+    const explain = root.querySelector<HTMLElement>('.explain')!;
+    if (store().has('quizzes', id)) { root.classList.add('solved'); root.querySelectorAll<HTMLElement>('.opt')[answer].classList.add('right'); explain.hidden = false; }
+    root.querySelectorAll<HTMLButtonElement>('.opt').forEach((b) => b.addEventListener('click', () => {
+      if (root.classList.contains('solved')) return;
+      tries++;
+      const i = Number(b.dataset.i);
+      explain.hidden = false;
+      if (i === answer) {
+        b.classList.add('right');
+        root.classList.add('solved');
+        // Full XP for a first-try answer, a little for getting there.
+        award('quizzes', id, tries === 1 ? xp : Math.ceil(xp / 3), tries === 1 ? 'First try!' : 'Got it');
+      } else {
+        b.classList.add('wrong');
+        b.disabled = true;
+      }
+    }));
+  }
+</script>
+<style>
+  .quiz { margin: 28px 0; padding: 16px 18px; }
+  .q-head { display: flex; justify-content: space-between; align-items: center; }
+  .q { font-weight: 650; margin: 8px 0 12px; }
+  .opts { display: grid; gap: 8px; }
+  .opt { text-align: left; font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); cursor: pointer; }
+  .opt:hover:not([disabled]) { border-color: var(--sky); }
+  .opt.right { background: var(--bamboo-soft); border-color: var(--bamboo); font-weight: 650; }
+  .opt.right::before { content: "✓ "; color: var(--bamboo); }
+  .opt.wrong { background: var(--berry-soft); border-color: var(--berry); opacity: .8; }
+  .opt.wrong::before { content: "✗ "; color: var(--berry); }
+  .explain { margin: 12px 0 0; padding: 10px 12px; background: var(--bg-2); border-radius: 10px; font-size: 0.94rem; }
+</style>

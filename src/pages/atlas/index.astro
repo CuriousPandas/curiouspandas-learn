@@ -1,0 +1,104 @@
+---
+import Base from '../../layouts/Base.astro';
+import { TOOLS } from '../../data/tools.ts';
+import snapshot from '../../data/cncf-snapshot.json';
+import { curriculum } from '../../lib/curriculum.ts';
+
+// Link only to lessons that exist today; the rest would be 404s.
+const readyHrefs = new Set((await curriculum()).flatMap((t) => t.lessons.filter((l) => l.entry).map((l) => l.href)));
+
+type Snap = { landscapeName: string | null; maturity: string | null; homepage: string | null };
+const snap = snapshot.tools as Record<string, Snap>;
+const missing = TOOLS.filter((t) => !(t.id in snap));
+// A tool added to tools.ts without re-running the sync would show as "not in
+// the landscape" - a false statement that looks like a fact. Refuse instead.
+if (missing.length) throw new Error(`cncf-snapshot.json has no entry for: ${missing.map((t) => t.id).join(', ')} - run npm run sync:cncf`);
+
+const status = (id: string, partOf?: string) => {
+  const s = snap[id];
+  if (s.maturity) return { key: s.maturity, label: `CNCF ${s.maturity}` };
+  if (partOf) return { key: 'part', label: `part of ${partOf}` };
+  if (s.landscapeName) return { key: 'listed', label: 'in the landscape, not a CNCF project' };
+  return { key: 'none', label: 'not in the CNCF landscape' };
+};
+const tools = TOOLS.map((t) => ({ ...t, st: status(t.id, t.partOf) })).sort((a, b) => a.name.localeCompare(b.name));
+const categories = [...new Set(TOOLS.map((t) => t.category))].sort();
+const order = ['graduated', 'incubating', 'sandbox'];
+const counts = Object.fromEntries(order.map((m) => [m, tools.filter((t) => t.st.key === m).length]));
+---
+<Base title="Tool Atlas" description="Every tool the tilt platform can run - what it does, its CNCF status from the CNCF's own data, and how to switch it on.">
+  <section class="wrap page">
+    <p class="eyebrow">Tool Atlas</p>
+    <h1>{tools.length} tools you can run on your laptop</h1>
+    <p class="lede">Everything the open <a href="https://github.com/TemplateMechanics/tilt">tilt platform</a> can bring up, and how. CNCF status comes from the CNCF's own <a href={snapshot.source}>landscape data</a>, read on <strong>{snapshot.fetchedAt}</strong>: {counts.graduated} graduated, {counts.incubating} incubating, {counts.sandbox} sandbox. Projects move between those stages, so the date matters.</p>
+
+    <div class="filters" data-filters>
+      <div class="chips" role="group" aria-label="Category">
+        <button type="button" class="chip on" data-cat="">All</button>
+        {categories.map((c) => <button type="button" class="chip" data-cat={c}>{c}</button>)}
+      </div>
+      <div class="chips" role="group" aria-label="CNCF status">
+        <button type="button" class="chip on" data-mat="">Any status</button>
+        {order.map((m) => <button type="button" class={`chip m-${m}`} data-mat={m}>CNCF {m}</button>)}
+        <button type="button" class="chip" data-mat="other">Not a CNCF project</button>
+      </div>
+    </div>
+
+    <div class="tools">
+      {tools.map((t) => (
+        <article class="tool card" data-tool data-cat={t.category} data-mat={order.includes(t.st.key) ? t.st.key : 'other'}>
+          <header>
+            <strong>{t.name}</strong>
+            <span class={`pill m-${t.st.key}`}>{t.st.label}</span>
+          </header>
+          <p>{t.what}</p>
+          <footer>
+            <span class="pill">{t.category}</span>
+            {t.tilt
+              ? <code title="Set enabled: true for this key in tilt-config.json">{t.tilt}</code>
+              : <span class="pill ok">always on · {t.profile} profile</span>}
+            {t.lesson && readyHrefs.has(t.lesson) && <a href={t.lesson}>lesson →</a>}
+          </footer>
+        </article>
+      ))}
+    </div>
+    <p class="muted foot">Switch a tool on by setting <code>"enabled": true</code> under its key in <code>tilt-config.json</code> once the platform is up. Tilt notices and deploys it. Some are heavy: Backstage's first build takes 20+ minutes.</p>
+  </section>
+</Base>
+<script>
+  const box = document.querySelector<HTMLElement>('[data-filters]')!;
+  let cat = '', mat = '';
+  const apply = () => {
+    for (const t of document.querySelectorAll<HTMLElement>('[data-tool]')) {
+      t.hidden = (!!cat && t.dataset.cat !== cat) || (!!mat && t.dataset.mat !== mat);
+    }
+  };
+  box.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+    if (!b) return;
+    const group = b.dataset.cat !== undefined ? 'cat' : 'mat';
+    for (const x of b.parentElement!.querySelectorAll('button')) x.classList.toggle('on', x === b);
+    if (group === 'cat') cat = b.dataset.cat!; else mat = b.dataset.mat!;
+    apply();
+  });
+</script>
+<style>
+  .page { padding-top: 32px; }
+  .lede { max-width: 760px; color: var(--ink-2); }
+  .filters { display: flex; flex-direction: column; gap: 8px; margin: 18px 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font: 600 0.82rem var(--sans); padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); cursor: pointer; }
+  .chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .tools { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+  .tool { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .tool header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .tool header .pill { white-space: normal; text-align: right; }
+  .tool p { margin: 0; color: var(--ink-2); font-size: 0.93rem; flex: 1; }
+  .tool footer { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; }
+  .tool footer code { font-size: 0.78rem; }
+  .tool footer a { margin-left: auto; }
+  .m-graduated { background: var(--bamboo-soft); color: var(--bamboo); border-color: transparent; }
+  .m-incubating { background: var(--sky-soft); color: var(--sky); border-color: transparent; }
+  .m-sandbox { background: var(--sun-soft); color: var(--sun); border-color: transparent; }
+  .foot { margin-top: 20px; font-size: 0.9rem; }
+</style>

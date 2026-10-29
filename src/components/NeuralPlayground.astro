@@ -1,0 +1,142 @@
+---
+import '../styles/widgets.css';
+// challenge: optional id from CHALLENGES below; shows a goal and awards XP when met.
+interface Props { challenge?: string; dataset?: string; hidden?: string; features?: string; title?: string }
+const { challenge = '', dataset = 'circle', hidden = '4', features = 'x,y', title = 'Bamboo or rocks? Teach a tiny brain to sort them' } = Astro.props;
+const allFeatures = ['x', 'y', 'x²', 'y²', 'xy', 'sin x', 'sin y'];
+const chosen = features.split(',');
+---
+<div class="widget card nn" data-nn data-challenge={challenge} data-dataset={dataset} data-hidden={hidden}>
+  <div class="widget-head"><strong>{title}</strong><span class="spacer"></span><span class="pill gold" data-goal hidden></span></div>
+  <div class="nn-grid">
+    <div class="nn-canvas">
+      <canvas width="320" height="320" data-canvas aria-label="Decision boundary: green area means the network thinks bamboo, grey means rocks"></canvas>
+      <div class="stats">
+        <div class="stat">epoch<b data-epoch>0</b></div>
+        <div class="stat">train loss<b data-loss>-</b></div>
+        <div class="stat">test accuracy<b data-acc>-</b></div>
+        <div class="stat">knobs<b data-params>-</b></div>
+      </div>
+    </div>
+    <div class="nn-side">
+      <div class="controls">
+        <button class="btn primary small" type="button" data-play>Train</button>
+        <button class="btn small" type="button" data-step>One step</button>
+        <button class="btn small" type="button" data-reset>New random knobs</button>
+      </div>
+      <div class="controls">
+        <label>Data <select data-ds><option value="blobs">two piles</option><option value="circle">ring</option><option value="xor">checkerboard</option><option value="spiral">spiral</option></select></label>
+        <label>Noise <input type="range" min="0" max="0.5" step="0.05" value="0.1" data-noise /></label>
+      </div>
+      <div class="controls">
+        <label>Hidden layers <input type="text" size="9" data-layers value={hidden} aria-describedby="layers-help" /></label>
+        <span id="layers-help" class="muted small">neurons per layer, e.g. <code>4,4</code> - empty for none</span>
+      </div>
+      <div class="controls">
+        <label>Activation <select data-act><option value="tanh">tanh</option><option value="relu">ReLU</option></select></label>
+        <label>Learning rate <select data-lr><option>0.03</option><option>0.1</option><option selected>0.3</option><option>1</option><option>3</option><option>10</option></select></label>
+      </div>
+      <fieldset class="feats"><legend>Inputs the network can see</legend>
+        {allFeatures.map((f) => <label><input type="checkbox" value={f} checked={chosen.includes(f)} data-feat /> {f}</label>)}
+      </fieldset>
+      <p class="arch muted" data-arch></p>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { MLP, dataset, split, type DatasetName, type FeatureName, type Activation } from '../lib/nn/mlp.ts';
+  import { award } from '../lib/ui.ts';
+  import { store } from '../lib/progress.ts';
+
+  // Each challenge can be won only on held-out points, so memorising the
+  // training set does not count - the lesson the overfitting page is about.
+  // tests/challenges.test.ts holds a winning recipe for every one of these.
+  const CHALLENGES: Record<string, { text: string; ds: DatasetName; acc: number; maxKnobs?: number; xp: number; noHidden?: boolean; minNoise?: number }> = {
+    'nn-ring': { text: 'Reach 95% test accuracy on the ring', ds: 'circle', acc: 0.95, xp: 30 },
+    'nn-noisy-ring': { text: '85% test accuracy on the ring with noise at 0.3 or more', ds: 'circle', acc: 0.85, xp: 40, minNoise: 0.3 },
+    'nn-xor-lean': { text: 'Solve the checkerboard (95%) with no hidden layer at all', ds: 'xor', acc: 0.95, xp: 40, noHidden: true },
+    'nn-spiral': { text: 'Untangle the spiral to 90% test accuracy', ds: 'spiral', acc: 0.9, xp: 60 },
+    'nn-spiral-tiny': { text: 'Spiral at 85% using 60 knobs or fewer', ds: 'spiral', acc: 0.85, maxKnobs: 60, xp: 80 },
+  };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-nn]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const canvas = q<HTMLCanvasElement>('[data-canvas]');
+    const ctx = canvas.getContext('2d')!;
+    const dsSel = q<HTMLSelectElement>('[data-ds]');
+    dsSel.value = root.dataset.dataset ?? 'circle';
+    const ch = CHALLENGES[root.dataset.challenge ?? ''];
+    if (ch) { const g = q('[data-goal]'); g.hidden = false; g.textContent = `Goal: ${ch.text} · +${ch.xp} XP`; dsSel.value = ch.ds; }
+    let net: MLP, data: ReturnType<typeof split>, epoch = 0, playing = false, raf = 0, seed = 3;
+
+    const build = () => {
+      const feats = [...root.querySelectorAll<HTMLInputElement>('[data-feat]')].filter((i) => i.checked).map((i) => i.value as FeatureName);
+      if (!feats.length) { root.querySelector<HTMLInputElement>('[data-feat]')!.checked = true; return build(); }
+      const hidden = q<HTMLInputElement>('[data-layers]').value.split(/[,\s]+/).filter(Boolean).map((n) => Math.max(1, Math.min(12, Number(n) || 1))).slice(0, 4);
+      net = new MLP(feats, hidden, q<HTMLSelectElement>('[data-act]').value as Activation, seed);
+      data = split(dataset(dsSel.value as DatasetName, 360, Number(q<HTMLInputElement>('[data-noise]').value)));
+      epoch = 0;
+      q('[data-arch]').textContent = `Shape: ${net.sizes.join(' → ')}  (${net.parameterCount} knobs to turn)`;
+      q('[data-params]').textContent = String(net.parameterCount);
+      draw();
+    };
+
+    const draw = () => {
+      const W = canvas.width, N = 64, cell = W / N;
+      const dark = getComputedStyle(document.documentElement).colorScheme === 'dark';
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+        const p = net.predict((i + 0.5) / N * 2 - 1, 1 - (j + 0.5) / N * 2);
+        const a = Math.abs(p - 0.5) * 1.6;
+        ctx.fillStyle = p > 0.5 ? `rgba(47,125,70,${a})` : `rgba(120,120,130,${a})`;
+        ctx.clearRect(i * cell, j * cell, cell + 1, cell + 1);
+        ctx.fillRect(i * cell, j * cell, cell + 1, cell + 1);
+      }
+      const dot = (x: number, y: number, label: number, test: boolean) => {
+        ctx.beginPath();
+        ctx.arc((x + 1) / 2 * W, (1 - y) / 2 * W, test ? 3.2 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = label ? '#2f9d4f' : (dark ? '#c9c9d1' : '#55565f');
+        ctx.strokeStyle = test ? (dark ? '#000' : '#fff') : 'rgba(0,0,0,.35)';
+        ctx.lineWidth = test ? 2 : 1;
+        ctx.fill(); ctx.stroke();
+      };
+      for (const p of data.train) dot(p.x, p.y, p.label, false);
+      for (const p of data.test) dot(p.x, p.y, p.label, true);
+      q('[data-epoch]').textContent = String(epoch);
+      q('[data-loss]').textContent = net.loss(data.train).toFixed(3);
+      const acc = net.accuracy(data.test);
+      q('[data-acc]').textContent = `${Math.round(acc * 100)}%`;
+      if (ch && !store().has('missions', root.dataset.challenge!) && dsSel.value === ch.ds && acc >= ch.acc &&
+          (!ch.maxKnobs || net.parameterCount <= ch.maxKnobs) && (!ch.noHidden || net.sizes.length === 2) &&
+          (!ch.minNoise || Number(q<HTMLInputElement>('[data-noise]').value) >= ch.minNoise - 1e-9) && epoch > 0) {
+        award('missions', root.dataset.challenge!, ch.xp, `Challenge: ${ch.text}`);
+        q('[data-goal]').textContent = `Done: ${ch.text} ✓`;
+      }
+    };
+
+    const lr = () => Number(q<HTMLSelectElement>('[data-lr]').value);
+    const step = (n: number) => { for (let i = 0; i < n; i++) { net.train(data.train, lr()); epoch++; } draw(); };
+    const loop = () => { step(8); if (playing) raf = requestAnimationFrame(loop); };
+    const play = q<HTMLButtonElement>('[data-play]');
+    play.addEventListener('click', () => { playing = !playing; play.textContent = playing ? 'Pause' : 'Train'; if (playing) loop(); else cancelAnimationFrame(raf); });
+    q('[data-step]').addEventListener('click', () => step(1));
+    q('[data-reset]').addEventListener('click', () => { seed++; build(); });
+    for (const s of ['[data-ds]', '[data-noise]', '[data-act]', '[data-layers]']) q(s).addEventListener('change', build);
+    for (const f of root.querySelectorAll('[data-feat]')) f.addEventListener('change', build);
+    build();
+  }
+</script>
+
+<style>
+  .nn-grid { display: grid; gap: 16px; }
+  @media (min-width: 760px) { .nn-grid { grid-template-columns: 320px minmax(0, 1fr); } }
+  .nn-canvas canvas { width: 100%; max-width: 320px; aspect-ratio: 1; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); display: block; }
+  .nn-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .feats { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; font: 13px var(--mono); }
+  .feats legend { font: 600 0.8rem var(--sans); color: var(--muted); padding: 0 4px; }
+  .arch { margin: 0; font: 13px var(--mono); }
+  /* Challenge goals are sentences; as a nowrap .pill they pushed the page
+     sideways on phones. */
+  [data-goal] { white-space: normal; }
+  .small { font-size: 0.8rem; }
+</style>

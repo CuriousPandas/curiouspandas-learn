@@ -1,0 +1,68 @@
+---
+title: Why hidden layers exist
+summary: One layer of knobs can only draw a straight line. Try a checkerboard with a straight line, hit the wall, then get past it two different ways.
+minutes: 16
+xp: 40
+tiers: [browser]
+sources:
+  - title: Goodfellow, Bengio and Courville - Deep Learning, chapter 6.1 (Example - Learning XOR)
+    url: https://www.deeplearningbook.org/contents/mlp.html
+---
+
+The simplest model there is takes its inputs, multiplies each by a knob, adds them up, and squashes the total into a yes/no probability. On a map, whatever knob settings you pick, the boundary it draws between yes and no is always a **straight line**.
+
+Straight lines handle plenty. They fail on a famous puzzle: the **checkerboard**, also called XOR (exclusive or). Bamboo grows in the top-right and bottom-left quarters, rocks in the other two. No single straight line can separate them.
+
+## Hit the wall
+
+This network has **no hidden layer**: just the inputs `x` and `y`, straight to the answer. Train it and watch the accuracy.
+
+<NeuralPlayground challenge="nn-xor-lean" dataset="xor" hidden="" features="x,y" title="A straight line vs. a checkerboard" />
+
+It gets stuck. The accuracy settles **around 75% at best, never solved**. Why 75% and not 50%? A line can't split four quarters correctly, but it can tilt so that three of the four land on the right side. That's the ceiling, and no amount of training gets past it.
+
+There are two ways out.
+
+## Way one: give it a better input
+
+Tick the **xy** box, the two inputs multiplied together. In the top-right quarter `x` and `y` are both positive, so `xy` is positive. In the bottom-left both are negative, so `xy` is positive again. In the other two quarters `xy` is negative. Measured by `xy`, the checkerboard is a simple yes/no split, and a straight line handles it easily. That's what the challenge above is asking for.
+
+This was how most machine learning worked for decades: humans invented clever inputs ("features") by hand.
+
+## Way two: let it invent its own
+
+Untick `xy` and type `4` into **Hidden layers**. Now the inputs feed four **neurons**. Each one is its own little straight-line model, passing its answer through a bend (the *activation*, `tanh` or ReLU). The output combines those four bent answers. Bent lines combined can draw corners, curves and closed shapes. Train it.
+
+The hidden layer has worked out something that does the job of `xy` without being told. **That is the reason hidden layers exist**: the network learns its own features. Stack more layers and later ones build features from the earlier ones' features, which is what *deep* in "deep learning" means.
+
+<Callout kind="tip">
+The bend is essential. Without an activation, stacking layers just multiplies linear functions together, and the result is still one straight line. Every layer would collapse into a single one.
+</Callout>
+
+Now try the hardest shape. The spiral needs several layers or very well-chosen inputs:
+
+<NeuralPlayground challenge="nn-spiral" dataset="spiral" hidden="6" title="Untangle the spiral" />
+
+<Callout kind="tip" title="Stuck on the spiral?">
+Try two hidden layers (`8,8`), tick `sin x` and `sin y`, and be patient: the spiral takes thousands of steps. For the hard mode, the 60-knob challenge in the [playground](/playground/#nn), a few well-chosen inputs beat a big network.
+</Callout>
+
+<Quiz
+  id="ml-nn-1"
+  q="A network with no hidden layer is stuck near 75% on the checkerboard. Why won't more training fix it?"
+  options={["The learning rate is too small", "It can only ever draw a straight boundary, and no straight line separates the checkerboard", "It needs more data"]}
+  answer={1}
+  explain="The limit is the shape of the model, not the training. Every setting of its knobs draws a straight line, and the best any line can do is get three of the four quarters right. Change the model (hidden layer) or the inputs (xy); training harder changes nothing."
+/>
+
+<Quiz
+  id="ml-nn-2"
+  q="What does a hidden layer let a network do that a single layer can't?"
+  options={["Train faster", "Build its own new features out of the inputs, so it can draw curved and closed boundaries", "Use less memory"]}
+  answer={1}
+  explain="Each hidden neuron computes a new, bent feature from the inputs. Combining them gives boundaries no single line could draw. The network invents the xy-like feature a human would otherwise have to supply."
+/>
+
+<Callout kind="real">
+The XOR wall has real history. A single-layer "perceptron" can't learn it, and that limit was a well-known argument against neural networks for years. Networks with hidden layers became practical to train once backpropagation (computing the gradient for every layer at once) was widely adopted in the 1980s. The language models later in this course are the same idea at enormous scale.
+</Callout>

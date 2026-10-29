@@ -1,0 +1,337 @@
+{
+  "source": "https://raw.githubusercontent.com/cncf/landscape/master/landscape.yml",
+  "fetchedAt": "2026-10-29",
+  "items": 2441,
+  "tools": {
+    "kubernetes": {
+      "landscapeName": "Kubernetes",
+      "maturity": "graduated",
+      "homepage": "https://kubernetes.io/",
+      "landscapeCategory": "Orchestration & Management / Scheduling & Orchestration"
+    },
+    "kind": {
+      "landscapeName": "kind",
+      "maturity": null,
+      "homepage": "https://github.com/kubernetes-sigs/kind",
+      "landscapeCategory": "Platform / Certified Kubernetes - Installer"
+    },
+    "tilt": {
+      "landscapeName": "Tilt",
+      "maturity": null,
+      "homepage": "https://tilt.dev/",
+      "landscapeCategory": "App Definition and Development / Application Definition & Image Build"
+    },
+    "helm": {
+      "landscapeName": "Helm",
+      "maturity": "graduated",
+      "homepage": "https://helm.sh/",
+      "landscapeCategory": "App Definition and Development / Application Definition & Image Build"
+    },
+    "flux": {
+      "landscapeName": "Flux",
+      "maturity": "graduated",
+      "homepage": "https://fluxcd.io/",
+      "landscapeCategory": "App Definition and Development / Continuous Integration & Delivery"
+    },
+    "gateway-api": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "istio": {
+      "landscapeName": "Istio",
+      "maturity": "graduated",
+      "homepage": "https://istio.io/",
+      "landscapeCategory": "Orchestration & Management / Service Mesh"
+    },
+    "cert-manager": {
+      "landscapeName": "cert-manager",
+      "maturity": "graduated",
+      "homepage": "https://cert-manager.io/",
+      "landscapeCategory": "Provisioning / Security & Compliance"
+    },
+    "prometheus": {
+      "landscapeName": "Prometheus",
+      "maturity": "graduated",
+      "homepage": "https://prometheus.io/",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "grafana": {
+      "landscapeName": "Grafana",
+      "maturity": null,
+      "homepage": "https://grafana.com/",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "loki": {
+      "landscapeName": "Grafana Loki",
+      "maturity": null,
+      "homepage": "https://grafana.com/oss/loki",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "tempo": {
+      "landscapeName": "Grafana Tempo",
+      "maturity": null,
+      "homepage": "https://grafana.com/oss/tempo/",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "kiali": {
+      "landscapeName": "Kiali",
+      "maturity": null,
+      "homepage": "https://www.kiali.io/",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "metrics-server": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "crossplane": {
+      "landscapeName": "Crossplane",
+      "maturity": "graduated",
+      "homepage": "https://crossplane.io/",
+      "landscapeCategory": "Orchestration & Management / Scheduling & Orchestration"
+    },
+    "flagger": {
+      "landscapeName": "Flagger",
+      "maturity": null,
+      "homepage": "https://docs.flagger.app",
+      "landscapeCategory": "App Definition and Development / Continuous Integration & Delivery"
+    },
+    "external-secrets": {
+      "landscapeName": "external-secrets",
+      "maturity": "sandbox",
+      "homepage": "https://external-secrets.io/",
+      "landscapeCategory": "Provisioning / Security & Compliance"
+    },
+    "cloudnative-pg": {
+      "landscapeName": "CloudNativePG",
+      "maturity": "sandbox",
+      "homepage": "https://www.cloudnative-pg.io/",
+      "landscapeCategory": "App Definition and Development / Database"
+    },
+    "harbor": {
+      "landscapeName": "Harbor",
+      "maturity": "graduated",
+      "homepage": "https://goharbor.io/",
+      "landscapeCategory": "Provisioning / Container Registry"
+    },
+    "jenkins": {
+      "landscapeName": "Jenkins",
+      "maturity": null,
+      "homepage": "https://jenkins.io/",
+      "landscapeCategory": "App Definition and Development / Continuous Integration & Delivery"
+    },
+    "langfuse": {
+      "landscapeName": "Langfuse",
+      "maturity": null,
+      "homepage": "https://github.com/langfuse/langfuse",
+      "landscapeCategory": "AI Native Infra / Observability"
+    },
+    "qdrant": {
+      "landscapeName": "Qdrant",
+      "maturity": null,
+      "homepage": "https://qdrant.tech",
+      "landscapeCategory": "App Definition and Development / Database"
+    },
+    "localstack": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "ollama": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "kyverno": {
+      "landscapeName": "Kyverno",
+      "maturity": "graduated",
+      "homepage": "https://kyverno.io/",
+      "landscapeCategory": "Provisioning / Security & Compliance"
+    },
+    "falco": {
+      "landscapeName": "Falco",
+      "maturity": "graduated",
+      "homepage": "https://falco.org/",
+      "landscapeCategory": "Provisioning / Security & Compliance"
+    },
+    "policy-reporter": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "1pass": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "keda": {
+      "landscapeName": "KEDA",
+      "maturity": "graduated",
+      "homepage": "https://keda.sh/",
+      "landscapeCategory": "Orchestration & Management / Scheduling & Orchestration"
+    },
+    "velero": {
+      "landscapeName": "Velero",
+      "maturity": "sandbox",
+      "homepage": "https://velero.io",
+      "landscapeCategory": "Runtime / Cloud Native Storage"
+    },
+    "trivy": {
+      "landscapeName": "Trivy",
+      "maturity": null,
+      "homepage": "https://trivy.dev",
+      "landscapeCategory": "Provisioning / Security & Compliance"
+    },
+    "otel-collector": {
+      "landscapeName": "OpenTelemetry",
+      "maturity": "graduated",
+      "homepage": "https://opentelemetry.io/",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "nats": {
+      "landscapeName": "NATS",
+      "maturity": "incubating",
+      "homepage": "https://nats.io/",
+      "landscapeCategory": "App Definition and Development / Streaming & Messaging"
+    },
+    "dapr": {
+      "landscapeName": "Dapr",
+      "maturity": "graduated",
+      "homepage": "https://dapr.io",
+      "landscapeCategory": "App Definition and Development / Application Definition & Image Build"
+    },
+    "argo-workflows": {
+      "landscapeName": "Argo",
+      "maturity": "graduated",
+      "homepage": "https://argoproj.github.io/",
+      "landscapeCategory": "App Definition and Development / Continuous Integration & Delivery"
+    },
+    "argocd": {
+      "landscapeName": "Argo",
+      "maturity": "graduated",
+      "homepage": "https://argoproj.github.io/",
+      "landscapeCategory": "App Definition and Development / Continuous Integration & Delivery"
+    },
+    "opencost": {
+      "landscapeName": "OpenCost",
+      "maturity": "incubating",
+      "homepage": "https://www.opencost.io/",
+      "landscapeCategory": "Observability and Analysis / Continuous Optimization"
+    },
+    "thanos": {
+      "landscapeName": "Thanos",
+      "maturity": "incubating",
+      "homepage": "https://thanos.io/",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "headlamp": {
+      "landscapeName": "Headlamp",
+      "maturity": "sandbox",
+      "homepage": "https://headlamp.dev",
+      "landscapeCategory": "Observability and Analysis / Observability"
+    },
+    "backstage": {
+      "landscapeName": "Backstage",
+      "maturity": "incubating",
+      "homepage": "https://backstage.io/",
+      "landscapeCategory": "App Definition and Development / Application Definition & Image Build"
+    },
+    "mongodb": {
+      "landscapeName": "MongoDB",
+      "maturity": null,
+      "homepage": "https://www.mongodb.com/",
+      "landscapeCategory": "App Definition and Development / Database"
+    },
+    "postgresql": {
+      "landscapeName": "PostgreSQL",
+      "maturity": null,
+      "homepage": "https://www.postgresql.org/",
+      "landscapeCategory": "App Definition and Development / Database"
+    },
+    "redis": {
+      "landscapeName": "Redis",
+      "maturity": null,
+      "homepage": "https://redis.io/",
+      "landscapeCategory": "App Definition and Development / Database"
+    },
+    "rabbitmq": {
+      "landscapeName": "RabbitMQ",
+      "maturity": null,
+      "homepage": "https://www.rabbitmq.com/",
+      "landscapeCategory": "App Definition and Development / Streaming & Messaging"
+    },
+    "mssql": {
+      "landscapeName": "Microsoft SQL Server",
+      "maturity": null,
+      "homepage": "https://www.microsoft.com/en-us/sql-server",
+      "landscapeCategory": "App Definition and Development / Database"
+    },
+    "keycloak": {
+      "landscapeName": "Keycloak",
+      "maturity": "incubating",
+      "homepage": "https://www.keycloak.org/",
+      "landscapeCategory": "Provisioning / Security & Compliance"
+    },
+    "airflow": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "jupyterhub": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "wordpress": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "mailhog": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "azurite": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "gcp-emulators": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "wazuh": {
+      "landscapeName": null,
+      "maturity": null,
+      "homepage": null,
+      "landscapeCategory": null
+    },
+    "knative": {
+      "landscapeName": "Knative",
+      "maturity": "graduated",
+      "homepage": "https://knative.dev",
+      "landscapeCategory": "Orchestration & Management / Scheduling & Orchestration"
+    },
+    "kubevirt": {
+      "landscapeName": "KubeVirt",
+      "maturity": "incubating",
+      "homepage": "https://kubevirt.io/",
+      "landscapeCategory": "App Definition and Development / Application Definition & Image Build"
+    }
+  }
+}

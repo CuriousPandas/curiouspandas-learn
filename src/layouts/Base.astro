@@ -1,0 +1,128 @@
+---
+import '../styles/global.css';
+import Panda from '../components/Panda.astro';
+
+interface Props { title: string; description?: string; wide?: boolean }
+const { title, description = 'Learn tech by breaking things. Git to Kubernetes to LLMs - free, open source, and it all runs in your browser.' } = Astro.props;
+const full = title === 'Curious Pandas' ? title : `${title} · Curious Pandas`;
+const path = Astro.url.pathname;
+const nav = [
+  { href: '/tracks/', label: 'Learn' },
+  { href: '/playground/', label: 'Playground' },
+  { href: '/atlas/', label: 'Tool Atlas' },
+  { href: '/progress/', label: 'Progress' },
+];
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{full}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={full} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="canonical" href={new URL(path, Astro.site)} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#2f7d46" />
+    <script is:inline>
+      // Before first paint, so a dark-mode visitor never sees a white flash.
+      try { const t = localStorage.getItem('curiouspandas.theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site">
+      <div class="wrap bar">
+        <a class="brand" href="/"><Panda size={30} /><span>Curious Pandas</span></a>
+        <nav aria-label="Main">
+          {nav.map((n) => <a href={n.href} aria-current={path.startsWith(n.href) ? 'page' : undefined}>{n.label}</a>)}
+        </nav>
+        <div class="me">
+          <a href="/progress/" class="xp" data-xp-chip title="Your progress (kept in this browser only)">
+            <span class="rank" data-rank>Curious Cub</span>
+            <span class="pts"><b data-xp>0</b> XP</span>
+            <span class="streak" data-streak hidden></span>
+          </a>
+          <button class="theme" type="button" data-theme-toggle aria-label="Switch light or dark theme">◐</button>
+        </div>
+      </div>
+      <div class="store-banner" data-store-banner hidden></div>
+    </header>
+    <main id="main">
+      <slot />
+    </main>
+    <footer class="site">
+      <div class="wrap foot">
+        <div>
+          <strong>Curious Pandas</strong> is free forever and MIT licensed.
+          No accounts, no ads, no tracking - your progress never leaves your browser.
+        </div>
+        <div class="links">
+          <a href="/about/">About &amp; privacy</a>
+          <a href="/machine/">What can my device run?</a>
+          <a href="https://github.com/TemplateMechanics/tilt">The tilt platform</a>
+        </div>
+      </div>
+    </footer>
+    <script>
+      import { store, rank, streak } from '../lib/progress.ts';
+      const s = store();
+      const xpEl = document.querySelector('[data-xp]')!;
+      const rankEl = document.querySelector('[data-rank]')!;
+      const streakEl = document.querySelector<HTMLElement>('[data-streak]')!;
+      const chip = document.querySelector<HTMLElement>('[data-xp-chip]')!;
+      const banner = document.querySelector<HTMLElement>('[data-store-banner]')!;
+      s.subscribe((p) => {
+        xpEl.textContent = String(p.xp);
+        rankEl.textContent = rank(p.xp).name;
+        const n = streak(p.days);
+        streakEl.hidden = n < 1;
+        streakEl.textContent = `🔥 ${n}`;
+        streakEl.title = `${n}-day streak`;
+      });
+      if (s.state !== 'ok') {
+        chip.classList.add('unsaved');
+        banner.hidden = false;
+        banner.innerHTML = s.state === 'unavailable'
+          ? '<div class="wrap">This browser is not letting us save, so progress lasts until you close the tab. Private windows do this. Everything else works.</div>'
+          : '<div class="wrap">Your saved progress could not be read, so nothing new is being saved over it. <a href="/progress/">Export the raw copy or reset</a>.</div>';
+        chip.title = 'Progress is NOT being saved in this browser';
+      }
+      document.querySelector('[data-theme-toggle]')!.addEventListener('click', () => {
+        const root = document.documentElement;
+        const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        root.dataset.theme = dark ? 'light' : 'dark';
+        try { localStorage.setItem('curiouspandas.theme', root.dataset.theme); } catch {}
+      });
+    </script>
+    <style>
+      .skip { position: absolute; left: -999px; top: 8px; background: var(--panel); padding: 8px 12px; z-index: 100; }
+      .skip:focus { left: 8px; }
+      header.site { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+      .bar { display: flex; align-items: center; gap: 18px; height: 60px; }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; flex: none; }
+      nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+      nav a { color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: 0.93rem; padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
+      nav a:hover { background: var(--bg-2); }
+      nav a[aria-current] { color: var(--bamboo); background: var(--bamboo-soft); }
+      .me { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+      .xp { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 0.85rem; }
+      .xp .rank { font-weight: 700; color: var(--bamboo); }
+      .xp .pts b { color: var(--sun); }
+      .xp.unsaved { border-color: var(--berry); }
+      .theme { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; width: 34px; height: 34px; cursor: pointer; font-size: 1rem; }
+      .store-banner { background: var(--berry-soft); color: var(--ink); font-size: 0.9rem; padding: 8px 0; border-top: 1px solid var(--line); }
+      footer.site { border-top: 1px solid var(--line); margin-top: 80px; padding: 28px 0 40px; color: var(--ink-2); font-size: 0.92rem; }
+      .foot { display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: space-between; }
+      .foot .links { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+      @media (max-width: 760px) {
+        .bar { flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 6px; gap: 6px 12px; }
+        nav { order: 3; width: 100%; }
+        .brand span { font-size: 0.98rem; }
+        .xp .rank { display: none; }
+      }
+    </style>
+  </body>
+</html>

@@ -1,0 +1,82 @@
+---
+title: Meshes, mTLS and invisible proof
+summary: A service mesh encrypts and measures traffic between services without touching their code, which also means you can't tell from the app whether it's working. Learn where the proof lives.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+tiltLab: 03-join-the-mesh
+sources:
+  - title: Istio docs - Add workloads to the ambient mesh
+    url: https://istio.io/latest/docs/ambient/usage/add-workloads/
+  - title: Istio docs - Ambient mode overview
+    url: https://istio.io/latest/docs/ambient/overview/
+  - title: TemplateMechanics/tilt lab 03 - Join the mesh
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/03-join-the-mesh
+---
+
+Inside a cluster, services call each other constantly. By default that traffic is plain, unencrypted and unmeasured, and any pod can call any other. A **service mesh** puts a layer of infrastructure underneath every call. It gives you:
+
+- **mTLS:** every connection is encrypted, and *both* sides prove who they are with certificates the mesh issues and rotates. No application code changes.
+- **Telemetry:** who called whom, how often, and how fast.
+- **Policy:** rules like "only the frontend may call the payments service".
+
+The tilt platform runs **Istio in ambient mode**. Istio's original sidecar mode, which it still supports, injects a proxy into every pod. Ambient mode uses a shared per-node proxy called **ztunnel** for encryption and connection-level telemetry, and optional **waypoint** proxies for request-level features such as HTTP routing and request counts. Lab 06 adds a waypoint for exactly that reason: ztunnel encrypts and forwards traffic but doesn't count requests.
+
+## The catch: it's invisible
+
+Because the app doesn't change, the app can't tell you whether it's in the mesh. When the tilt platform was first built, **zero namespaces** carried the label that enrolls workloads. ztunnel ran on every node and every check was green, and not one workload was in the mesh. Kiali's mesh view was the only thing that showed it.
+
+Configured-but-inert is worse than absent, because it reads as protection.
+
+## How you join, and how you prove it
+
+You enroll a namespace by labelling it `istio.io/dataplane-mode=ambient`. The proof is on the **pod**, not the namespace:
+
+```bash
+kubectl -n hello get pod -l app.kubernetes.io/name=hello \
+  -o jsonpath='{.items[0].metadata.annotations.ambient\.istio\.io/redirection}'
+#   enabled   -> traffic is captured by ztunnel
+#   (empty)   -> not in the mesh
+```
+
+<Callout kind="trap" title="Two sources disagree - check, don't trust">
+Istio's documentation says ambient mode adds pods to the mesh "with no need to restart applications". Tilt lab 03 restarts the pod after labelling the namespace and says capture is decided when the pod starts. We haven't settled which holds on every setup. What both agree on is the check above: after labelling, read the annotation, and restart the pod if it doesn't say `enabled`.
+</Callout>
+
+<Quiz
+  id="platform-mesh-1"
+  q="Your app works exactly the same with and without the mesh. How do you prove a pod is in the ambient mesh?"
+  options={["Check the app's response headers", "Read the pod's ambient.istio.io/redirection annotation, or the mesh view in Kiali", "If the namespace label exists, it's in"]}
+  answer={1}
+  explain="The label is the request and the annotation is the result. The platform once had ztunnel running everywhere and no workload enrolled. Only the mesh's own view showed it."
+/>
+
+<Quiz
+  id="platform-mesh-2"
+  q="What does mTLS add over ordinary TLS?"
+  options={["Faster encryption", "Both sides present certificates, so the server knows which workload is calling, not just that the call is encrypted", "Compression"]}
+  answer={1}
+  explain="With ordinary TLS only the server proves its identity. Mutual TLS makes the client prove its identity too, which is what makes 'only the frontend may call payments' enforceable."
+/>
+
+<Quiz
+  id="platform-mesh-3"
+  q="In ambient mode, which component would you add to get per-request metrics such as HTTP success rate?"
+  options={["Nothing: ztunnel counts requests", "A waypoint proxy: ztunnel works at the connection level and doesn't see individual requests", "A second ztunnel"]}
+  answer={1}
+  explain="ztunnel handles encryption and connection telemetry. Request-level (L7) features live in waypoints, which is why Flagger in lab 06 needs one to read a success rate."
+/>
+
+<DoItForReal id="platform-mesh-real" lab="03-join-the-mesh" profile="observability">
+
+```bash
+# Kiali: https://kiali.localhost -> Overview, note "Data planes (N)"
+kubectl label ns hello istio.io/dataplane-mode-          # leave the mesh
+kubectl -n hello rollout restart deploy/hello
+kubectl -n hello get pod -l app.kubernetes.io/name=hello -o jsonpath='{.items[0].metadata.annotations.ambient\.istio\.io/redirection}'
+kubectl label ns hello istio.io/dataplane-mode=ambient --overwrite
+kubectl -n hello rollout restart deploy/hello
+./scripts/platform.sh lab 03
+```
+
+</DoItForReal>

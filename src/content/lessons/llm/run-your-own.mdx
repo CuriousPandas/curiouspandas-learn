@@ -1,0 +1,121 @@
+---
+title: Run your own model
+summary: Serve a real language model on your own laptop with the tilt platform, add a vector database for retrieval, and watch it all with an LLM tracing tool. Honest about how slow a CPU is.
+minutes: 30
+xp: 50
+tiers: [machine]
+sources:
+  - title: Lewis et al. - Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks (2020)
+    url: https://arxiv.org/abs/2005.11401
+  - title: Ollama API reference
+    url: https://github.com/ollama/ollama/blob/main/docs/api.md
+  - title: tinyllama in the Ollama library
+    url: https://ollama.com/library/tinyllama
+  - title: Qdrant - create a collection (API reference)
+    url: https://api.qdrant.tech/api-reference/collections/create-collection
+  - title: Langfuse documentation
+    url: https://langfuse.com/docs
+---
+
+Everything so far ran in your browser. This lesson runs a **real** language model on **your** machine, using the open [tilt platform](https://github.com/TemplateMechanics/tilt). It's the one lesson on this track that needs real hardware, so check [what your device can run](/machine/) first.
+
+You'll switch on three tools the platform already knows how to deploy:
+
+| Tool | What it is | Switch in `tilt-config.json` |
+|---|---|---|
+| **Ollama** | serves open models over a simple HTTP API | `flux_apps.ollama` |
+| **Qdrant** | an open-source vector search engine, written in Rust | `crossplane_apps.qdrant` |
+| **Langfuse** | open-source tracing and evaluation for LLM apps | `crossplane_apps.langfuse` |
+
+## Be honest about the hardware
+
+The platform runs Ollama **on the CPU by default** (`gpu.enabled: false` in its Helm values), asking for 4 GiB of memory with a limit of 8 GiB. CPU inference works, but it's slow, and model size decides everything:
+
+- **tinyllama**, the model the platform pulls by default, has 1.1B parameters and a 638 MB download. It's fast enough to play with and not very clever.
+- **llama3.2:1b** (1.3 GB) and **llama3.2:3b** (2.0 GB) are more capable and noticeably slower on a CPU.
+- 7B-parameter models and up want far more memory than this setup gives them, and on a laptop CPU they're painfully slow. That's why serving at scale happens on GPUs, and why [vLLM's memory tricks](/learn/llm/serving-vllm/) matter.
+
+## Step 1: a model of your own
+
+The switches in `tilt-config.json` only take effect in the platform's **full** profile. That profile also brings up Crossplane, which deploys Qdrant and Langfuse. So bring it up with:
+
+```bash
+PROFILE=full ./scripts/platform.sh up
+```
+
+Then set this in `tilt-config.json`:
+
+```json
+{ "flux_apps": { "ollama": { "enabled": true } } }
+```
+
+Tilt notices and deploys it. The first start downloads tinyllama, so give it a few minutes. Then:
+
+```bash
+curl -s https://ollama.localhost/api/generate \
+  -d '{"model":"tinyllama","prompt":"Why do pandas eat bamboo?","stream":false}'
+```
+
+The answer is in the `response` field. Run it twice. It differs, because the model is sampling, exactly like the temperature knob in [One token at a time](/learn/llm/next-token/).
+
+## Step 2: retrieval, so it can answer from *your* documents
+
+A model only knows what was in its training data. **Retrieval-augmented generation (RAG)** gives it a library. The 2020 paper that named it combined a model's built-in knowledge with a searchable "dense vector index" of documents (Wikipedia, in their case). The recipe:
+
+1. Turn each document into an **embedding**: a long list of numbers where similar meanings land close together.
+2. Store the embeddings in a **vector database**. Here that's Qdrant.
+3. When a question arrives, embed it too, find the closest documents, and paste them into the prompt.
+4. The model answers *with the evidence in front of it*.
+
+Turn Qdrant on (`crossplane_apps.qdrant`), pull a small embedding model into Ollama, and embed a sentence. (The last line uses [jq](https://jqlang.org) to count the numbers; without it, you'll see the raw list.)
+
+```bash
+kubectl -n ollama exec deploy/ollama -- ollama pull nomic-embed-text
+curl -s https://ollama.localhost/api/embed \
+  -d '{"model":"nomic-embed-text","input":"Bamboo can grow very fast."}' \
+  | jq '.embeddings[0] | length'
+```
+
+That number is the embedding's size. Use it to create a Qdrant collection (Qdrant is at `https://qdrant.localhost`):
+
+```bash
+curl -s -X PUT https://qdrant.localhost/collections/pandas \
+  -H 'Content-Type: application/json' \
+  -d '{"vectors":{"size":<that number>,"distance":"Cosine"}}'
+```
+
+From here, storing documents and searching them are two more calls. A guided, graded version is planned as a tilt lab. Until then, the [Qdrant API reference](https://api.qdrant.tech/api-reference) covers the rest.
+
+<Callout kind="trap">
+If the deployment isn't called `ollama`, `kubectl -n ollama get deploy` shows its real name. And if `curl` complains about the certificate, your machine doesn't trust the platform's local CA yet. The platform's setup guide covers that, and [Two TLS errors, one message](/tracks/web/) explains why.
+</Callout>
+
+## Step 3: watch what it does
+
+Once an app chains a retrieval, a prompt and a model call, "why did it say that?" gets hard to answer. **Langfuse** records each step as a trace, so you can see which documents were retrieved and what prompt the model actually received. Turn on `crossplane_apps.langfuse` and open `https://langfuse.localhost`.
+
+<Callout kind="real">
+Langfuse is the heaviest of the three: it brings its own Postgres and ClickHouse, and on a laptop-sized cluster its web container needs minutes to finish starting. The platform's manifest raises its probe delays for exactly that reason. Its secrets in the platform's config are development placeholders. That's fine on your laptop, and never fine anywhere else.
+</Callout>
+
+<Quiz
+  id="llm-run-1"
+  q="Your laptop has no GPU. Which model is a realistic first choice for the platform's CPU-only Ollama?"
+  options={["A 70B model", "A small model such as tinyllama (1.1B) or llama3.2:1b", "Any model - CPUs and GPUs are equally fast"]}
+  answer={1}
+  explain="On a CPU, every extra billion parameters costs speed and memory. Small models are what fit in the 8 GiB limit the platform sets and still answer quickly enough to experiment with."
+/>
+
+<Quiz
+  id="llm-run-2"
+  q="What does retrieval-augmented generation add to a model?"
+  options={["More parameters", "A searchable store of documents whose relevant pieces are pasted into the prompt at question time", "A faster GPU"]}
+  answer={1}
+  explain="RAG leaves the model unchanged and changes what's in front of it: search a document store by meaning, put the best matches into the prompt, and let the model answer from that evidence."
+/>
+
+<DoItForReal id="llm-run-real" profile="full">
+
+You passed when `api/generate` returns an answer from tinyllama and the `api/embed` call prints an embedding length. The platform's [student setup guide](https://github.com/TemplateMechanics/tilt/blob/main/docs/STUDENT-SETUP.md) covers bringing the platform up.
+
+</DoItForReal>

@@ -1,0 +1,13 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist", "node_modules"],
+  "compilerOptions": {
+    // Tests run the .ts sources directly with Node's type stripping, which
+    // needs explicit .ts imports and rejects enums and parameter properties.
+    // These two make the typecheck refuse what Node would refuse at runtime.
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true
+  }
+}

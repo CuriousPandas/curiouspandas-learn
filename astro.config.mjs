@@ -1,0 +1,15 @@
+import { defineConfig } from 'astro/config';
+import mdx from '@astrojs/mdx';
+
+export default defineConfig({
+  site: 'https://curiouspandas.dev',
+  integrations: [mdx()],
+  // Static output only. There is no server to scale, secure or pay for - the
+  // learner's browser does all the work. See src/pages/about/index.astro.
+  output: 'static',
+  trailingSlash: 'always',
+  build: { format: 'directory' },
+  // Astro's dev toolbar injects its own UI; the site check reads the page's
+  // visible text, and the toolbar's text would be counted as ours.
+  devToolbar: { enabled: false },
+});

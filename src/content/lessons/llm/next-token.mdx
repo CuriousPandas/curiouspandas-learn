@@ -1,0 +1,62 @@
+---
+title: One token at a time
+summary: A language model does one thing - give every possible next token a probability - and then picks one. Turn the temperature knob and watch a tiny model go from boring to unhinged.
+minutes: 13
+xp: 30
+tiers: [browser]
+sources:
+  - title: Holtzman et al. - The Curious Case of Neural Text Degeneration (2019)
+    url: https://arxiv.org/abs/1904.09751
+  - title: Llama 3.2 in the Ollama library (context window listed per model)
+    url: https://ollama.com/library/llama3.2
+---
+
+Here is the whole job of a language model, however large:
+
+1. Look at the text so far (the **context**).
+2. Give **every token in its vocabulary** a probability of coming next.
+3. **Pick one.** Add it to the text.
+4. Go back to step 1.
+
+Every essay, poem, program and answer you have seen a chatbot write came out of that loop, one token at a time. There is no separate "plan the answer" step. Whatever planning a model does has to happen inside step 2.
+
+## A toy with the real knobs
+
+The model below is deliberately tiny and old-fashioned. It's a **character n-gram**: it counted which character followed each short run of characters in a single story about a panda. Real LLMs are transformers working over subword tokens and trained on a large slice of the internet, but the *interface* is the same: context in, probabilities out, pick one. Its knobs are the real knobs.
+
+<NextToken />
+
+Things to try:
+
+- **Temperature 0.** The model always picks the single most likely token. It's predictable, and it soon falls into loops. Researchers who studied this found that always picking the most likely text gives output that is "bland and strangely repetitive".
+- **Temperature 2.** The probabilities flatten, unlikely tokens get picked, and you get nonsense.
+- **Context: 1 char vs 8 chars.** With one character of memory it produces gibberish shaped like English. With eight it often copies whole phrases from its story, because it has seen so little text that a long context nearly always matches just one place. That's memorisation, the problem from [Memorising is not learning](/learn/ml/overfitting/).
+- **Top-k 1.** Same as temperature 0: only the best token survives the cut.
+
+<Callout kind="tip">
+Edit the text box directly to change the context, then press **Pick one** and see how the probabilities shift. Starting a word with `b` or `p` changes everything, because of what's in the story.
+</Callout>
+
+<Quiz
+  id="llm-next-1"
+  q="What does temperature actually change?"
+  options={["How much the model knows", "How the probabilities are reshaped before picking: low makes the top choice dominate, high spreads the chances out", "How fast the model writes"]}
+  answer={1}
+  explain="The model's raw scores are the same either way. Temperature divides them before they become probabilities: below 1 the favourite pulls further ahead, above 1 the long tail gets a real chance. At zero there's no randomness left at all."
+/>
+
+<Quiz
+  id="llm-next-2"
+  q="Why do chatbots usually sample with some randomness instead of always taking the most likely token?"
+  options={["To save electricity", "Because always taking the top token tends to produce bland, repetitive text", "Randomness makes answers more accurate"]}
+  answer={1}
+  explain="Pure 'most likely' decoding gets stuck in loops and safe, dull phrasing - the degeneration that Holtzman et al. set out to explain. Sampling from a truncated distribution (top-k, or the nucleus/top-p method that paper proposed) keeps the text varied without letting in nonsense."
+/>
+
+<Callout kind="real">
+Real models score a vocabulary of tens of thousands of tokens or more at every step, and their context is far longer than 8 characters: Ollama's library lists **128K tokens** for Llama 3.2. That is why the KV cache in [Why vLLM is fast](/learn/llm/serving-vllm/) gets so big. "Remembering" the context means keeping keys and values for every one of those tokens.
+</Callout>
+
+<Callout kind="trap">
+"It's just predicting the next token" is true, and less dismissive than it sounds. Predicting the next token of a physics textbook *well* takes something that works like physics; predicting the next move in a game well takes something that works like the game's rules. How much real understanding sits behind the predictions is one of the open questions in [AI Frontiers](/tracks/frontiers/).
+</Callout>

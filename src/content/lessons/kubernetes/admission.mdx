@@ -1,0 +1,73 @@
+---
+title: The pods that were never born
+summary: The deployment wants six and has three. Nothing is crashing, nothing is Pending, and there's no broken pod to look at. Find where the refusal is written down.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+tiltLab: 10-why-wont-it-schedule
+sources:
+  - title: Kubernetes docs - Resource Quotas
+    url: https://kubernetes.io/docs/concepts/policy/resource-quotas/
+  - title: Kubernetes docs - Limit Ranges
+    url: https://kubernetes.io/docs/concepts/policy/limit-range/
+  - title: TemplateMechanics/tilt lab 10 - Why won't it schedule?
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/10-why-wont-it-schedule
+---
+
+Every failure so far left a pod behind: one stuck in Pending, one crash-looping. You could describe it and read its events. This one leaves **nothing**. The pods you're missing were never created.
+
+Before Kubernetes stores any object, the API server runs it through **admission**: checks that can change the object or refuse it. A **ResourceQuota** caps what a namespace may hold, for example "at most 3 pods". When creating a pod would break that, the Kubernetes docs say the request is rejected with **HTTP 403 Forbidden** and a message naming the limit.
+
+The ReplicaSet tried to create a pod, was told no, and wrote that down as an **event on the ReplicaSet**. Not on a pod, because there isn't one. The Deployment records it too, in a **condition** that `kubectl get` never prints.
+
+## Find the refusal
+
+<KubeSim mission="kube-quota" title="Six wanted, three allowed" />
+
+<Callout kind="trap">
+Deleting the quota also "works": six healthy pods. It also deletes the guardrail, which is how one namespace quietly eats a shared cluster. The mission, like the tilt lab's grader, only passes if the quota still exists. The fix is to *raise* it.
+</Callout>
+
+## A quota never claws anything back
+
+The docs say it plainly: changes to a quota don't affect resources that already exist. Lower a quota below what's running and nothing is evicted. The namespace just sits over its limit and looks normal. A quota governs what gets **in**, never what's already there.
+
+There's also a wait you should experience once. After repeated refusals the ReplicaSet **backs off**. On the tilt platform, raising the quota was followed by **over three minutes of nothing happening** before the missing pods appeared. That pause isn't a second bug. It's the reason "I fixed it and nothing changed" is so often premature.
+
+## The change nobody announced
+
+The tilt lab has one more lesson worth knowing about. A **LimitRange** in the namespace silently *adds* CPU and memory requests to pods that declared none. The object stored in the cluster isn't the one you submitted. That isn't decoration: the docs note that once a quota covers CPU or memory, pods without those values may be refused outright, and a LimitRange is how defaults get filled in.
+
+<Quiz
+  id="kube-admission-1"
+  q="A Deployment shows 3/6 READY. All three pods are healthy and there's no Pending pod. Where do you look?"
+  options={["The logs of the three healthy pods", "The ReplicaSet's events and the Deployment's conditions: the missing pods were refused at admission", "The node's disk space"]}
+  answer={1}
+  explain="Refused pods are never created, so no pod holds the reason. The ReplicaSet's FailedCreate event and the Deployment's ReplicaFailure condition do."
+/>
+
+<Quiz
+  id="kube-admission-2"
+  q="Six pods are running. You lower the namespace's pod quota to 3. What happens?"
+  options={["Three pods are evicted", "Nothing: quotas apply at admission and never remove existing objects", "The Deployment scales itself to 3"]}
+  answer={1}
+  explain="Quota changes don't affect already-created resources. The namespace sits over quota until pods go away on their own, and only then are new ones refused."
+/>
+
+<Callout kind="real">
+Admission is a whole pipeline. Besides quotas there are LimitRanges, Pod Security admission, and webhooks such as Kyverno (see the platform track) that can mutate or reject anything. They share one property: the object you look at afterwards may not be the one you sent, or may not exist at all.
+</Callout>
+
+<DoItForReal id="kube-admission-real" lab="10-why-wont-it-schedule">
+
+```bash
+kubectl apply -f labs/10-why-wont-it-schedule/governance.yaml
+./labs/10-why-wont-it-schedule/break.sh
+kubectl -n lab10 get deploy quota-demo
+kubectl -n lab10 get events --field-selector reason=FailedCreate
+kubectl -n lab10 describe resourcequota lab10-quota
+./labs/10-why-wont-it-schedule/fix.sh
+./scripts/platform.sh lab 10
+```
+
+</DoItForReal>

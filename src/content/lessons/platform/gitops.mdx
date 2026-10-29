@@ -1,0 +1,85 @@
+---
+title: Git as the source of truth
+summary: GitOps puts the desired state in a git repository and a controller keeps the cluster matching it. Watch three kinds of reconciler handle the same kubectl edit very differently.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: Flux docs - Kustomizations (interval, drift correction, prune)
+    url: https://fluxcd.io/flux/components/kustomize/kustomizations/
+  - title: Flux docs - HelmReleases (interval, drift detection)
+    url: https://fluxcd.io/flux/components/helm/helmreleases/
+  - title: Helm docs - 3-way strategic merge patches
+    url: https://helm.sh/docs/faq/changes_since_helm2/
+---
+
+In the Kubernetes track you met the core idea: write down what you want, and a controller keeps making it true. **GitOps** takes one more step. The "what you want" lives in a **git repository**, and a controller in the cluster keeps pulling from it and applying it.
+
+What you get:
+
+- **Every change is a commit.** It has an author, a reason and a review, and you can revert it.
+- **The cluster can be rebuilt from the repo.** Lose the cluster and point a new one at the same repository.
+- **Hand edits become visible**, because live state that doesn't match git is *drift*.
+
+That last point depends entirely on what's doing the reconciling, and that's where people get caught.
+
+## Three reconcilers, one kubectl edit
+
+**Flux** is a CNCF GitOps toolkit with separate controllers for separate jobs. Two of them matter here:
+
+- A **Kustomization** applies plain manifests. The Flux docs say each reconciliation, every `interval`, applies the manifests again, "correcting any existing drift in the process". With `prune` turned on, it also deletes objects that were removed from git.
+- A **HelmRelease** installs a Helm chart. Its `interval` re-checks the *release* against the spec. Comparing the live objects is a separate, optional feature: `.spec.driftDetection` is opt-in.
+
+Pick a reconciler, scale the Deployment by hand, and watch what happens to your edit.
+
+<GitOpsSim mission="gitops-drift" />
+
+<Callout kind="real">
+The tilt platform installs about 35 charts as Flux HelmReleases and sets `driftDetection` on none of them. A `kubectl edit` to something a chart deployed stays until the next upgrade of that release. Helm 3's three-way merge then compares the old manifest, the live state and the new manifest, and puts the chart's own fields back. Knowing which reconciler owns an object tells you whether your hotfix lasts an interval or a release.
+</Callout>
+
+## Pin your versions
+
+One more habit from the tilt repo, in a comment on every HelmRelease:
+
+> Pinned, not "*": Flux re-resolves an unbounded version on every reconcile, so the platform rebuilt later is not the one built today.
+
+GitOps promises you can rebuild from the repo. With a floating version, you can rebuild *something*. With a pinned one, you rebuild *the same thing*.
+
+<Quiz
+  id="platform-gitops-1"
+  q="A Flux Kustomization manages a Deployment. Someone runs kubectl scale --replicas=7 to handle a traffic spike. What happens?"
+  options={["7 replicas until someone changes git", "Within one interval Flux applies git again and corrects the drift, back to what git says", "Flux deletes the Deployment"]}
+  answer={1}
+  explain="A Kustomization re-applies on every interval and corrects drift. To scale for real, change the repository, or let something like an HPA own the field."
+/>
+
+<Quiz
+  id="platform-gitops-2"
+  q="You remove a ConfigMap's file from git. The Kustomization has prune: false. What happens to the ConfigMap in the cluster?"
+  options={["It's deleted on the next reconcile", "It keeps running, owned by nothing, until someone deletes it by hand", "Flux reports an error"]}
+  answer={1}
+  explain="Without prune, Flux only applies what's in git; it doesn't garbage-collect what used to be there. Orphans like this are how clusters fill up with things nobody remembers."
+/>
+
+<Quiz
+  id="platform-gitops-3"
+  q="Why does the tilt platform pin every chart version instead of using '*'?"
+  options={["Unpinned charts are slower", "An unbounded version is re-resolved on reconcile, so a rebuild next month installs different software than today's", "Flux doesn't support ranges"]}
+  answer={1}
+  explain="Reproducibility is the point of declarative state. A floating version makes 'rebuild from git' quietly mean 'build whatever is newest'."
+/>
+
+<DoItForReal id="platform-gitops-real">
+
+On the running platform:
+
+```bash
+flux get helmreleases -A          # every chart Flux owns, its version and status
+flux get sources helm -A          # the chart repositories they come from
+kubectl get helmrelease -A -o custom-columns='NAME:.metadata.name,VERSION:.spec.chart.spec.version,INTERVAL:.spec.interval'
+```
+
+The `gitops` profile (`PROFILE=gitops ./scripts/platform.sh up`) adds Crossplane, Flagger, External Secrets and CloudNativePG, all reconciled the same way.
+
+</DoItForReal>

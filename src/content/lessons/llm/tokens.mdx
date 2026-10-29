@@ -1,0 +1,61 @@
+---
+title: Text becomes tokens
+summary: A language model never sees letters or words. It sees tokens, chunks learned by gluing the most common pairs together. Train a tokenizer and watch your text get chopped.
+minutes: 12
+xp: 30
+tiers: [browser]
+sources:
+  - title: Sennrich, Haddow and Birch - Neural Machine Translation of Rare Words with Subword Units (2015)
+    url: https://arxiv.org/abs/1508.07909
+  - title: openai/tiktoken - the BPE tokeniser used with OpenAI's models
+    url: https://github.com/openai/tiktoken
+---
+
+Before a language model can read a single word, the text has to become numbers. The step that does that is the **tokenizer**, and it shapes more of a model's behaviour than most people realise.
+
+Why not just use letters? Too many tiny steps: a page would be thousands of them, and the model would spend its effort spelling. Why not whole words? There are too many words, new ones appear every day (`skibidi`, `GPT-5`, your username), and the model would choke on anything it had never seen.
+
+The answer most modern models use sits in between: **subword tokens**, learned by an algorithm borrowed from data compression called **byte-pair encoding (BPE)**.
+
+1. Start with every single character as its own token.
+2. Count every pair of neighbouring tokens in a big pile of text.
+3. Glue the most common pair into one new token. `t` + `h` → `th`.
+4. Repeat, thousands of times. `th` + `e` → `the`. ` ` + `the` → ` the`.
+
+Common words end up as one token. Rare words get split into familiar pieces. Nothing is ever *unknown*: in the worst case a word falls back to single characters.
+
+## Train one
+
+This tokenizer has learned up to 400 merges from a short story about a panda learning tech. Drag the slider to see the text with no merges, then more and more. Hover a chip to see its **token id**, the number the model actually receives.
+
+<TokenLab />
+
+<Callout kind="tip">
+Notice the leading space. ` panda` (with a space) and `panda` are *different tokens*. Look for `·` in the chips. That's why a model can behave differently on the same word at the start of a sentence and in the middle of one.
+</Callout>
+
+Try typing things the story never contained: a long made-up word, a number like `1234567`, some code, another language. They break into many small tokens. That's the tokenizer telling you this text was rare in its training data.
+
+<Quiz
+  id="llm-tokens-1"
+  q="A word the tokenizer has never seen appears. What happens?"
+  options={["The model throws an error", "It's split into smaller known pieces, down to single characters if necessary", "It's replaced by an 'unknown' marker and ignored"]}
+  answer={1}
+  explain="That's BPE's big advantage: it has no unknown words, only unfamiliar ones, which cost more tokens. The original subword paper pitched it exactly this way - encoding rare and unknown words as sequences of subword units."
+/>
+
+<Quiz
+  id="llm-tokens-2"
+  q="Why does it matter how many tokens your text becomes?"
+  options={["It doesn't - only words count", "Models read, are limited by, and are often billed by tokens, so text that tokenizes badly is slower, costlier and uses up more of the context window", "Fewer tokens always means a smarter answer"]}
+  answer={1}
+  explain="Everything about running a model is counted in tokens: how much fits in the context window, how long generation takes, and usually the price. Languages and formats that were rare in the tokenizer's training data cost more tokens for the same meaning."
+/>
+
+<Callout kind="real">
+Real tokenizers learn from vastly more text, and most work on **bytes** rather than characters, so every possible input, emoji included, can be encoded. The tiktoken README says that on average, in practice, a token corresponds to about **4 bytes** of text, and that encoding is reversible and lossless. Our toy, trained on one short story, compresses much less. The ratio is in the stats above, so compare.
+</Callout>
+
+<Callout kind="trap">
+Ask a model to count the letters in a word and it often gets it wrong. Part of the reason is right here: it doesn't see letters. ` strawberry` might reach it as two or three chunks, and the letters inside are something it has to *remember* about those chunks, not something it can look at.
+</Callout>

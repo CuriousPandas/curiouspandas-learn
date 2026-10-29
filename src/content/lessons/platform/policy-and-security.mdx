@@ -1,0 +1,89 @@
+---
+title: Policy, scanning and runtime security
+summary: Three different moments to catch a problem. Before a pod is admitted (Kyverno), by reading what's inside its image (Trivy), and while it runs (Falco). Plus a policy that protects nothing.
+minutes: 15
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: Kyverno docs
+    url: https://kyverno.io/docs/
+  - title: Trivy Operator docs
+    url: https://aquasecurity.github.io/trivy-operator/
+  - title: Falco docs
+    url: https://falco.org/docs/
+  - title: TemplateMechanics/tilt - Kyverno policies README
+    url: https://github.com/TemplateMechanics/tilt/tree/main/helm/kyverno-policies
+---
+
+Security in a cluster isn't one tool. It's a question asked at three different moments, and the tilt platform has a tool for each:
+
+| When | Question | Tool on the platform |
+|---|---|---|
+| **Before it runs** (admission) | Should this pod be allowed in at all? | **Kyverno**: policies written as Kubernetes resources that validate, mutate or generate objects |
+| **What's inside** (scanning) | Does this image contain known-vulnerable packages? | **Trivy Operator**: scans running workloads' images and writes the results as reports in the cluster |
+| **While it runs** (runtime) | Is this container doing something it never should, like starting a shell or reading secrets? | **Falco**: watches what processes actually do at the system-call level and raises alerts |
+
+They overlap on purpose. A policy can't catch a vulnerability in a library, a scanner can't catch an attacker using a perfectly patched shell, and runtime detection only fires after something has already happened.
+
+## The policy that protects nothing
+
+The platform ships twelve Kyverno policies adapted from Kyverno's Pod Security Standards library, such as *disallow privileged containers* and *disallow host paths*. Its own README opens with this:
+
+> Every one is in `audit` mode, so none of them blocks anything.
+
+In **audit** mode a violating pod is admitted, a `PolicyReport` is written, and the pod runs. In **enforce** mode it's refused at admission, like the quota in the Kubernetes track. Audit is deliberate here: the mesh's ztunnel and the log collectors genuinely need privileged access and host paths, so enforcing everything would break the platform itself.
+
+The lesson isn't that audit is wrong. It's that **a policy that reports and never refuses looks exactly like a policy that protects you**, unless you check which one you have:
+
+```bash
+kubectl get clusterpolicy -o custom-columns='NAME:.metadata.name,ACTION:.spec.validationFailureAction'
+```
+
+<Quiz
+  id="platform-sec-1"
+  q="A ClusterPolicy 'disallow-privileged-containers' exists in your cluster. Someone deploys a privileged pod. Is it blocked?"
+  options={["Yes, that's what the policy is for", "Only if the policy is in Enforce mode. In Audit the pod runs and a report is written", "Only in kube-system"]}
+  answer={1}
+  explain="The policy's existence says nothing about enforcement. Check validationFailureAction. This is the configured-but-inert trap: it reads as protection."
+/>
+
+<Quiz
+  id="platform-sec-2"
+  q="An image has no policy violations and a clean Trivy scan. An attacker who gets in through the app opens a shell inside the container. Which tool can notice?"
+  options={["Kyverno", "Trivy", "Falco: it watches what processes do while they run"]}
+  answer={2}
+  explain="Admission and scanning both happen before or outside execution. Spotting a shell spawning in a running container is runtime detection, Falco's job."
+/>
+
+<Quiz
+  id="platform-sec-3"
+  q="Trivy reports a critical vulnerability in an image that's been running for months. What does that tell you?"
+  options={["The image changed", "The image is the same; the world learned something new about a package inside it", "Trivy is wrong"]}
+  answer={1}
+  explain="New vulnerabilities are published against old software every day. That's why scanning runs continuously, not just at build time."
+/>
+
+<Callout kind="real">
+Turning on a single policy is the useful experiment. The platform's README suggests enforcing just `disallow-privileged-containers` and restarting ztunnel: the refusal names the policy and the rule. Then put it back to `Audit` before the mesh notices.
+</Callout>
+
+<DoItForReal id="platform-sec-real">
+
+All three are off by default. Turn them on in `tilt-config.json`, under `flux_apps`, with Tilt running. It notices the file change and deploys them:
+
+```json
+"kyverno": { "enabled": true },
+"trivy":   { "enabled": true },
+"falco":   { "enabled": true }
+```
+
+```bash
+kubectl get clusterpolicy -o custom-columns='NAME:.metadata.name,ACTION:.spec.validationFailureAction'
+kubectl get policyreport -A
+kubectl get vulnerabilityreports -A | head
+kubectl -n falco logs -l app.kubernetes.io/name=falco --tail=20
+```
+
+The Kyverno README in `helm/kyverno-policies/` explains each policy and which platform components would violate them. It says plainly that the list is reasoned, not measured.
+
+</DoItForReal>

@@ -1,0 +1,144 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card gitops" data-gitops data-mission={mission}>
+  <div class="widget-head">
+    <strong>Git says one thing, the cluster says another</strong>
+    <span class="spacer"></span>
+    <label class="controls">Reconciler
+      <select data-mode>
+        <option value="kustomize">Flux Kustomization (re-applies every interval)</option>
+        <option value="helm">Flux HelmRelease, no drift detection</option>
+        <option value="manual">Nobody - kubectl apply by hand</option>
+      </select>
+    </label>
+    <label class="controls"><input type="checkbox" data-prune checked /> prune</label>
+  </div>
+  <div class="go-grid">
+    <section class="go-col git">
+      <div class="eyebrow">Git (desired)</div>
+      <dl data-git></dl>
+      <div class="go-actions">
+        <button class="btn small" type="button" data-commit="replicas">commit: replicas 3</button>
+        <button class="btn small" type="button" data-commit="image">commit: image 2.0</button>
+        <button class="btn small" type="button" data-commit="banner">commit: delete configmap</button>
+      </div>
+    </section>
+    <section class="go-col ctl">
+      <div class="eyebrow">Reconciler</div>
+      <div class="go-clock" data-clock></div>
+      <div class="go-drift" data-drift></div>
+      <button class="btn small" type="button" data-apply hidden>kubectl apply -f (by hand)</button>
+    </section>
+    <section class="go-col live">
+      <div class="eyebrow">Cluster (live)</div>
+      <dl data-live></dl>
+      <div class="go-actions">
+        <button class="btn small" type="button" data-edit="replicas">kubectl scale --replicas=7</button>
+        <button class="btn small" type="button" data-edit="image">kubectl set image :hotfix</button>
+      </div>
+    </section>
+  </div>
+  <ol class="go-log" data-log aria-live="polite"></ol>
+  <div class="go-goals" data-goals hidden>
+    <div class="eyebrow">Try to see all three</div>
+    <ul>
+      <li data-goal="fix">A hand edit put back by the Kustomization</li>
+      <li data-goal="survive">A hand edit that survives a HelmRelease with no drift detection</li>
+      <li data-goal="prune">A ConfigMap pruned because git dropped it</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { GitOps, type Mode } from '../lib/gitops/sim.ts';
+  import { award } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-gitops]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const g = new GitOps({ mode: 'kustomize', interval: 6 });
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    let helmEditAt: number | null = null;
+    if (mission) q('[data-goals]').hidden = false;
+
+    const dl = (box: HTMLElement, s: { replicas: number; image: string; banner: boolean }, other: { replicas: number; image: string; banner: boolean }) => {
+      const row = (k: string, v: string, diff: boolean) => `<dt>${k}</dt><dd class="${diff ? 'diff' : ''}">${v}</dd>`;
+      box.innerHTML = row('replicas', String(s.replicas), s.replicas !== other.replicas) + row('image', s.image, s.image !== other.image)
+        + row('configmap/banner', s.banner ? 'present' : 'absent', s.banner !== other.banner);
+    };
+
+    const draw = () => {
+      dl(q('[data-git]'), g.git, g.live);
+      dl(q('[data-live]'), g.live, g.git);
+      const n = g.untilNext();
+      q('[data-clock]').textContent = n === null ? 'Not running. Nothing compares git with the cluster.' : `next reconcile in ${n * 5}s`;
+      q('[data-drift]').textContent = g.drifted ? 'Live differs from git' : 'Live matches git';
+      q('[data-drift]').className = `go-drift ${g.drifted ? 'bad' : 'ok'}`;
+      q('[data-apply]').hidden = g.mode !== 'manual';
+      q('[data-log]').replaceChildren(...g.log.slice(-7).reverse().map((l) => {
+        const li = document.createElement('li');
+        li.className = l.kind;
+        li.textContent = `t=${l.tick * 5}s  ${l.text}`;
+        return li;
+      }));
+      if (g.corrected > 0) seen.add('fix');
+      if (g.pruned > 0) seen.add('prune');
+      // "Survived" means a full interval passed in helm mode with the edit still live.
+      if (g.mode === 'helm' && g.drifted && helmEditAt !== null && g.tick - helmEditAt >= g.interval) seen.add('survive');
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 3) award('missions', mission, 50, 'Saw all three reconcilers');
+    };
+
+    q<HTMLSelectElement>('[data-mode]').addEventListener('change', (e) => { g.setMode((e.target as HTMLSelectElement).value as Mode); helmEditAt = null; draw(); });
+    q<HTMLInputElement>('[data-prune]').addEventListener('change', (e) => { g.prune = (e.target as HTMLInputElement).checked; draw(); });
+    root.querySelectorAll<HTMLButtonElement>('[data-commit]').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.commit;
+      if (k === 'replicas') g.commit({ replicas: g.git.replicas === 3 ? 2 : 3 }, `replicas ${g.git.replicas === 3 ? 2 : 3}`);
+      if (k === 'image') g.commit({ image: g.git.image.endsWith('2.0') ? 'panda/hello:1.0' : 'panda/hello:2.0' }, 'change image');
+      if (k === 'banner') g.commit({ banner: !g.git.banner }, g.git.banner ? 'delete configmap/banner' : 'add configmap/banner');
+      b.textContent = k === 'banner' ? (g.git.banner ? 'commit: delete configmap' : 'commit: add configmap back') : b.textContent;
+      draw();
+    }));
+    root.querySelectorAll<HTMLButtonElement>('[data-edit]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.edit === 'replicas') g.kubectlEdit({ replicas: 7 });
+      else g.kubectlEdit({ image: 'panda/hello:hotfix' });
+      if (g.mode === 'helm') helmEditAt = g.tick;
+      draw();
+    }));
+    q('[data-apply]').addEventListener('click', () => { g.applyByHand(); draw(); });
+
+    let visible = true;
+    new IntersectionObserver((e) => { visible = e[0].isIntersecting; }).observe(root);
+    setInterval(() => { if (visible && !document.hidden) { g.step(); draw(); } }, 700);
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the log lines and definition lists
+     are written by the script, and Astro's scoped styles never reach them. */
+  .gitops .go-grid { display: grid; gap: 10px; }
+  @media (min-width: 820px) { .gitops .go-grid { grid-template-columns: 1fr 0.8fr 1fr; } }
+  .gitops .go-col { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .gitops .go-col dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; font: 13px/1.5 var(--mono); }
+  .gitops .go-col dt { color: var(--muted); }
+  .gitops .go-col dd { margin: 0; overflow-wrap: anywhere; }
+  .gitops .go-col dd.diff { color: var(--berry); font-weight: 700; }
+  .gitops .go-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .gitops .go-clock { font-size: 0.88rem; color: var(--ink-2); margin: 8px 0; }
+  .gitops .go-drift { font-weight: 700; padding: 6px 10px; border-radius: 8px; margin-bottom: 8px; }
+  .gitops .go-drift.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .gitops .go-drift.bad { background: var(--berry-soft); color: var(--berry); }
+  .gitops .go-log { list-style: none; margin: 10px 0 0; padding: 10px 12px; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; font: 12.5px/1.6 var(--mono); min-height: 60px; }
+  .gitops .go-log li { overflow-wrap: anywhere; }
+  .gitops .go-log li.fix { color: var(--term-ok); }
+  .gitops .go-log li.warn { color: var(--term-hint); }
+  .gitops .go-goals { margin-top: 10px; font-size: 0.92rem; }
+  .gitops .go-goals ul { margin: 4px 0 0; padding-left: 20px; }
+  .gitops .go-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .gitops .go-goals li.done::marker { content: "✓ "; }
+  .gitops .widget-head .controls { gap: 6px; }
+</style>

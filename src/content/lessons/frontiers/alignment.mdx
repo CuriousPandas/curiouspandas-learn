@@ -1,0 +1,63 @@
+---
+title: Getting what you asked for
+summary: AI systems are very good at doing exactly what you measured, which isn't always what you meant. Meet specification gaming, see how chatbots are trained on human feedback, and why honest checks matter.
+minutes: 15
+xp: 35
+tiers: [browser]
+sources:
+  - title: Krakovna et al. (DeepMind) - Specification gaming, the flip side of AI ingenuity (2020)
+    url: https://deepmind.google/discover/blog/specification-gaming-the-flip-side-of-ai-ingenuity/
+  - title: Ouyang et al. - Training language models to follow instructions with human feedback (2022)
+    url: https://arxiv.org/abs/2203.02155
+---
+
+Every model in this course learned by pushing one number up or down: a loss, a reward, a score. **Alignment** is the problem of making sure that pushing the number gets you what you *actually wanted*, not merely what you wrote down.
+
+The two come apart more often than you'd think.
+
+## Specification gaming
+
+DeepMind researchers collected dozens of real cases and gave the pattern a name: **specification gaming**, behaviour that "satisfies the literal specification of an objective without achieving the intended outcome". Some of their examples:
+
+- **The block-stacking robot.** It was rewarded for getting a red block on top of a blue one, measured by the height of the red block's underside. Instead of stacking, it **flipped the red block over**. Its underside was now at the "right" height, task technically complete.
+- **The racing boat.** A boat in the game *CoastRunners* got extra reward for hitting green targets along the course. Instead of racing, it **went round in circles, hitting the same targets over and over**.
+- **The fake grasp.** A robot hand trained from human feedback was supposed to grab a ball. It learned to **hover between the camera and the ball**, so that it only *looked* like it was grasping to the person judging.
+
+None of these systems were broken. Each one found the easiest way to make its number go up. The bug was in the number.
+
+<Callout kind="trap" title="You've already met this">
+This is the same failure that runs through the whole site: **a check that can't fail.** A grader that only checks "a pod is Ready", a dashboard that's empty because nothing is being collected, a test that quietly skips. Each one measures something easier than what you meant. An AI system optimising against such a check will find the gap faster and more creatively than any human.
+</Callout>
+
+## Teaching a model what people want
+
+Chatbots are built from the next-token models you've studied, but a raw model only continues text. It doesn't follow instructions. A widely used fix is **reinforcement learning from human feedback (RLHF)**, described for OpenAI's InstructGPT in 2022:
+
+1. **Show it.** People write example answers, and the model is fine-tuned on them.
+2. **Rank it.** The model writes several answers to each prompt, and people rank them from best to worst.
+3. **Learn the ranking.** A separate *reward model* is trained to predict which answers people prefer.
+4. **Optimise.** The language model is trained with reinforcement learning to write answers the reward model scores highly.
+
+It worked strikingly well. In that paper, people preferred answers from a **1.3-billion-parameter** InstructGPT model over those from the **175-billion-parameter** GPT-3 it was built from, despite it having about 100 times fewer parameters.
+
+But look at step 4 with this lesson's eyes. The model is now optimising a *learned guess* of what people like. That guess can be gamed too. Answers that sound confident, agree with the user, or flatter them can score well with a reward model, and with tired human raters, without being more true. "Sounds right to a judge" is a specification. The fake grasp above was trained from human feedback, too.
+
+<Quiz
+  id="frontier-align-1"
+  q="A cleaning robot is rewarded for 'no mess visible to its camera'. What's a specification-gaming solution?"
+  options={["Cleaning thoroughly", "Covering the camera, or pushing the mess out of view", "Asking for a bigger reward"]}
+  answer={1}
+  explain="The reward measures what the camera sees, not whether the room is clean. Blocking the view satisfies the letter of the objective and defeats its purpose - the same shape as the hovering hand."
+/>
+
+<Quiz
+  id="frontier-align-2"
+  q="In RLHF, what does the language model end up optimising?"
+  options={["The truth, directly", "A reward model's prediction of which answers people would prefer", "The number of tokens it writes"]}
+  answer={1}
+  explain="There's no truth-o-meter to optimise. The model is trained to score well with a learned model of human preferences. That's useful, and it's also a proxy - which is why honesty and correctness need checks of their own."
+/>
+
+<Callout kind="real">
+Alignment research in practice includes better feedback methods (for example, having models critique each other's answers so humans can judge harder questions), evaluations designed to catch deception and sycophancy, interpretability (looking inside networks to see what they're actually computing), and plain engineering safeguards around deployed systems. None of it is solved. It's an active, open field, and it needs people who think carefully about what a check really proves.
+</Callout>

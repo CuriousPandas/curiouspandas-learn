@@ -1,0 +1,71 @@
+---
+import '../styles/widgets.css';
+interface Props { text?: string }
+const { text = 'Curious pandas tokenize unbelievably quickly: 12345 bamboo_shoots!' } = Astro.props;
+---
+<div class="widget card tok" data-tokenlab>
+  <div class="widget-head"><strong>Tokenizer lab</strong><span class="spacer"></span><span class="pill info">trained live on this page</span></div>
+  <label class="tok-in"><span class="eyebrow">Your text</span><textarea rows="3" data-text>{text}</textarea></label>
+  <div class="controls">
+    <label>Merges learned <input type="range" min="0" max="400" step="10" value="120" data-merges /> <b data-mcount>120</b></label>
+  </div>
+  <div class="stats">
+    <div class="stat">characters<b data-chars>-</b></div>
+    <div class="stat">tokens<b data-toks>-</b></div>
+    <div class="stat">chars per token<b data-ratio>-</b></div>
+    <div class="stat">vocabulary<b data-vocab>-</b></div>
+  </div>
+  <div class="chips" data-chips aria-live="polite"></div>
+  <details class="merges"><summary>The first merges it learned, in order</summary><ol data-mlist></ol></details>
+</div>
+
+<script>
+  import { trainBPE, encode, vocabulary } from '../lib/tokens/bpe.ts';
+  import { CORPUS } from '../data/corpus.ts';
+
+  // Training once at the maximum and slicing the list is exact, not an
+  // approximation: BPE merges are learned greedily in order, so the first k
+  // merges of a 400-merge run are the whole of a k-merge run.
+  const ALL = trainBPE(CORPUS, 400);
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-tokenlab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const render = () => {
+      const k = Number(q<HTMLInputElement>('[data-merges]').value);
+      const merges = ALL.slice(0, k);
+      const text = q<HTMLTextAreaElement>('[data-text]').value;
+      const toks = encode(text, merges);
+      const vocab = vocabulary(CORPUS + text, merges);
+      q('[data-mcount]').textContent = String(k);
+      q('[data-chars]').textContent = String(text.length);
+      q('[data-toks]').textContent = String(toks.length);
+      q('[data-ratio]').textContent = toks.length ? (text.length / toks.length).toFixed(2) : '-';
+      q('[data-vocab]').textContent = String(vocab.size);
+      q('[data-chips]').replaceChildren(...toks.map((t, i) => {
+        const s = document.createElement('span');
+        s.className = 'chip';
+        s.style.setProperty('--h', String((i * 47) % 360));
+        s.textContent = t.replace(/ /g, '·').replace(/\n/g, '↵');
+        s.title = `token id ${vocab.get(t) ?? '?'}  "${t}"`;
+        return s;
+      }));
+      q('[data-mlist]').replaceChildren(...merges.slice(0, 40).map(([a, b]) => {
+        const li = document.createElement('li');
+        li.textContent = `${a.replace(/ /g, '·')} + ${b.replace(/ /g, '·')} → ${(a + b).replace(/ /g, '·')}`;
+        return li;
+      }));
+    };
+    q('[data-merges]').addEventListener('input', render);
+    q('[data-text]').addEventListener('input', render);
+    render();
+  }
+</script>
+
+<style>
+  .tok-in { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .tok-in textarea { font: 14px/1.5 var(--mono); padding: 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); resize: vertical; width: 100%; }
+  .chips { display: flex; flex-wrap: wrap; gap: 3px; font: 14px/1.4 var(--mono); padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; min-height: 48px; }
+  .chips :global(.chip) { background: hsl(var(--h) 70% 50% / 0.2); border: 1px solid hsl(var(--h) 60% 50% / 0.45); border-radius: 5px; padding: 1px 4px; white-space: pre; }
+  .merges { margin-top: 10px; font-size: 0.9rem; }
+  .merges ol { columns: 2; font: 12.5px var(--mono); margin: 8px 0 0; }
+</style>

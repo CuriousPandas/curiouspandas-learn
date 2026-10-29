@@ -1,0 +1,90 @@
+---
+title: A 200 can still be broken
+summary: Exit codes and status codes say a request completed, not that it worked. Watch three health checks get fooled, and learn to assert on what came back.
+minutes: 13
+xp: 35
+tiers: [browser, machine]
+tiltLab: 08-empty-dashboard
+sources:
+  - title: RFC 9110 - HTTP Semantics, section 15 (status codes)
+    url: https://www.rfc-editor.org/rfc/rfc9110#name-status-codes
+  - title: curl manual - --fail and --fail-with-body
+    url: https://curl.se/docs/manpage.html
+  - title: libcurl error codes
+    url: https://curl.se/libcurl/c/libcurl-errors.html
+---
+
+Here's a health check that ships every day, all over the world:
+
+```bash
+curl https://shop.bamboo.example/ && echo "site is up"
+```
+
+It prints "site is up" when the site returns `500 Internal Server Error`. **By default, curl doesn't treat an HTTP error status as a failure.** It got an answer, so it exits 0. The manual says so in as many words. You have to add `--fail` to get exit code 22 on a 4xx or 5xx.
+
+So you fix the check to look at the status code. Now it catches the 500, and it waves through something worse: a `200 OK` whose page is an empty shell. Modern sites send a skeleton page and a script that fills it in. If that script fails, or the data request behind it fails, the server still says 200, and the visitor sees a blank screen.
+
+<Callout kind="trap" title="The shape of the bug">
+Every check above is *configured*. It runs, it reports green, and it checks nothing that matters. A check that can't fail is worse than having no check, because it reads as proof.
+</Callout>
+
+## Three checks, ten ways to fail
+
+Try each failure and watch the scoreboard. A check is **fooled** when it says "fine" about a broken site, or "broken" about a fine one.
+
+<RequestJourney start="shell" title="Would your health check notice?" />
+
+Only one check is right every time: **does the body contain something that only a working page would contain?** Not "is the body non-empty": the empty shell isn't empty. Look for the shop's name, a product, a value you know should be there. For a page that builds itself in the browser, the honest version is to render it in a real browser and read what's on screen, which is exactly how this site checks its own pages.
+
+<Quiz
+  id="web-lie-1"
+  q="Your monitoring runs `curl -s https://api.example/health` and alerts if the exit code isn't 0. The API starts returning 503 Service Unavailable. What happens?"
+  options={["The alert fires: 503 is an error", "Nothing: curl got an answer and exits 0 unless you pass --fail", "curl crashes"]}
+  answer={1}
+  explain="Without --fail, curl reports transport success: it connected and received a response. The status is just data to it. Add --fail (exit 22), or better, check the body too."
+/>
+
+## 401 vs. connection reset
+
+Two failures look the same in a test log: "request failed". They mean opposite things.
+
+- A **401** is an answer from the application. Your request crossed the network, got through TLS, reached the code, was read, and was refused for lack of credentials. Whatever is guarding that door is working.
+- A **connection reset** (curl exit 56) means something on the path tore the connection down. The application may never have seen your request. If you were testing that a firewall blocks you, a reset might be the firewall doing its job. If you were testing the application's own login check, the reset proves nothing about it.
+
+When you test that something is refused, check **how** it was refused. "It failed" isn't evidence. "It failed at the layer I meant to test" is.
+
+<Quiz
+  id="web-lie-2"
+  q="You expect an internal admin API to be unreachable from the internet. Your test calls it and gets 401 Unauthorized. Did the boundary hold?"
+  options={["Yes: the request was refused", "No: the request reached the application, so the network boundary didn't block it - only the app's login did", "It's impossible to tell"]}
+  answer={1}
+  explain="A 401 is the application talking. If the goal was that the internet can't reach the API at all, the request got much further than it should have. The app's auth is now the only thing standing there."
+/>
+
+<Quiz
+  id="web-lie-3"
+  q="Which check would catch the empty-shell page?"
+  options={["curl --fail", "Status code equals 200", "The rendered page shows text that only a working page has"]}
+  answer={2}
+  explain="The shell returns 200 with a perfectly valid body, so --fail and status checks both pass. Only checking for real content, ideally in a real browser that runs the page's scripts, sees that nothing loaded."
+/>
+
+<Callout kind="real">
+The same trap exists one level up. Tilt lab 08 is a Prometheus dashboard that shows a calm, empty graph for a healthy service: the scrape config is accepted and scrapes nothing. An empty graph isn't a quiet system, and a 200 isn't a working page.
+</Callout>
+
+<DoItForReal id="web-lie-real" lab="08-empty-dashboard" profile="observability">
+
+Make curl lie, then make it honest:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://hello.localhost/nope ; echo "exit=$?"
+curl -sf -o /dev/null https://hello.localhost/nope ; echo "exit=$?"
+curl -s https://hello.localhost/ | grep -q "Hello from the platform" && echo "really up"
+```
+
+The hello app is podinfo. Its message, "Hello from the platform", is set in `examples/hello-world/deployment.yaml`, so that string is something only a working page contains.
+
+The platform's own `./scripts/platform.sh check` does it properly: it renders every service in a real browser and reads the screen.
+
+</DoItForReal>

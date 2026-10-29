@@ -1,0 +1,29 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+<Base title="About & privacy" description="Why Curious Pandas exists, how it stays free, and exactly what it does with your data: nothing.">
+  <article class="wrap page prose">
+    <p class="eyebrow">About</p>
+    <h1>Curious pandas learn by breaking things</h1>
+    <p>This site exists to get the next generation of engineers from "what is a terminal?" to "I can tell why that pod restarted" to "I know why vLLM is fast" - for free, on whatever computer they have.</p>
+
+    <h2>How it stays free</h2>
+    <p>Free hands-on learning sites have a habit of disappearing, and the cause is nearly always the same: every learner needs a lab machine, the site pays for all of them, and the bill grows with every new student (and every person who finds a free sandbox and mines cryptocurrency on it). This site never runs a machine for you.</p>
+    <ul>
+      <li><strong>The simulators run in your browser.</strong> The git playground computes real git hashes in JavaScript; the cluster, the neural network, the tokenizer and the model server are all simulations on your own device.</li>
+      <li><strong>The real tools run on your machine</strong>, using the open <a href="https://github.com/TemplateMechanics/tilt">TemplateMechanics/tilt</a> platform - the "Do it for real" sections.</li>
+      <li><strong>The site itself is static files.</strong> Hosting costs the same for ten learners or ten million.</li>
+    </ul>
+    <p>The rule that follows: every XP point and every badge can be earned in the browser alone. Real-machine work is a bonus, never a gate.</p>
+
+    <h2>Your data</h2>
+    <p>There is nothing to sign up for. Progress - XP, streak, finished lessons - is saved in your browser's local storage and never sent anywhere. There are no analytics, no cookies, no ads, and no web fonts or scripts loaded from anyone else's servers. Export it or delete it from <a href="/progress/">your progress page</a>.</p>
+
+    <h2>What is simplified</h2>
+    <p>Simulations simplify, and a simplification you do not know about is a misconception. Each lesson marks where the sandbox differs from the real thing ("In the real world" boxes). What the simulators must get right is the shape of each failure: the cluster's two exit-137 crashes, the quota refusal that shows up only as an event, the git hashes. Those are checked by tests against the real tools on every change.</p>
+
+    <h2>Open source</h2>
+    <p>All of it - lessons, simulators and tests - is MIT licensed. Spotted a mistake? That is the most useful thing you can send. Corrections are credited.</p>
+  </article>
+</Base>
+<style>.page { padding-top: 32px; }</style>

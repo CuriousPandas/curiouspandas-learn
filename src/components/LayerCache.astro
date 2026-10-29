@@ -1,0 +1,140 @@
+---
+import '../styles/widgets.css';
+import { NAIVE } from '../lib/docker/cache.ts';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card layer-cache" data-layer-cache data-mission={mission}>
+  <div class="widget-head">
+    <strong>Build cache simulator</strong>
+    <span class="pill info">pretend timings</span>
+    <span class="spacer"></span>
+    <span class="pill gold" data-goal hidden>Goal: edit only src/server.js and keep <code>RUN npm ci</code> cached · +30 XP</span>
+  </div>
+  <div class="lc-grid">
+    <div class="lc-left">
+      <div class="controls">
+        <span class="muted">Dockerfile:</span>
+        <button class="btn small" type="button" data-preset="naive">Copy everything first</button>
+        <button class="btn small" type="button" data-preset="friendly">Package files first</button>
+      </div>
+      <textarea rows="8" spellcheck="false" aria-label="Dockerfile" data-df>{NAIVE}</textarea>
+      <label class="lc-ignore"><input type="checkbox" data-ignore /> <code>.dockerignore</code> contains <code>README.md</code></label>
+      <div class="eyebrow">Change something, then the build runs again</div>
+      <div class="controls">
+        <button class="btn small" type="button" data-edit="src/server.js">Edit src/server.js</button>
+        <button class="btn small" type="button" data-edit="README.md">Edit README.md</button>
+        <button class="btn small" type="button" data-edit="package.json">Add a dependency</button>
+        <button class="btn small primary" type="button" data-build>Build</button>
+      </div>
+    </div>
+    <div class="lc-right">
+      <div class="lc-total" data-total aria-live="polite"></div>
+      <ol class="lc-steps" data-steps></ol>
+      <div class="lc-history" data-history aria-label="Recent build times"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { build, NAIVE, FRIENDLY, PROJECT } from '../lib/docker/cache.ts';
+  import { award } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-layer-cache]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const df = q<HTMLTextAreaElement>('[data-df]');
+    const files: Record<string, string> = { ...PROJECT };
+    const cache = new Set<string>();
+    const history: number[] = [];
+    let edits = 0;
+    const mission = root.dataset.mission;
+    if (mission) q('[data-goal]').hidden = false;
+
+    const run = (reason: string, changed?: string) => {
+      const ignore = q<HTMLInputElement>('[data-ignore]').checked ? ['README.md'] : [];
+      const warm = cache.size > 0;
+      const b = build(df.value, files, cache, ignore);
+      const total = q('[data-total]');
+      const list = q('[data-steps]');
+      if (b.error) {
+        total.className = 'lc-total err';
+        total.textContent = `Build failed: ${b.error}`;
+        list.replaceChildren();
+        return;
+      }
+      history.push(b.seconds);
+      const rebuilt = b.steps.filter((s) => !s.cached).length;
+      total.className = 'lc-total';
+      total.innerHTML = '';
+      const big = document.createElement('b');
+      big.textContent = `${b.seconds}s`;
+      total.append(big, ` · ${reason} · ${rebuilt ? `${rebuilt} of ${b.steps.length} steps rebuilt` : 'everything came from cache'}`);
+      list.replaceChildren(...b.steps.map((s) => {
+        const li = document.createElement('li');
+        li.className = s.cached ? 'hit' : 'miss';
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = s.cached ? 'CACHED' : warm ? 'REBUILT' : 'BUILT';
+        const code = document.createElement('code');
+        code.textContent = s.text;
+        const secs = document.createElement('span');
+        secs.className = 'secs';
+        secs.textContent = s.copies.length ? `${s.copies.length} file${s.copies.length === 1 ? '' : 's'} · ${s.seconds}s` : `${s.seconds}s`;
+        li.append(tag, code, secs);
+        return li;
+      }));
+      const max = Math.max(...history.slice(-12), 1);
+      q('[data-history]').replaceChildren(...history.slice(-12).map((sec) => {
+        const i = document.createElement('i');
+        i.style.height = `${Math.max(4, (sec / max) * 100)}%`;
+        i.title = `${sec}s`;
+        return i;
+      }));
+      const install = b.steps.find((s) => /^RUN npm (ci|install)\b/.test(s.text));
+      if (mission && changed === 'src/server.js' && warm && install?.cached) {
+        award('missions', mission, 30, 'Kept the dependency install cached');
+        q('[data-goal]').textContent = 'Done: a code change no longer reinstalls dependencies ✓';
+      }
+    };
+
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-preset]')) {
+      b.addEventListener('click', () => { df.value = b.dataset.preset === 'naive' ? NAIVE : FRIENDLY; run(`switched to "${b.textContent}"`); });
+    }
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-edit]')) {
+      b.addEventListener('click', () => {
+        const f = b.dataset.edit!;
+        edits++;
+        files[f] = f === 'package.json' ? PROJECT[f].replace('}', `, "dep-${edits}": "^1.0.0" }`) : `${PROJECT[f]} // edit ${edits}`;
+        run(`after editing ${f}`, f);
+      });
+    }
+    q('[data-build]').addEventListener('click', () => run('rebuilt with no file changes'));
+    q('[data-ignore]').addEventListener('change', () => run('after changing .dockerignore'));
+    run('first build: nothing cached yet');
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the step rows are created by the
+     script, and Astro's scoped styles never reach elements it did not render. */
+  .layer-cache .lc-grid { display: grid; gap: 14px; }
+  @media (min-width: 860px) { .layer-cache .lc-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .layer-cache .lc-left, .layer-cache .lc-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .layer-cache textarea { width: 100%; font: 13.5px/1.5 var(--mono); padding: 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--term-bg); color: var(--term-ink); resize: vertical; }
+  .layer-cache .lc-ignore { font-size: 0.9rem; color: var(--ink-2); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .layer-cache .lc-total { padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-size: 0.92rem; }
+  .layer-cache .lc-total b { font-size: 1.3rem; color: var(--sun); margin-right: 4px; font-variant-numeric: tabular-nums; }
+  .layer-cache .lc-total.err { background: var(--berry-soft); color: var(--berry); font-weight: 600; }
+  .layer-cache .lc-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+  .layer-cache .lc-steps li { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); font-size: 0.85rem; }
+  .layer-cache .lc-steps code { overflow-wrap: anywhere; background: none; border: 0; padding: 0; }
+  .layer-cache .lc-steps .tag { font: 700 0.68rem var(--sans); letter-spacing: .05em; text-align: center; padding: 3px 0; border-radius: 6px; }
+  .layer-cache .lc-steps .hit .tag { background: var(--bamboo-soft); color: var(--bamboo); }
+  .layer-cache .lc-steps .miss { border-color: var(--sun); }
+  .layer-cache .lc-steps .miss .tag { background: var(--sun-soft); color: var(--sun); }
+  .layer-cache .lc-steps .secs { color: var(--muted); font-size: 0.78rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .layer-cache .lc-history { display: flex; align-items: flex-end; gap: 4px; height: 44px; padding: 4px; border-bottom: 1px solid var(--line); }
+  .layer-cache .lc-history i { flex: 1; max-width: 22px; background: var(--sky); border-radius: 3px 3px 0 0; }
+  .layer-cache [data-goal] code { background: none; border: 0; }
+  .layer-cache [data-goal] { white-space: normal; }
+</style>

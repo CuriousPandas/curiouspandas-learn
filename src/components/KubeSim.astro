@@ -1,0 +1,153 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string; title?: string }
+const { mission, title = 'Cluster simulator' } = Astro.props;
+---
+<div class="widget card kube" data-kube-sim data-mission={mission ?? ''}>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info" data-clock>t = 0s</span>
+    <span class="spacer"></span>
+    <div class="controls">
+      <button class="btn small" type="button" data-play>Pause</button>
+      <button class="btn small" type="button" data-step>Step</button>
+      <label>Speed <select data-speed><option value="1000">1×</option><option value="400" selected>2.5×</option><option value="150">fast</option></select></label>
+      <button class="btn small" type="button" data-reset>Start over</button>
+    </div>
+  </div>
+  <div class="kube-grid">
+    <div class="kube-left">
+      <div data-term></div>
+      <p class="muted tip">Click any pod to describe it.</p>
+    </div>
+    <div class="kube-right">
+      <div data-mission-panel hidden></div>
+      <div class="cluster">
+        <div class="eyebrow">Cluster</div>
+        <div data-nodes class="nodes"></div>
+        <div class="unscheduled"><div class="eyebrow">Waiting for a node</div><div data-pending class="pods"></div></div>
+        <div class="legend">
+          <span><i style="background:var(--bamboo)"></i>Running &amp; Ready</span>
+          <span><i style="background:var(--sky)"></i>Starting</span>
+          <span><i style="background:var(--sun)"></i>Pending</span>
+          <span><i style="background:var(--berry)"></i>Crashing / can't pull</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { Cluster, SECONDS_PER_TICK, type Pod } from '../lib/kube/cluster.ts';
+  import { kubectl } from '../lib/kube/kubectl.ts';
+  import { KUBE_MISSIONS, kubeObserve, kubeWatch, type KubeState } from '../lib/missions.ts';
+  import { mountTerminal, mountMission, el } from '../lib/ui.ts';
+
+  const cls = (p: Pod) => p.status === 'Terminating' ? 'term' : p.ready ? 'ok'
+    : p.status === 'Running' || p.status === 'ContainerCreating' ? 'start'
+    : p.status === 'Pending' ? 'pending' : 'bad';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-kube-sim]')) {
+    const mission = KUBE_MISSIONS[root.dataset.mission ?? ''];
+    let state: KubeState;
+    const fresh = () => { state = mission ? mission.setup() : { cluster: new Cluster(), history: [], seen: new Set(), deleted: new Set() }; };
+    fresh();
+    let refreshMission = () => {};
+    const nodesBox = root.querySelector<HTMLElement>('[data-nodes]')!;
+    const pendingBox = root.querySelector<HTMLElement>('[data-pending]')!;
+    const clock = root.querySelector<HTMLElement>('[data-clock]')!;
+
+    const chip = (p: Pod) => {
+      const b = el('button', { type: 'button', class: `pod ${cls(p)}`, title: `${p.name}\n${p.status}${p.restarts ? ` · ${p.restarts} restarts` : ''}\n${p.template.image}` },
+        p.name.split('-').slice(0, 1)[0], el('small', {}, p.name.split('-').pop() ?? ''));
+      if (p.restarts) b.append(el('span', { class: 'restarts' }, `↻${p.restarts}`));
+      b.addEventListener('click', () => term.run(`kubectl describe pod ${p.name}`));
+      return b;
+    };
+
+    const draw = () => {
+      const c = state.cluster;
+      clock.textContent = `t = ${c.tick * SECONDS_PER_TICK}s`;
+      nodesBox.replaceChildren(...c.nodes.map((n) => {
+        const u = c.used(n.name);
+        const pct = Math.min(100, (u.cpu / n.cpu) * 100);
+        const pods = [...c.pods.values()].filter((p) => p.node === n.name);
+        return el('div', { class: 'node' },
+          el('div', { class: 'node-head' }, el('strong', {}, n.name), el('span', { class: 'muted' }, `${u.cpu}m / ${n.cpu}m CPU requested`)),
+          (() => { const bar = el('div', { class: 'cap' }, el('i')); (bar.firstChild as HTMLElement).style.width = `${pct}%`; if (pct > 90) bar.classList.add('full'); return bar; })(),
+          el('div', { class: 'pods' }, ...(pods.length ? pods.map(chip) : [el('span', { class: 'muted empty' }, 'no pods')])));
+      }));
+      const waiting = [...c.pods.values()].filter((p) => !p.node && p.status !== 'Terminating');
+      pendingBox.replaceChildren(...(waiting.length ? waiting.map(chip) : [el('span', { class: 'muted empty' }, 'nothing waiting')]));
+      kubeWatch(state);
+      refreshMission();
+    };
+
+    const term = mountTerminal(root.querySelector<HTMLElement>('[data-term]')!, {
+      prompt: '$',
+      greeting: mission
+        ? [`Mission: ${mission.title}. Time runs on its own - watch the cluster react.`, 'Type help for every command this cluster understands.']
+        : ['A two-node toy cluster. Controllers, scheduler and kubelet run every tick.', 'Try: kubectl create deployment hello --image=panda/hello:1.0 --replicas=3'],
+      onCommand: (line) => {
+        kubeObserve(state, line);
+        const out = kubectl(state.cluster, line);
+        draw();
+        return out;
+      },
+    });
+    if (mission) {
+      const panel = root.querySelector<HTMLElement>('[data-mission-panel]')!;
+      panel.hidden = false;
+      refreshMission = mountMission(panel, mission, () => state, (cmd) => term.type(cmd));
+    }
+
+    let playing = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const speed = root.querySelector<HTMLSelectElement>('[data-speed]')!;
+    const playBtn = root.querySelector<HTMLButtonElement>('[data-play]')!;
+    const schedule = () => {
+      clearInterval(timer);
+      // Only tick while visible: a hidden tab or a widget scrolled far away
+      // should not burn the learner's battery.
+      if (playing) timer = setInterval(() => { if (!document.hidden && visible) { state.cluster.step(); draw(); } }, Number(speed.value));
+    };
+    let visible = true;
+    new IntersectionObserver((e) => { visible = e[0].isIntersecting; }).observe(root);
+    playBtn.addEventListener('click', () => { playing = !playing; playBtn.textContent = playing ? 'Pause' : 'Play'; schedule(); });
+    root.querySelector('[data-step]')!.addEventListener('click', () => { state.cluster.step(); draw(); });
+    speed.addEventListener('change', schedule);
+    root.querySelector('[data-reset]')!.addEventListener('click', () => { fresh(); term.clear(); term.print([{ text: 'Fresh cluster.', kind: 'dim' }]); draw(); });
+    schedule();
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the pods, nodes and file lists are
+     created by the script, and Astro's scoped styles never reach elements it did
+     not render, so scoped rules here silently styled nothing. */
+  .kube .kube-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .kube .kube-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+  .kube .kube-left, .kube .kube-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .kube .tip { margin: 0; font-size: 0.82rem; }
+  .kube .cluster { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .kube .nodes { display: grid; gap: 10px; }
+  .kube .node { border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 10px; background: var(--panel); }
+  .kube .node-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.82rem; flex-wrap: wrap; }
+  .kube .cap { height: 6px; border-radius: 99px; background: var(--bg-2); margin: 6px 0 8px; overflow: hidden; }
+  .kube .cap i { display: block; height: 100%; background: var(--sky); transition: width .3s; }
+  .kube .cap.full i { background: var(--sun); }
+  .kube .pods { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; align-items: center; }
+  .kube .unscheduled { border: 1px dashed var(--line-2); border-radius: 10px; padding: 8px 10px; }
+  .kube .empty { font-size: 0.8rem; }
+  .kube .pods .pod { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; border: 0; border-radius: 8px; padding: 4px 9px; font: 600 11.5px/1.25 var(--mono); color: #fff; cursor: pointer; transition: transform .1s, opacity .3s; }
+  .kube .pods .pod small { font-weight: 400; opacity: .85; }
+  .kube .pods .pod:hover { transform: translateY(-1px); }
+  .kube .pods .pod.ok { background: var(--bamboo); color: var(--bamboo-ink); }
+  .kube .pods .pod.start { background: var(--sky); }
+  .kube .pods .pod.pending { background: transparent; color: var(--sun); outline: 2px dashed var(--sun); }
+  .kube .pods .pod.bad { background: var(--berry); animation: shake .5s; }
+  .kube .pods .pod.term { background: var(--muted); opacity: .45; }
+  .kube .pods .restarts { position: absolute; top: -7px; right: -7px; background: var(--ink); color: var(--bg); border-radius: 99px; font-size: 10px; padding: 1px 5px; }
+  @keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+</style>

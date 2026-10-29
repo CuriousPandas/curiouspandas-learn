@@ -1,0 +1,62 @@
+---
+import Base from '../../layouts/Base.astro';
+import Icon from '../../components/Icon.astro';
+import RunsOn from '../../components/RunsOn.astro';
+import { curriculum } from '../../lib/curriculum.ts';
+
+export async function getStaticPaths() {
+  const tracks = await curriculum();
+  return tracks.map((t, i) => ({ params: { track: t.id }, props: { track: t, n: i + 1, nextTrack: tracks[i + 1] } }));
+}
+const { track, n, nextTrack } = Astro.props;
+---
+<Base title={track.title} description={track.tagline}>
+  <section class="wrap page" style={`--hue:${track.hue}`}>
+    <nav class="crumbs"><a href="/tracks/">Learn</a> / Track {n}</nav>
+    <div class="t-head"><span class="t-icon"><Icon name={track.icon} size={30} /></span><div><h1>{track.title}</h1><p class="lede">{track.tagline}</p></div></div>
+    <ol class="lessons">
+      {track.lessons.map((l, i) => l.entry ? (
+        <li class="ready" data-lesson={l.id}>
+          <a href={l.href} class="card row">
+            <span class="num" data-num>{i + 1}</span>
+            <span class="txt"><strong>{l.title}</strong><span class="muted">{l.entry.data.summary}</span><RunsOn tiers={l.entry.data.tiers} /></span>
+            <span class="side"><span class="pill">{l.entry.data.minutes} min</span><span class="pill gold">+{l.entry.data.xp} XP</span></span>
+          </a>
+        </li>
+      ) : (
+        <li class="soon">
+          <div class="card row"><span class="num">{i + 1}</span><span class="txt"><strong>{l.title}</strong><span class="muted">Being written - not available yet.</span></span><span class="side"><span class="pill">coming soon</span></span></div>
+        </li>
+      ))}
+    </ol>
+    {nextTrack && <p class="next">Next track: <a href={`/tracks/${nextTrack.id}/`}>{nextTrack.title} →</a></p>}
+  </section>
+</Base>
+<script>
+  import { store } from '../../lib/progress.ts';
+  store().subscribe((p) => {
+    for (const li of document.querySelectorAll<HTMLElement>('[data-lesson]')) li.classList.toggle('complete', !!p.lessons[li.dataset.lesson!]);
+  });
+</script>
+<style>
+  .page { padding-top: 24px; max-width: 900px; }
+  .crumbs { font-size: 0.88rem; color: var(--muted); } .crumbs a { color: var(--muted); }
+  .t-head { display: flex; gap: 16px; align-items: center; margin: 10px 0 20px; }
+  .t-icon { flex: none; width: 58px; height: 58px; border-radius: 16px; display: grid; place-items: center; color: hsl(var(--hue) 55% 42%); background: hsl(var(--hue) 60% 50% / .14); }
+  .t-head h1 { margin: 0; } .lede { margin: 4px 0 0; color: var(--ink-2); }
+  .lessons { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .row { display: flex; gap: 14px; align-items: center; padding: 14px 16px; text-decoration: none; color: var(--ink); }
+  a.row:hover { border-color: hsl(var(--hue) 50% 50%); }
+  .num { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: hsl(var(--hue) 60% 50% / .14); color: hsl(var(--hue) 55% 40%); }
+  .complete .num { background: var(--bamboo); color: var(--bamboo-ink); }
+  .complete .num::after { content: "✓"; position: absolute; }
+  .complete .num { position: relative; color: transparent; }
+  .txt { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .txt .muted { font-size: 0.9rem; }
+  .side { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .soon .row { opacity: .62; box-shadow: none; border-style: dashed; }
+  .soon .num { background: var(--bg-2); color: var(--muted); }
+  .complete .num::after { color: var(--bamboo-ink); }
+  .next { margin-top: 26px; }
+  @media (max-width: 600px) { .side { display: none; } }
+</style>

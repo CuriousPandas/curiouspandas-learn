@@ -1,0 +1,12 @@
+---
+import { TIERS, type Tier } from '../data/tracks.ts';
+interface Props { tiers: Tier[] }
+const { tiers } = Astro.props;
+---
+<div class="runs-on">
+  {tiers.map((t) => <a href="/machine/" class={`pill ${t === 'browser' ? 'ok' : t === 'machine' ? 'gold' : 'info'}`} title={TIERS[t].detail}>{TIERS[t].label}</a>)}
+</div>
+<style>
+  .runs-on { display: flex; flex-wrap: wrap; gap: 6px; }
+  .runs-on a { text-decoration: none; }
+</style>

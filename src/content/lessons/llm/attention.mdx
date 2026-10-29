@@ -1,0 +1,61 @@
+---
+title: Attention, without the maths first
+summary: Attention lets every word decide which earlier words matter to it. Click through a sentence and watch "it" work out who was hungry.
+minutes: 15
+xp: 35
+tiers: [browser]
+sources:
+  - title: Vaswani et al. - Attention Is All You Need (2017)
+    url: https://arxiv.org/abs/1706.03762
+---
+
+Read this: *the panda ate the bamboo because it was hungry.* Who was hungry? The panda, obviously. Now: *the panda ate the bamboo because it was **tasty**.* Now "it" is the bamboo.
+
+You resolved "it" by looking back at the earlier words and deciding which one mattered. **Attention** is a way for a model to do exactly that, and it's the core of the **transformer**, the architecture behind nearly every large language model today. The 2017 paper that introduced it was titled, boldly, *Attention Is All You Need*. Its model was "based solely on attention mechanisms, dispensing with recurrence and convolutions entirely". It set new translation records and trained faster than the methods it replaced.
+
+## How a word "looks back"
+
+Every token gets three small lists of numbers:
+
+- a **query**: *what am I looking for?*
+- a **key**: *what do I offer?*
+- a **value**: *what I'll pass along if you pick me.*
+
+To decide where a token looks, the model compares its query with every earlier token's key. Similar means a high score. The scores go through a softmax so they add up to 100%. Then the token takes a weighted blend of everyone's values, pulling most from whoever scored highest.
+
+<AttentionToy />
+
+<Callout kind="real" title="What is real here, and what is not">
+The **arithmetic** is the real thing: query·key dot products, divided by √(size), a causal mask so no word sees the future, then a softmax. The **numbers** are hand-set. Each word has just four named features (*animal*, *food*, *action*, *filler*) so you can see why a weight is high. A real model *learns* its queries and keys, with hundreds or thousands of dimensions that nobody can name, and runs many attention "heads" side by side in every layer.
+</Callout>
+
+Things to notice:
+
+- Click **it**. The weight splits evenly between *panda* and *bamboo*. At that point in the sentence nothing has decided the question yet, so the honest answer is "one of these two".
+- Click the last word. **hungry** looks back at *panda*. Switch the sentence and **tasty** looks back at *bamboo*. The word that settles the question is the one that does the looking.
+- Words can only look *left*. Language models write one token at a time, so a token is never allowed to peek at what comes after it. That's the striped half of the matrix.
+- **Sharpness** scales the scores before the softmax: higher makes a word commit to one target, lower spreads its attention out. It's the same idea as temperature in the previous lesson.
+
+<Quiz
+  id="llm-attn-1"
+  q="In a GPT-style model, which tokens can a given token attend to?"
+  options={["Every token in the text, before and after it", "Itself and the tokens before it", "Only the token right before it"]}
+  answer={1}
+  explain="The causal mask hides the future, because the model must generate text left to right: when it's choosing token 10, tokens 11 onward don't exist yet. (Some models used for understanding rather than writing, such as BERT, do attend in both directions.)"
+/>
+
+<Quiz
+  id="llm-attn-2"
+  q="Why do the attention weights for one token always add up to 100%?"
+  options={["It's a coincidence of these examples", "They pass through a softmax, which turns any set of scores into a probability distribution", "The model is told to divide evenly"]}
+  answer={1}
+  explain="Softmax exponentiates every score and divides by the total, so the results are positive and sum to one. Attention becomes 'what share of my blend comes from each earlier token'."
+/>
+
+<Callout kind="tip">
+Keys and values are worth remembering. They're exactly what the **KV cache** in [Why vLLM is fast](/learn/llm/serving-vllm/) stores. Every new token needs the keys and values of every earlier token. Keeping them instead of recomputing them is what makes generation fast, and what makes it hungry for memory.
+</Callout>
+
+## The rest of a transformer, in one paragraph
+
+A transformer stacks this many times. In each **layer**, attention lets every token gather information from earlier tokens, and then a small neural network (the kind from [Why hidden layers exist](/learn/ml/neural-networks/)) processes each token's blended result on its own. Early layers tend to pick up local patterns such as grammar. Later ones build on those. After the last layer, the final token's numbers are turned into a probability for every possible next token: the step you played with in [One token at a time](/learn/llm/next-token/).

@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # The parity tests replay sessions through the real git binary; the
+      # runner image ships git, and the tests fail (not skip) if it is missing.
+      - run: npm test
+      - run: npm run check
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      # Renders every page and drives every widget. A green build with a page
+      # whose scripts throw is exactly what this exists to catch.
+      - run: npm run check:site
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: site-check
+          path: .site-check/
+          retention-days: 14

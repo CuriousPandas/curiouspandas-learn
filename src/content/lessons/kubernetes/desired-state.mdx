@@ -1,0 +1,73 @@
+---
+title: Desired state and self-healing
+summary: You don't tell Kubernetes what to do. You tell it what you want, and it keeps checking. Make a promise, break it on purpose, and watch it get kept.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+tiltLab: 01-deploy-a-service
+sources:
+  - title: Kubernetes docs - Controllers
+    url: https://kubernetes.io/docs/concepts/architecture/controller/
+  - title: Kubernetes docs - Deployments
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+---
+
+Most tools take orders: *start this*, *stop that*. Kubernetes takes **promises**. You say "I want three copies of this app running", and that sentence gets stored. Then a set of small programs called **controllers** keep comparing what you asked for with what actually exists, and fix the difference. Forever.
+
+That's the whole idea. The rest of Kubernetes is that loop applied to more kinds of things.
+
+## The chain of command
+
+- A **Deployment** holds your promise: which image, how many copies.
+- It creates a **ReplicaSet**, which owns one particular version of the pod template and keeps the right number of pods alive.
+- **Pods** are the running copies, one or more containers each.
+- The **scheduler** notices pods with no node yet and picks one for each.
+- The **kubelet** on each node notices pods assigned to it and starts their containers.
+
+Nobody calls anybody. Each piece watches for work and does its own part. The simulator below runs those same loops every tick.
+
+<KubeSim mission="kube-self-heal" title="Three pandas, always" />
+
+<Callout kind="tip">
+Click any pod in the picture to describe it. Watch the pod names: a replacement is a *new* pod with a new name, not the old one coming back.
+</Callout>
+
+## Why "desired state" matters
+
+You didn't write "if a pod dies, start another". Nobody did. The controller saw *want 3, have 2* and closed the gap, the same way it would after a node crash, an eviction, or you fat-fingering `kubectl delete`. Recovery isn't a feature someone remembered to add. It falls out of the design.
+
+The same idea leads straight to **GitOps** later in the course. If the desired state lives in git, a controller can keep the cluster matching the repository, and the repository becomes the source of truth.
+
+<Quiz
+  id="kube-desired-1"
+  q="You delete a pod that belongs to a Deployment with 3 replicas. What happens?"
+  options={["The Deployment now has 2 replicas", "The ReplicaSet notices it has 2 instead of 3 and creates a new pod with a new name", "The same pod restarts with the same name"]}
+  answer={1}
+  explain="Deleting a pod doesn't change the promise. The ReplicaSet's loop sees the gap and creates a fresh pod. To actually have fewer, change the promise: kubectl scale."
+/>
+
+<Quiz
+  id="kube-desired-2"
+  q="Who decides which node a new pod runs on?"
+  options={["The Deployment", "The scheduler, which watches for pods without a node", "The kubelet on whichever node is free"]}
+  answer={1}
+  explain="The scheduler assigns pods to nodes; the kubelet on that node then starts them. Separate loops, each with one job."
+/>
+
+<Callout kind="real">
+A real cluster adds a lot here: an API server and etcd storing every object, Services giving pods a stable address, probes deciding what Ready means, and many more controllers. The sandbox keeps only the loops that show the idea, and reproduces their failure messages word for word where it can.
+</Callout>
+
+<DoItForReal id="kube-desired-real" lab="01-deploy-a-service">
+
+With the tilt platform running (`./scripts/platform.sh up`):
+
+```bash
+kubectl create deployment hello2 --image=nginx --replicas=3
+kubectl get pods -w        # leave running in one terminal
+kubectl delete pod <one of them>   # in another
+```
+
+Then do lab 01: it adds the Service and route that turn running pods into a URL, and its `check.sh` grades you.
+
+</DoItForReal>

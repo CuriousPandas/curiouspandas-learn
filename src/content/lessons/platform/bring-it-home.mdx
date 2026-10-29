@@ -1,0 +1,108 @@
+---
+title: Run the real platform
+summary: Everything you practised in the browser, on a real Kubernetes cluster on your own laptop. What you need, how long it takes, and how to break it and get it back.
+minutes: 20
+xp: 50
+tiers: [machine]
+sources:
+  - title: TemplateMechanics/tilt - README
+    url: https://github.com/TemplateMechanics/tilt
+  - title: TemplateMechanics/tilt - Student setup
+    url: https://github.com/TemplateMechanics/tilt/blob/main/docs/STUDENT-SETUP.md
+  - title: TemplateMechanics/tilt - Labs
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs
+---
+
+The simulators taught you the shapes: self-healing, Pending pods, exit 137, quota refusals, stuck rollouts, empty dashboards. **TemplateMechanics/tilt** is the same things for real: a complete Kubernetes platform that runs on your own laptop, rebuilt from nothing with one command, with ten graded labs.
+
+It's free and MIT licensed, and it needs no cloud account. It does need a capable machine, which is why everything before this lesson ran in your browser.
+
+## What you need
+
+From the platform's own setup guide, measured rather than guessed:
+
+- **About 15 GB of free disk and 8 GB of RAM to spare.** With everything running (the heaviest profile, 50 pods) it measured **9.7 GB of images and 5.9 GB of memory**. The default profile uses less; that hasn't been measured separately.
+- **Admin rights** to install a container runtime. Docker Desktop is the tested default; Podman also works.
+- **The tools:** kind, Tilt, Helm, the Flux CLI, kubectl, Python 3 with PyYAML, and OpenSSL. The README's prerequisites table has the versions.
+- **bash.** On Windows that means **Git Bash**, which comes with Git for Windows. The scripts don't run in PowerShell or cmd.
+
+Not sure? [Check what this device can run](/machine/).
+
+<Callout kind="trap">
+Docker Desktop installs its own kubectl, and it can shadow yours on PATH. The setup guide caught a v1.34 client talking to a v1.36 cluster, which prints a version-skew warning on *every* command. Run `kubectl version` and look at the client version, not just whether kubectl exists.
+</Callout>
+
+## Bring it up
+
+```bash
+git clone https://github.com/TemplateMechanics/tilt
+cd tilt
+./scripts/platform.sh up
+```
+
+The first run downloads several gigabytes. Measured on a fast laptop with a fast connection, `https://hello.localhost` answered **8.5 minutes** after Tilt started. Almost all of that is downloading, so your wifi sets the number, not your CPU. Do it at home, not on conference wifi. Partway through, your OS may ask you to trust a certificate called "Tilt Local Development Root CA". Compare the fingerprint Tilt prints before you accept.
+
+Then prove it, rather than assuming:
+
+```bash
+./scripts/student-check.sh     # tools, daemon, disk, version skew, and a real request
+```
+
+"It finished with no errors" and "it works" are different claims. That script tells them apart.
+
+## Profiles: start small
+
+The platform comes up in tiers. `minimal` is the default:
+
+| Profile | Adds | Good for |
+|---|---|---|
+| `minimal` | Flux, Gateway API, Istio ambient, cert-manager, hello-world | the Kubernetes track; about 10 min |
+| `observability` | + Prometheus, Grafana, Loki, Tempo, Kiali, metrics-server | the dashboard and mesh lessons |
+| `gitops` | + Crossplane, Flagger, External Secrets, CloudNativePG | canaries and GitOps |
+| `full` | + every app you can toggle in `tilt-config.json` | the whole [tool atlas](/atlas/) |
+
+```bash
+PROFILE=observability ./scripts/platform.sh up
+```
+
+URLs: `https://hello.localhost`, `https://grafana.localhost`, `https://kiali.localhost`, and the Tilt dashboard at `http://localhost:10350`. If something else on your machine already uses ports 443 and 80, the README has an alternate config that moves everything to `:8443`.
+
+## Break it, then get it back
+
+```bash
+./scripts/platform.sh lab 09    # grade a lab
+./scripts/platform.sh reset     # destroy the cluster, start empty
+```
+
+Breaking things is how the platform is meant to be used. `reset` makes that safe, but it isn't free: it re-downloads everything. Each lab's README has a cheaper way back.
+
+<Quiz
+  id="platform-home-1"
+  q="On Windows, which shell runs ./scripts/platform.sh?"
+  options={["PowerShell", "Git Bash, which comes with Git for Windows", "cmd.exe"]}
+  answer={1}
+  explain="The scripts are bash. PowerShell and cmd can't run them; Git Bash can, and you already installed it with Git."
+/>
+
+<Quiz
+  id="platform-home-2"
+  q="platform.sh up finished with no errors. Are you done?"
+  options={["Yes", "Not until student-check.sh passes and hello.localhost actually loads: 'no errors' and 'works' are different claims", "Only after a reset"]}
+  answer={1}
+  explain="That difference is the theme of half the labs. Prove it in the running system, not from an exit code."
+/>
+
+<Callout kind="real" title="No capable machine? Not yet - and we say so">
+A cloud path, a dev container you open in a free GitHub Codespace on your own quota, is **planned and not built yet**. Until then, every point and badge on this site can be earned in the browser. The real platform is a bonus, never a requirement.
+</Callout>
+
+<DoItForReal id="platform-home-real" lab="01-deploy-a-service">
+
+Bring the platform up, run `./scripts/student-check.sh`, open `https://hello.localhost`, then pass lab 01:
+
+```bash
+./scripts/platform.sh hello
+./scripts/platform.sh lab 01
+```
+
+</DoItForReal>

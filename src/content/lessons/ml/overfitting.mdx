@@ -1,0 +1,62 @@
+---
+title: Memorising is not learning
+summary: A model can score perfectly on its practice questions and fail the exam. Make one overfit on purpose, and learn the habit that catches it.
+minutes: 15
+xp: 40
+tiers: [browser]
+sources:
+  - title: Goodfellow, Bengio and Courville - Deep Learning, chapter 5.2 (Capacity, Overfitting and Underfitting)
+    url: https://www.deeplearningbook.org/contents/ml.html
+---
+
+Imagine a student who memorises the answers to last year's exam, word for word. On last year's paper they score 100%. On this year's paper, with new questions, they're lost. They learned the answers, not the subject.
+
+Models do exactly this. It's called **overfitting**: the model fits its training examples, including their noise and accidents, so closely that it stops working on anything new. The defence is just as simple as the problem. **Hold some examples back.** Never train on them, and judge the model only on how it does with those.
+
+That's what the dots with a white ring have been all along: the **test set**. "Test accuracy" in these widgets is always measured on them, never on the training dots.
+
+## Make it overfit, on purpose
+
+Set this up exactly, then train for about twenty seconds and keep your eye on two numbers:
+
+1. Drag **Noise** up to **0.5**. The two classes now overlap, so some dots sit on the "wrong" side purely by chance.
+2. The network is already big: two hidden layers of 12, with every input ticked (265 knobs).
+3. Set the **learning rate** to **1** and press **Train**.
+
+<NeuralPlayground dataset="circle" hidden="12,12" features="x,y,x²,y²,xy,sin x,sin y" title="Too many knobs, too much noise" />
+
+Watch **train loss** fall towards zero as the boundary grows tentacles to wrap around individual noisy dots. Now watch **test accuracy**. When we built this lesson, with these exact settings, it peaked around 83% early on and then *fell* to about 72% as training went on. The model got better at the dots it had seen and worse at the ones it hadn't.
+
+<Callout kind="trap">
+A falling training loss is not progress if the test score is falling at the same time. If you only ever look at how a model does on its own training data, overfitting is invisible. The model looks better and better right up to the moment it meets reality.
+</Callout>
+
+## Three ways back
+
+- **Fewer knobs.** Try `4` in Hidden layers and only `x` and `y`. A smaller model can't memorise the noise, so it's forced to learn the broad shape.
+- **Stop early.** Watch the test accuracy and keep the knobs from its best moment, before memorisation set in.
+- **More, cleaner data.** Noise is what gets memorised. More examples make each accident matter less.
+
+Now earn it. Keep the noise at **0.3 or more** and get **85% on the held-back dots**. Big networks tend to lose this one; small ones tend to win.
+
+<NeuralPlayground challenge="nn-noisy-ring" dataset="circle" hidden="4" title="Generalise, don't memorise" />
+
+<Quiz
+  id="ml-overfit-1"
+  q="Training loss keeps going down while test accuracy goes down too. What's happening?"
+  options={["The model is learning faster", "The model is memorising the training examples, noise included, and getting worse at new data", "The test set is broken"]}
+  answer={1}
+  explain="That gap - better on seen examples, worse on unseen ones - is the signature of overfitting. The model is fitting accidents of its training set that don't carry over."
+/>
+
+<Quiz
+  id="ml-overfit-2"
+  q="Why must the test examples never be used for training?"
+  options={["They take too long to process", "Because a score on examples the model has seen can't tell you whether it learned or memorised", "It's just a convention"]}
+  answer={1}
+  explain="The only honest measure of 'does this work on new data?' is data the model has never seen. Train on the test set even once and its score stops meaning anything - a check that can no longer fail."
+/>
+
+<Callout kind="real">
+Real projects usually split data three ways: **training** (turn the knobs), **validation** (choose settings such as network size and when to stop), and **test** (one final, honest score at the end). Even choosing settings by looking at the test score leaks information into the model, a little at a time. Large language models face a subtler version: if benchmark questions leak onto the web and into the training text, a high benchmark score may partly be memory.
+</Callout>

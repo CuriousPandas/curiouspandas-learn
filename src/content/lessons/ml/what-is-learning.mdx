@@ -1,0 +1,66 @@
+---
+title: Learning is turning knobs
+summary: A model is a function with knobs. Training nudges every knob a little, over and over, to make the answers less wrong. Watch it happen live.
+minutes: 14
+xp: 35
+tiers: [browser]
+sources:
+  - title: Goodfellow, Bengio and Courville - Deep Learning, chapter 4 (Numerical Computation)
+    url: https://www.deeplearningbook.org/contents/numerical.html
+---
+
+"Machine learning" sounds mysterious. The idea underneath isn't.
+
+A **model** is a function: numbers go in, an answer comes out. Inside are **knobs**, numbers called *weights* that decide what the function does. A model with the wrong knob settings gives wrong answers. **Training** is the process of finding better settings, automatically, from examples.
+
+It takes three ingredients:
+
+1. **Examples with answers.** Here, dots on a map, each labelled *bamboo* (green) or *rocks* (grey).
+2. **A loss**: one number that says how wrong the model is across all the examples. Zero would be perfect.
+3. **A way to improve.** For each knob, work out which direction of turning would make the loss smaller, then turn every knob a small step that way. Repeat thousands of times.
+
+That third step is **gradient descent**. The *gradient* is the list of "which way, and how steeply" for every knob at once. Calculus computes it exactly, so nobody has to guess. Picture walking downhill in fog: you can't see the valley, but you can feel which way the ground slopes under your feet.
+
+## Watch it learn
+
+The background colour is the model's current opinion of every spot on the map: green means bamboo, grey means rocks, and paler means less sure. Press **Train** and watch the loss fall and the boundary bend into shape. Dots with a white ring are **held back**: the model never trains on them, and they're what the accuracy number is measured on.
+
+<NeuralPlayground challenge="nn-ring" dataset="circle" hidden="4" title="Teach it the ring" />
+
+<Callout kind="tip">
+Press **New random knobs** a few times before training. Each start draws a different random boundary. Training almost always walks downhill to a good one anyway. That's the surprising part: random starting knobs plus small steps are enough.
+</Callout>
+
+## The learning rate
+
+How big is each step? That's the **learning rate**, and it's one of the knobs *you* set, not the model.
+
+- **Too small:** the loss creeps down so slowly you'd think nothing is happening.
+- **Bigger:** faster, up to a point.
+- **Too large:** each step overshoots the bottom of the valley, so the loss jumps around and can end up worse than where it started.
+
+Try all three above, pressing **New random knobs** before each one. At **0.03** the ring barely changes in the time you'd wait. At **3**, on this small problem, it learns *faster* than the default. At **10**, watch the loss leap and stumble. Where "too large" begins depends on the problem. On big models it starts much lower, which is why picking the learning rate is a real part of the job.
+
+<Quiz
+  id="ml-learn-1"
+  q="What does the loss measure?"
+  options={["How long training has taken", "How wrong the model's answers are across the examples - lower is better", "How many knobs the model has"]}
+  answer={1}
+  explain="The loss boils 'how wrong are we?' down to one number. Training exists to make it smaller. Everything else - the gradient, the learning rate - is in service of pushing it down."
+/>
+
+<Quiz
+  id="ml-learn-2"
+  q="The loss bounces up and down wildly instead of falling. What's the first thing to try?"
+  options={["A bigger learning rate", "A smaller learning rate", "More examples"]}
+  answer={1}
+  explain="Wild bouncing is the classic sign of steps that are too big: each one jumps past the low point. Smaller steps settle into it."
+/>
+
+<Callout kind="real">
+Real models work exactly this way, just bigger. They have millions or billions of knobs instead of a few dozen, and each step estimates the gradient from a small random batch of examples instead of all of them ("stochastic" gradient descent). They also use cleverer step rules, such as Adam. The loop is the same: measure the loss, compute the gradient, take a small step, repeat.
+</Callout>
+
+<Callout kind="trap">
+A low loss on the examples you trained on proves much less than it seems. A model can memorise its examples and still be useless on new ones. That's why the accuracy here is measured only on the held-back dots, and it's the whole subject of [Memorising is not learning](/learn/ml/overfitting/).
+</Callout>

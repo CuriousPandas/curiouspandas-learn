@@ -1,0 +1,39 @@
+---
+// The bridge from the sandbox to TemplateMechanics/tilt. The badge is
+// self-reported and says so: the site cannot see your machine and does not
+// want to. Faking it costs nobody anything except the learning.
+interface Props { id: string; lab?: string; profile?: string; xp?: number }
+const { id, lab, profile = 'minimal', xp = 50 } = Astro.props;
+const labUrl = lab ? `https://github.com/TemplateMechanics/tilt/tree/main/labs/${lab}` : 'https://github.com/TemplateMechanics/tilt';
+// Our setup lesson once it is written; the platform's own guide until then.
+const { curriculum } = await import('../lib/curriculum.ts');
+const setupReady = (await curriculum()).some((t) => t.lessons.some((l) => l.id === 'platform/bring-it-home' && l.entry));
+const setupUrl = setupReady ? '/learn/platform/bring-it-home/' : 'https://github.com/TemplateMechanics/tilt/blob/main/docs/STUDENT-SETUP.md';
+---
+<section class="real card" data-real={id} data-xp={xp}>
+  <div class="r-head"><span class="eyebrow">Do it for real · your machine</span><span class="pill gold">+{xp} XP bonus</span></div>
+  <p>Everything above ran in your browser. Now do it on a real cluster with
+    {lab ? <> <a href={labUrl}>tilt lab <code>{lab}</code></a> (profile <code>{profile}</code>)</> : <a href={labUrl}>the tilt platform</a>}.
+    You need Docker, kind and Tilt, about 15 GB of free disk and 8 GB of spare RAM. <a href={setupUrl}>Setup guide</a> · <a href="/machine/">Can my machine run it?</a></p>
+  <slot />
+  <div class="r-foot">
+    <button class="btn small" type="button" data-claim>I passed the check on my machine</button>
+    <span class="muted small">Self-reported. We can't see your machine, and we don't want to. This is a bonus, never required.</span>
+  </div>
+</section>
+<script>
+  import { award } from '../lib/ui.ts';
+  import { store } from '../lib/progress.ts';
+  for (const root of document.querySelectorAll<HTMLElement>('[data-real]')) {
+    const id = root.dataset.real!, btn = root.querySelector<HTMLButtonElement>('[data-claim]')!;
+    const mark = () => { btn.disabled = true; btn.textContent = 'Done for real ✓'; };
+    if (store().has('real', id)) mark();
+    btn.addEventListener('click', () => { award('real', id, Number(root.dataset.xp), 'Did it for real'); mark(); });
+  }
+</script>
+<style>
+  .real { margin: 36px 0; padding: 16px 18px; border-left: 4px solid var(--sun); }
+  .r-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .r-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
+  .small { font-size: 0.82rem; }
+</style>

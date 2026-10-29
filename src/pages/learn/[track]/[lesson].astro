@@ -1,0 +1,94 @@
+---
+import { render } from 'astro:content';
+import Base from '../../../layouts/Base.astro';
+import RunsOn from '../../../components/RunsOn.astro';
+import Icon from '../../../components/Icon.astro';
+
+// Every component is available to every lesson by its file name, so a new
+// widget needs no edit here. scripts/check-site.mjs drives each widget, so a
+// misspelled tag shows up there as a widget that never appeared.
+const modules = import.meta.glob<{ default: unknown }>('../../../components/*.astro', { eager: true });
+const components = Object.fromEntries(Object.entries(modules).map(([p, m]) => [p.split('/').pop()!.replace('.astro', ''), m.default]));
+import { curriculum } from '../../../lib/curriculum.ts';
+
+export async function getStaticPaths() {
+  const tracks = await curriculum();
+  return tracks.flatMap((t) => t.lessons.filter((l) => l.entry).map((l) => {
+    const ready = t.lessons.filter((x) => x.entry);
+    const i = ready.indexOf(l);
+    return { params: { track: t.id, lesson: l.slug }, props: { track: t, lesson: l, prev: ready[i - 1], next: ready[i + 1] } };
+  }));
+}
+
+const { track, lesson, prev, next } = Astro.props;
+const entry = lesson.entry!;
+const { Content } = await render(entry);
+const fm = entry.data;
+const nextPlanned = track.lessons.slice(lesson.index + 1).find((l) => !l.entry);
+---
+<Base title={fm.title} description={fm.summary}>
+  <article class="wrap lesson" style={`--hue:${track.hue}`}>
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/tracks/">Learn</a> / <a href={`/tracks/${track.id}/`}>{track.title}</a> / <span>Lesson {lesson.index + 1}</span></nav>
+    <header class="l-head">
+      <div class="badge"><Icon name={track.icon} size={26} /></div>
+      <div>
+        <h1>{fm.title}</h1>
+        <p class="summary">{fm.summary}</p>
+        <div class="meta"><RunsOn tiers={fm.tiers} /><span class="pill">{fm.minutes} min</span><span class="pill gold">+{fm.xp} XP for finishing</span></div>
+      </div>
+    </header>
+    <div class="body prose-wide">
+      <Content components={components} />
+    </div>
+    {fm.sources.length > 0 && (
+      <section class="sources prose">
+        <h2>Sources</h2>
+        <ul>{fm.sources.map((s) => <li><a href={s.url}>{s.title}</a></li>)}</ul>
+      </section>
+    )}
+    <section class="finish card" data-finish={entry.id} data-xp={fm.xp}>
+      <div>
+        <strong>Finished reading?</strong>
+        <p class="muted">Missions and quizzes above earn their own XP. This marks the lesson done.</p>
+      </div>
+      <button class="btn primary" type="button" data-done>Mark lesson complete · +{fm.xp} XP</button>
+    </section>
+    <nav class="pager" aria-label="Lessons">
+      {prev ? <a class="btn" href={prev.href}>← {prev.title}</a> : <span></span>}
+      {next ? <a class="btn primary" href={next.href}>Next: {next.title} →</a>
+        : nextPlanned ? <span class="pill">Next up, still being written: {nextPlanned.title}</span>
+        : <a class="btn" href="/tracks/">Back to all tracks</a>}
+    </nav>
+  </article>
+</Base>
+
+<script>
+  import { award } from '../../../lib/ui.ts';
+  import { store } from '../../../lib/progress.ts';
+  const box = document.querySelector<HTMLElement>('[data-finish]')!;
+  const btn = box.querySelector<HTMLButtonElement>('[data-done]')!;
+  const mark = () => { btn.disabled = true; btn.textContent = 'Lesson complete ✓'; box.classList.add('done'); };
+  if (store().has('lessons', box.dataset.finish!)) mark();
+  btn.addEventListener('click', () => { award('lessons', box.dataset.finish!, Number(box.dataset.xp), 'Lesson complete'); mark(); });
+</script>
+
+<style>
+  .lesson { padding-top: 24px; }
+  .crumbs { font-size: 0.88rem; color: var(--muted); }
+  .crumbs a { color: var(--muted); }
+  .l-head { display: flex; gap: 16px; align-items: flex-start; margin: 12px 0 8px; max-width: 860px; }
+  .badge { flex: none; width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; color: hsl(var(--hue) 55% 42%); background: hsl(var(--hue) 60% 50% / .14); margin-top: 10px; }
+  .summary { font-size: 1.12rem; color: var(--ink-2); margin: 0 0 12px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .body { max-width: 980px; }
+  .body > :global(p), .body > :global(ul), .body > :global(ol), .body > :global(h2), .body > :global(h3), .body > :global(pre), .body > :global(blockquote), .body > :global(table), .body > :global(.callout) { max-width: 720px; }
+  .body :global(table) { border-collapse: collapse; font-size: 0.93rem; display: block; overflow-x: auto; }
+  .body :global(th), .body :global(td) { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  .sources { margin-top: 36px; font-size: 0.92rem; }
+  .finish { margin: 40px 0 16px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; max-width: 980px; }
+  .finish p { margin: 2px 0 0; font-size: 0.9rem; }
+  .finish.done { border-color: var(--bamboo); }
+  .pager { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; max-width: 980px; }
+  .pager .pill { white-space: normal; }
+  @media (max-width: 600px) { .badge { display: none; } }
+</style>

@@ -1,0 +1,143 @@
+---
+import Base from '../../layouts/Base.astro';
+import { curriculum } from '../../lib/curriculum.ts';
+import { RANKS } from '../../lib/progress.ts';
+const tracks = await curriculum();
+const lessonTitles = Object.fromEntries(tracks.flatMap((t) => t.lessons.filter((l) => l.entry).map((l) => [l.id, `${t.title}: ${l.title}`])));
+// Badges are derived from progress rather than stored, so a new badge applies
+// retroactively and a badge can never disagree with the record it rests on.
+const badges = [
+  { id: 'first-commit', name: 'First Commit', desc: 'Finish the first git mission', rule: 'mission:git-first-commit' },
+  { id: 'peacemaker', name: 'Peacemaker', desc: 'Resolve a merge conflict', rule: 'mission:git-conflict' },
+  { id: 'self-healer', name: 'Self-Healer', desc: 'Watch Kubernetes replace a pod', rule: 'mission:kube-self-heal' },
+  { id: 'detective', name: 'Crash Detective', desc: 'Tell two exit-137 crashes apart', rule: 'mission:kube-two-crashes' },
+  { id: 'bouncer', name: 'Quota Whisperer', desc: 'Find pods that were never born', rule: 'mission:kube-quota' },
+  { id: 'cache-keeper', name: 'Cache Keeper', desc: 'Keep a Docker build cache warm', rule: 'mission:docker-cache' },
+  { id: 'drift-catcher', name: 'Drift Catcher', desc: 'Let GitOps undo a hand edit', rule: 'mission:gitops-drift' },
+  { id: 'truth-seeker', name: 'Truth Seeker', desc: 'Find why a dashboard is empty', rule: 'mission:obs-empty-dashboard' },
+  { id: 'untangler', name: 'Untangler', desc: 'Solve the spiral', rule: 'mission:nn-spiral' },
+  { id: 'racer', name: 'Pit Crew', desc: 'Race the four model-serving strategies', rule: 'mission:kv-race' },
+  { id: 'real', name: 'Did It For Real', desc: 'Pass a tilt lab on your own machine', rule: 'real:any' },
+  { id: 'streak3', name: 'Three-Day Streak', desc: 'Learn three days in a row', rule: 'streak:3' },
+  { id: 'streak7', name: 'Week of Bamboo', desc: 'Learn seven days in a row', rule: 'streak:7' },
+];
+---
+<Base title="Your progress" description="XP, rank, streak and badges - stored only in this browser.">
+  <section class="wrap page">
+    <p class="eyebrow">Progress</p>
+    <h1 data-rank-title>Curious Cub</h1>
+    <div class="card summary">
+      <div class="stat-big"><b data-xp>0</b><span>XP</span></div>
+      <div class="stat-big"><b data-streak>0</b><span>day streak</span></div>
+      <div class="stat-big"><b data-lessons>0</b><span>lessons done</span></div>
+      <div class="rankbar"><div class="muted small" data-next></div><div class="bar"><i data-bar></i></div></div>
+    </div>
+
+    <h2>Badges</h2>
+    <div class="badges" data-badges data-defs={JSON.stringify(badges)}></div>
+
+    <h2>Ranks</h2>
+    <ol class="ranks">{RANKS.map((r) => <li data-rank-xp={r.xp}><strong>{r.name}</strong> <span class="muted">{r.xp} XP</span></li>)}</ol>
+
+    <h2>Lessons completed</h2>
+    <ul class="done-list" data-done-list data-titles={JSON.stringify(lessonTitles)}></ul>
+
+    <h2>Your data</h2>
+    <div class="card data">
+      <p>Everything above lives in this browser's local storage and nowhere else. There is no account and no server copy - clearing site data, or a different browser, starts you fresh. Export it to keep it safe or move it.</p>
+      <p class="state" data-state></p>
+      <div class="controls">
+        <button class="btn" type="button" data-export>Export progress</button>
+        <label class="btn">Import… <input type="file" accept="application/json,.json" data-import hidden /></label>
+        <button class="btn" type="button" data-reset>Reset everything</button>
+      </div>
+    </div>
+  </section>
+</Base>
+<script>
+  import { store, rank, streak } from '../../lib/progress.ts';
+  import { toast } from '../../lib/ui.ts';
+  const s = store();
+  const $ = <T extends Element = HTMLElement>(q: string) => document.querySelector<T>(q)!;
+  const defs: { id: string; name: string; desc: string; rule: string }[] = JSON.parse($('[data-badges]').dataset.defs!);
+  const titles: Record<string, string> = JSON.parse($('[data-done-list]').dataset.titles!);
+
+  s.subscribe((p) => {
+    const r = rank(p.xp), n = streak(p.days);
+    $('[data-rank-title]').textContent = r.name;
+    $('[data-xp]').textContent = String(p.xp);
+    $('[data-streak]').textContent = String(n);
+    $('[data-lessons]').textContent = String(Object.keys(p.lessons).length);
+    $('[data-next]').textContent = r.next ? `${r.toNext} XP to ${r.next.name}` : 'Top rank. Legendary.';
+    $('[data-bar]').style.width = `${Math.round(r.pct * 100)}%`;
+    for (const li of document.querySelectorAll<HTMLElement>('[data-rank-xp]')) li.classList.toggle('reached', p.xp >= Number(li.dataset.rankXp));
+    const earned = (rule: string) => {
+      const [k, v] = rule.split(':');
+      if (k === 'mission') return !!p.missions[v];
+      if (k === 'real') return Object.keys(p.real).length > 0;
+      if (k === 'streak') return n >= Number(v);
+      return false;
+    };
+    $('[data-badges]').replaceChildren(...defs.map((b) => {
+      const d = document.createElement('div');
+      const got = earned(b.rule);
+      d.className = `badge card ${got ? 'got' : ''}`;
+      d.innerHTML = `<span class="medal">${got ? '★' : '☆'}</span><strong></strong><span class="muted"></span>`;
+      d.querySelector('strong')!.textContent = b.name;
+      d.querySelector('.muted')!.textContent = got ? 'Earned' : b.desc;
+      return d;
+    }));
+    const done = Object.entries(p.lessons).sort((a, b) => b[1].localeCompare(a[1]));
+    $('[data-done-list]').replaceChildren(...(done.length ? done.map(([id, at]) => {
+      const li = document.createElement('li');
+      li.textContent = `${titles[id] ?? id} - ${new Date(at).toLocaleDateString()}`;
+      return li;
+    }) : [Object.assign(document.createElement('li'), { className: 'muted', textContent: 'None yet. The first git lesson takes about ten minutes.' })]));
+  });
+
+  const stateEl = $('[data-state]');
+  stateEl.textContent = s.state === 'ok' ? 'Saving normally in this browser.'
+    : s.state === 'unavailable' ? 'This browser is not allowing storage (a private window, or site data blocked). Progress lasts until you close the tab.'
+    : 'Your saved progress could not be read. It has NOT been overwritten - export the raw copy below before resetting.';
+  stateEl.classList.toggle('warn', s.state !== 'ok');
+
+  const download = (name: string, text: string) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  $('[data-export]').addEventListener('click', () => {
+    if (s.state === 'corrupt' && s.raw) download('curiouspandas-progress-RAW.json', s.raw);
+    else download('curiouspandas-progress.json', s.exportJson());
+  });
+  $<HTMLInputElement>('[data-import]').addEventListener('change', async (e) => {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    if (!f) return;
+    try { s.importJson(await f.text()); toast('Progress imported'); location.reload(); } catch (err) { toast(`Import failed: ${(err as Error).message}`); }
+  });
+  $('[data-reset]').addEventListener('click', () => {
+    if (!confirm(s.state === 'corrupt' ? 'Replace the unreadable saved data with a fresh start? Export it first if you want to keep it.' : 'Erase all your XP, streak and progress in this browser? This cannot be undone.')) return;
+    s.reset();
+    location.reload();
+  });
+</script>
+<style>
+  .page { padding-top: 32px; max-width: 900px; }
+  .summary { display: flex; flex-wrap: wrap; gap: 24px; padding: 18px 20px; align-items: center; }
+  .stat-big b { display: block; font-size: 2rem; line-height: 1; color: var(--sun); font-variant-numeric: tabular-nums; }
+  .stat-big span { font-size: 0.85rem; color: var(--muted); }
+  .rankbar { flex: 1; min-width: 200px; }
+  .bar { height: 10px; background: var(--bg-2); border-radius: 99px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--bamboo), var(--sun)); }
+  .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .badges :global(.badge) { padding: 12px; display: flex; flex-direction: column; gap: 2px; opacity: .55; box-shadow: none; }
+  .badges :global(.badge.got) { opacity: 1; border-color: var(--sun); box-shadow: var(--shadow); }
+  .badges :global(.medal) { font-size: 1.5rem; color: var(--sun); }
+  .badges :global(.badge .muted) { font-size: 0.82rem; }
+  .ranks { padding-left: 20px; } .ranks li { color: var(--muted); } .ranks li.reached { color: var(--ink); } .ranks li.reached strong { color: var(--bamboo); }
+  .data { padding: 16px 18px; }
+  .state { font-weight: 600; } .state.warn { color: var(--berry); }
+  .small { font-size: 0.85rem; }
+</style>

@@ -1,0 +1,43 @@
+---
+import Icon from './Icon.astro';
+interface Props { track: { id: string; title: string; tagline: string; icon: string; hue: number; lessons: { id: string; status: string }[] }; n: number }
+const { track, n } = Astro.props;
+const ready = track.lessons.filter((l) => l.status === 'ready');
+---
+<a class="track card" href={`/tracks/${track.id}/`} style={`--hue:${track.hue}`} data-track-card data-lessons={ready.map((l) => l.id).join(' ')}>
+  <div class="t-top"><span class="t-icon"><Icon name={track.icon} /></span><span class="t-n">{String(n).padStart(2, '0')}</span></div>
+  <strong>{track.title}</strong>
+  <p>{track.tagline}</p>
+  <div class="t-foot">
+    <span class="muted">{ready.length ? `${ready.length} of ${track.lessons.length} lessons ready` : `${track.lessons.length} lessons coming`}</span>
+    <span class="t-done" data-done hidden></span>
+  </div>
+  <div class="t-bar"><i data-bar></i></div>
+</a>
+<style>
+  .track { display: flex; flex-direction: column; gap: 6px; padding: 16px; text-decoration: none; color: var(--ink); transition: transform .12s, border-color .12s; position: relative; overflow: hidden; }
+  .track:hover { transform: translateY(-2px); border-color: hsl(var(--hue) 50% 50%); }
+  .t-top { display: flex; justify-content: space-between; align-items: center; }
+  .t-icon { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; color: hsl(var(--hue) 55% 42%); background: hsl(var(--hue) 60% 50% / .14); }
+  .t-n { font: 700 0.8rem var(--mono); color: var(--muted); }
+  .track strong { font-size: 1.08rem; margin-top: 4px; }
+  .track p { margin: 0; color: var(--ink-2); font-size: 0.92rem; flex: 1; }
+  .t-foot { display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 6px; }
+  .t-done { color: var(--bamboo); font-weight: 700; }
+  .t-bar { height: 4px; background: var(--bg-2); border-radius: 99px; overflow: hidden; }
+  .t-bar i { display: block; height: 100%; width: 0; background: hsl(var(--hue) 55% 45%); }
+</style>
+<script>
+  import { store } from '../lib/progress.ts';
+  store().subscribe((p) => {
+    for (const card of document.querySelectorAll<HTMLElement>('[data-track-card]')) {
+      const ids = (card.dataset.lessons ?? '').split(' ').filter(Boolean);
+      if (!ids.length) continue;
+      const done = ids.filter((id) => p.lessons[id]).length;
+      const d = card.querySelector<HTMLElement>('[data-done]')!;
+      d.hidden = done === 0;
+      d.textContent = `${done}/${ids.length} done`;
+      card.querySelector<HTMLElement>('[data-bar]')!.style.width = `${(done / ids.length) * 100}%`;
+    }
+  });
+</script>

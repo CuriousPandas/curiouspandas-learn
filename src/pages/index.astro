@@ -1,0 +1,93 @@
+---
+import Base from '../layouts/Base.astro';
+import TrackCard from '../components/TrackCard.astro';
+import Panda from '../components/Panda.astro';
+import { curriculum, totals } from '../lib/curriculum.ts';
+import { TIERS } from '../data/tracks.ts';
+const tracks = await curriculum();
+const t = totals(tracks);
+const first = tracks[0].lessons[0];
+---
+<Base title="Curious Pandas">
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Free forever · open source · no account</p>
+        <h1>Learn tech by <span class="hl">breaking things.</span></h1>
+        <p class="lede">From your first git commit to Kubernetes, the CNCF toolbox, neural networks and how vLLM serves a language model. Every lesson is something you can poke, break and fix - right here in your browser.</p>
+        <div class="cta">
+          <a class="btn primary" href={first.href}>Start with Git →</a>
+          <a class="btn" href="/playground/">Just let me play</a>
+        </div>
+        <p class="muted small">{t.ready} lessons ready, {t.lessons - t.ready} more being written. Nothing to install.</p>
+      </div>
+      <div class="card toy" data-hash-toy>
+        <div class="toy-head"><Panda size={26} /><strong>Type anything</strong></div>
+        <textarea rows="3" aria-label="Text to hash" data-in>hello, curious panda</textarea>
+        <p class="muted small">This is the exact name git would give that text as a file:</p>
+        <code class="hash" data-out>…</code>
+        <p class="muted small">Change one letter. The whole name changes - that is how git knows what changed without reading every byte. <a href={first.href}>See it in your first commit.</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap how">
+    <div class="grid three">
+      <div class="step"><span>1</span><strong>Play in the browser</strong><p>Real-hash git, a cluster that self-heals and crashes, a neural network you can watch learn, a model server you can overload.</p></div>
+      <div class="step"><span>2</span><strong>Earn your stripes</strong><p>Missions, quizzes and challenges earn XP, ranks and streaks - from Curious Cub to Legendary Panda. Kept in your browser, nowhere else.</p></div>
+      <div class="step"><span>3</span><strong>Do it for real</strong><p>Each infrastructure lesson ends with the same thing on a real cluster, using the open <a href="https://github.com/TemplateMechanics/tilt">tilt platform</a> and its graded labs.</p></div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Eight trails</h2>
+    <div class="grid three">{tracks.map((tr, i) => <TrackCard track={tr} n={i + 1} />)}</div>
+  </section>
+
+  <section class="wrap tiers">
+    <h2>Works on the computer you have</h2>
+    <p class="lede">Free learning sites usually die on the cost of hosting a lab machine for every learner. This one never hosts compute: your browser does the work, so it costs the same for ten learners or ten million - nothing - and no lesson's points are locked behind hardware.</p>
+    <div class="grid two">
+      {(Object.keys(TIERS) as (keyof typeof TIERS)[]).map((k) => (
+        <div class="card tier"><strong>{TIERS[k].label}</strong><p>{TIERS[k].detail}</p></div>
+      ))}
+    </div>
+    <p><a href="/machine/">Check what your device can run →</a></p>
+  </section>
+</Base>
+
+<script>
+  import { hashOf } from '../lib/git/repo.ts';
+  const toy = document.querySelector<HTMLElement>('[data-hash-toy]')!;
+  const input = toy.querySelector<HTMLTextAreaElement>('[data-in]')!;
+  const out = toy.querySelector<HTMLElement>('[data-out]')!;
+  // A trailing newline, as `echo` would write it - the same bytes the
+  // playground hashes, so this number matches `echo "..." | git hash-object --stdin`.
+  const show = () => { out.textContent = hashOf({ type: 'blob', data: input.value + '\n' }); out.classList.remove('flash'); void out.offsetWidth; out.classList.add('flash'); };
+  input.addEventListener('input', show);
+  show();
+</script>
+
+<style>
+  .hero { padding: 48px 0 32px; background: radial-gradient(1200px 400px at 80% -10%, var(--bamboo-soft), transparent 70%); }
+  .hero-grid { display: grid; gap: 28px; align-items: center; }
+  @media (min-width: 900px) { .hero-grid { grid-template-columns: 1.15fr 1fr; } }
+  .hl { color: var(--bamboo); }
+  .lede { font-size: 1.12rem; color: var(--ink-2); max-width: 640px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 10px; }
+  .small { font-size: 0.86rem; }
+  .toy { padding: 18px; }
+  .toy-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .toy textarea { width: 100%; font: 15px/1.5 var(--mono); padding: 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); resize: vertical; }
+  .hash { display: block; font-size: 0.95rem; padding: 10px 12px; border-radius: 10px; background: var(--term-bg); color: var(--term-hint); word-break: break-all; }
+  .hash.flash { animation: flash .4s ease-out; }
+  @keyframes flash { from { color: #fff; } }
+  .how { margin-top: 24px; }
+  .step { padding: 4px 0; }
+  .step span { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--sun-soft); color: var(--sun); font-weight: 800; margin-bottom: 6px; }
+  .step strong { display: block; font-size: 1.05rem; }
+  .step p { color: var(--ink-2); margin: 4px 0 0; }
+  .tiers { margin-top: 12px; }
+  .tier { padding: 14px 16px; }
+  .tier p { margin: 4px 0 0; color: var(--ink-2); font-size: 0.93rem; }
+</style>

@@ -1,0 +1,86 @@
+---
+title: A typo is not an outage
+summary: A rolling update only retires an old pod once a new one is Ready. Ship a broken image tag, watch the old version keep serving, and finish the rollout properly.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+tiltLab: 07-stateful-rollout
+sources:
+  - title: Kubernetes docs - Deployments (rolling updates, failed deployments)
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+  - title: TemplateMechanics/tilt lab 07 - Why did my database rollout hang?
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/07-stateful-rollout
+---
+
+When you change a Deployment's image, Kubernetes doesn't stop everything and start again. It makes a **new ReplicaSet** for the new pod template and moves pods across a few at a time. That's a **rolling update**, and its whole job is to never leave you with nothing serving.
+
+Two knobs control the pace. **maxSurge** sets how many extra pods may exist during the update, and **maxUnavailable** sets how many may be missing. Both default to **25%**. The docs put it as: at least 75% of the desired pods are up, and at most 125% exist.
+
+The key rule: an old pod is removed only when a new one is **Ready**. So if the new version never becomes Ready, the old version is never removed.
+
+## Ship a typo
+
+<KubeSim mission="kube-rollout" title="hello:2.O" />
+
+<Callout kind="tip">
+`kubectl get rs` shows both ReplicaSets side by side: the old one still holding its pods, and the new one stuck. `kubectl describe deploy hello` shows the same from the Deployment's side.
+</Callout>
+
+## Stuck is not the same as fixed
+
+The Kubernetes docs walk through exactly this case, a mistyped image tag, and say plainly: *the rollout gets stuck*. After `progressDeadlineSeconds` (600 by default) the Deployment reports `ProgressDeadlineExceeded`. Then, again in the docs' words, Kubernetes **takes no action on a stalled Deployment other than to report a status condition**. Nothing rolls back by itself. A person (or a tool like Flagger) has to.
+
+Your options are what you just did: fix the tag and roll forward, or `kubectl rollout undo` to go back to the previous template.
+
+## When the safe default is the wrong one
+
+Rolling updates assume old and new pods can run side by side. A database with one volume can't. The tilt platform's lab 07 reproduces a real incident: a MySQL Deployment on `RollingUpdate`, where the new pod waits forever for a file lock the old pod holds. **733 restarts, two days, zero alerts.** The old pod kept serving the whole time, so everything looked green. For one replica on one ReadWriteOnce volume, `strategy: Recreate`, which stops the old pod first, is the only correct choice.
+
+<Quiz
+  id="kube-rollout-1"
+  q="You deploy an image tag that doesn't exist. With the default strategy, what do users see?"
+  options={["An outage until you fix it", "The old version, still serving: the new pod never becomes Ready, so old pods are never removed", "A 50/50 mix of old and new"]}
+  answer={1}
+  explain="Old pods are retired only as new ones become Ready. A new pod stuck in ImagePullBackOff never is, so the rollout stalls with the old version still serving."
+/>
+
+<Quiz
+  id="kube-rollout-2"
+  q="A rollout has been stuck for 20 minutes. What has Kubernetes done about it?"
+  options={["Rolled back automatically after 10 minutes", "Reported ProgressDeadlineExceeded and nothing else: undo or roll forward yourself", "Deleted the new ReplicaSet"]}
+  answer={1}
+  explain="The docs say Kubernetes takes no action on a stalled Deployment beyond reporting the condition. Higher-level tools can act on it; plain Deployments don't."
+/>
+
+<Quiz
+  id="kube-rollout-3"
+  q="A single-replica database Deployment with one ReadWriteOnce volume. Which strategy?"
+  options={["RollingUpdate, the default", "Recreate: stop the old pod before starting the new one, so they never fight over the volume", "Either; it doesn't matter"]}
+  answer={1}
+  explain="RollingUpdate starts the new pod first, and it can never get the lock or mount the old pod holds. Recreate accepts a short gap in exchange for an update that can finish. A StatefulSet is the fuller answer."
+/>
+
+<Callout kind="real">
+Progressive delivery goes further. Flagger, in tilt lab 06, sends a slice of traffic to the new version, watches its success rate, and promotes or rolls back on its own. It's built from pieces you already have: the Deployment, the Gateway and Prometheus.
+</Callout>
+
+<DoItForReal id="kube-rollout-real" lab="07-stateful-rollout">
+
+```bash
+kubectl apply -f labs/07-stateful-rollout/mysql.yaml
+./labs/07-stateful-rollout/break.sh
+kubectl -n lab07 get pods -w
+kubectl -n lab07 logs -l app=mysql --tail=5 | grep -i lock
+./labs/07-stateful-rollout/fix.sh
+./scripts/platform.sh lab 07
+```
+
+Then try the typo for real on `hello`:
+
+```bash
+kubectl -n hello set image deploy/hello podinfo=ghcr.io/stefanprodan/podinfo:does-not-exist
+kubectl -n hello get rs
+kubectl -n hello rollout undo deploy/hello
+```
+
+</DoItForReal>

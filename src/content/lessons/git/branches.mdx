@@ -1,0 +1,63 @@
+---
+title: Branches are just names
+summary: A branch isn't a copy of your project. It's a sticky note pointing at one commit. Make one, change it, and merge it back.
+minutes: 12
+xp: 30
+tiers: [browser, machine]
+sources:
+  - title: Pro Git, chapter 3.1 - Branches in a Nutshell
+    url: https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell
+---
+
+People picture a branch as a whole separate copy of the project. It isn't. **A branch is a name attached to one commit**: a tiny file holding a hash. Making a branch costs nothing and copies nothing, which is why git users make them constantly.
+
+Every commit also remembers its **parent**, the commit that came before it. So a branch name plus the parent links gives you a whole history: start at the commit the name points to and follow the parents back.
+
+When you commit on a branch, git makes the new commit and moves that branch's name forward to it. The other branches don't move. That's the whole trick.
+
+## Branch, change, merge
+
+You start with one commit on `main`. Make a branch, commit on it, then go back to `main` and watch your change vanish from the file. It isn't lost; `main` simply points at an older snapshot. Then merge.
+
+<GitPlayground mission="git-branch-merge" title="A branch called idea" />
+
+<Callout kind="tip">
+In the graph, the label in green is where each branch name points. `HEAD -> main` means "you are on main". HEAD is git's name for "where you are now".
+</Callout>
+
+## Fast-forward vs. a real merge
+
+In this mission, `main` didn't move while you were away. Merging only had to slide the `main` label forward to where `idea` was. Git calls this a **fast-forward**, and it creates no new commit.
+
+If `main` *had* moved, both branches would hold work the other lacks. Then git does a **three-way merge**. It compares both branch tips with their last common ancestor, combines the changes, and records a **merge commit** with *two* parents. Try it in the [playground](/playground/#git): commit on both branches before you merge.
+
+<Quiz
+  id="git-branch-1"
+  q="You make a branch called experiment. How much disk space does git use for it?"
+  options={["A full copy of every file", "Just the files that differ from main", "Almost nothing: a small file holding one commit hash"]}
+  answer={2}
+  explain="A branch is a name for a commit, stored as a tiny file containing a hash. Files only cost space when you commit new contents, and even then git stores each unique piece of content just once."
+/>
+
+<Quiz
+  id="git-branch-2"
+  q="git merge says 'Fast-forward'. What happened?"
+  options={["Git skipped your commits to save time", "The branch you're on had no new commits of its own, so git just moved its name forward", "Git made a merge commit quickly"]}
+  answer={1}
+  explain="Fast-forward means one branch was already an ancestor of the other. There was nothing to combine, so git moved the label. No merge commit is made unless you ask with --no-ff."
+/>
+
+<DoItForReal id="git-branch-real">
+
+```bash
+git switch -c idea
+echo "bamboo can grow 90cm in a day" >> notes.md
+git commit -am "add a fact"
+git switch main
+git merge idea
+git log --oneline --graph --all
+```
+
+`--graph --all` draws the same picture as the playground, in text.
+
+</DoItForReal>

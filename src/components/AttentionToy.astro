@@ -1,0 +1,102 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card attn" data-attention>
+  <div class="widget-head">
+    <strong>Who is "it"? Watch the attention weights</strong>
+    <span class="spacer"></span>
+    <span class="pill warn">hand-set numbers, real arithmetic</span>
+  </div>
+  <div class="controls">
+    <label>Sentence <select data-sentence><option value="hungry">… because it was hungry</option><option value="tasty">… because it was tasty</option></select></label>
+    <label>Sharpness <input type="range" min="0.2" max="3" step="0.1" value="1" data-sharp /> <b data-sv>1.0</b></label>
+  </div>
+  <p class="muted small">Click a word to see where it looks. Each word can only look at itself and the words before it.</p>
+  <div class="attn-words" data-words></div>
+  <div class="attn-bars" data-bars aria-live="polite"></div>
+  <details class="attn-matrix-box"><summary>The whole attention matrix (each row sums to 100%)</summary><div class="attn-matrix" data-matrix></div></details>
+</div>
+
+<script>
+  import { tokens, attentionRow, attentionMatrix, SENTENCES } from '../lib/attention/toy.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-attention]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    let selected = -1;
+    const render = () => {
+      const toks = tokens(SENTENCES[q<HTMLSelectElement>('[data-sentence]').value as keyof typeof SENTENCES]);
+      const sharp = Number(q<HTMLInputElement>('[data-sharp]').value);
+      q('[data-sv]').textContent = sharp.toFixed(1);
+      if (selected < 0 || selected >= toks.length) selected = toks.length - 1;
+      const row = attentionRow(toks, selected, sharp);
+      q('[data-words]').replaceChildren(...toks.map((t, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `w${i === selected ? ' sel' : ''}${i > selected ? ' future' : ''}`;
+        b.textContent = t.text;
+        // The highlight strength is the weight itself, so the sentence doubles as a heatmap.
+        b.style.setProperty('--a', String(i <= selected ? row[i] : 0));
+        b.title = i > selected ? 'after the selected word - invisible to it' : `${(row[i] * 100).toFixed(1)}% of "${toks[selected].text}"'s attention`;
+        b.addEventListener('click', () => { selected = i; render(); });
+        return b;
+      }));
+      q('[data-bars]').replaceChildren(...toks.slice(0, selected + 1).map((t, j) => {
+        const r = document.createElement('div');
+        r.className = 'bar';
+        const label = document.createElement('code');
+        label.textContent = t.text;
+        const track = document.createElement('div');
+        const fill = document.createElement('i');
+        fill.style.width = `${(row[j] * 100).toFixed(1)}%`;
+        track.append(fill);
+        const pct = document.createElement('span');
+        pct.textContent = `${(row[j] * 100).toFixed(1)}%`;
+        r.append(label, track, pct);
+        return r;
+      }));
+      const m = attentionMatrix(toks, sharp);
+      const grid = q('[data-matrix]');
+      grid.style.setProperty('--n', String(toks.length));
+      grid.replaceChildren(
+        document.createElement('span'),
+        ...toks.map((t) => Object.assign(document.createElement('span'), { className: 'h', textContent: t.text })),
+        ...m.flatMap((r, i) => [
+          Object.assign(document.createElement('span'), { className: 'h r', textContent: toks[i].text }),
+          ...r.map((v, j) => {
+            const c = document.createElement('span');
+            c.className = j > i ? 'c masked' : 'c';
+            c.style.setProperty('--a', String(v));
+            c.title = j > i ? 'masked: the future is not visible' : `${toks[i].text} → ${toks[j].text}: ${(v * 100).toFixed(1)}%`;
+            return c;
+          }),
+        ]),
+      );
+    };
+    q('[data-sentence]').addEventListener('change', () => { selected = -1; render(); });
+    q('[data-sharp]').addEventListener('input', render);
+    render();
+  }
+</script>
+
+<style is:global>
+  /* Global and prefixed by .attn: the words, bars and matrix cells are created
+     by the script, and Astro's scoped styles never reach elements it did not
+     render. */
+  .attn .small { font-size: 0.85rem; margin: 6px 0; }
+  .attn .attn-words { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+  .attn .attn-words .w { font: 600 15px var(--mono); padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line-2); cursor: pointer; color: var(--ink);
+    background: color-mix(in srgb, var(--sun) calc(var(--a) * 100%), var(--panel)); }
+  .attn .attn-words .w.sel { outline: 3px solid var(--sky); outline-offset: 1px; }
+  .attn .attn-words .w.future { opacity: .35; border-style: dashed; }
+  .attn .attn-bars { display: grid; gap: 4px; margin: 12px 0; }
+  .attn .attn-bars .bar { display: grid; grid-template-columns: 80px 1fr 56px; align-items: center; gap: 8px; font-size: 0.85rem; }
+  .attn .attn-bars .bar div { height: 14px; background: var(--bg-2); border-radius: 4px; overflow: hidden; }
+  .attn .attn-bars .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--sun), var(--bamboo)); transition: width .25s; }
+  .attn .attn-bars .bar span { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .attn .attn-matrix-box { font-size: 0.9rem; }
+  .attn .attn-matrix { display: grid; grid-template-columns: 64px repeat(var(--n), minmax(0, 1fr)); gap: 2px; margin-top: 10px; font: 11px var(--mono); overflow-x: auto; }
+  .attn .attn-matrix .h { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .attn .attn-matrix .h.r { text-align: right; padding-right: 4px; }
+  .attn .attn-matrix .c { aspect-ratio: 1; border-radius: 3px; background: color-mix(in srgb, var(--bamboo) calc(var(--a) * 100%), var(--bg-2)); }
+  .attn .attn-matrix .c.masked { background: repeating-linear-gradient(45deg, var(--bg-2) 0 3px, transparent 3px 6px); }
+</style>

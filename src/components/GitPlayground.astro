@@ -1,0 +1,156 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string; title?: string }
+const { mission, title = 'Git playground' } = Astro.props;
+---
+<div class="widget card git-pg" data-git-playground data-mission={mission ?? ''}>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info">real git hashes</span>
+    <span class="spacer"></span>
+    <button class="btn small" type="button" data-reset>Start over</button>
+  </div>
+  <div class="git-grid">
+    <div class="git-left">
+      <div data-term></div>
+      <div class="git-areas">
+        <div><div class="eyebrow">Working tree</div><ul data-area="work"></ul></div>
+        <div><div class="eyebrow">Staging area</div><ul data-area="index"></ul></div>
+        <div><div class="eyebrow">Last commit</div><ul data-area="head"></ul></div>
+      </div>
+    </div>
+    <div class="git-right">
+      <div data-mission-panel hidden></div>
+      <div class="graph-box">
+        <div class="eyebrow">Commit graph</div>
+        <div data-graph class="graph"><p class="muted">No commits yet.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { Repo } from '../lib/git/repo.ts';
+  import { run } from '../lib/git/shell.ts';
+  import { GIT_MISSIONS, type GitState } from '../lib/missions.ts';
+  import { mountTerminal, mountMission, el } from '../lib/ui.ts';
+
+  const SVG = 'http://www.w3.org/2000/svg';
+  const svg = (tag: string, attrs: Record<string, string | number>) => {
+    const e = document.createElementNS(SVG, tag) as SVGElement;
+    // var(--x) in a presentation attribute is not reliably resolved across
+    // browsers; as a style property it always is, so theme colours go there.
+    for (const [k, v] of Object.entries(attrs)) {
+      if (String(v).includes('var(')) e.style.setProperty(k, String(v));
+      else e.setAttribute(k, String(v));
+    }
+    return e;
+  };
+
+  function drawGraph(box: HTMLElement, repo: Repo) {
+    const commits = repo.allCommits();
+    if (!commits.length) { box.replaceChildren(el('p', { class: 'muted' }, 'No commits yet. Make one and it appears here.')); return; }
+    // A commit's lane is the first branch (in creation order, main first) that
+    // contains it, so shared history sits on main and divergence fans out.
+    const branches = [...repo.branches.keys()].sort((a, b) => (a === 'main' ? -1 : b === 'main' ? 1 : 0));
+    const reach = branches.map((b) => repo.ancestors(repo.branches.get(b)!));
+    const lane = (c: string) => { const i = reach.findIndex((r) => r.has(c)); return i < 0 ? branches.length : i; };
+    const row = new Map(commits.map((c, i) => [c, i]));
+    const X = (l: number) => 18 + l * 26, Y = (r: number) => 18 + r * 38;
+    const lanes = Math.max(1, ...commits.map(lane)) + 1;
+    const width = X(lanes) + 260;
+    const s = svg('svg', { viewBox: `0 0 ${width} ${Y(commits.length - 1) + 22}`, width, role: 'img', 'aria-label': `Commit graph with ${commits.length} commits` });
+    const hue = (l: number) => [150, 210, 30, 290, 340, 60][l % 6];
+    for (const c of commits) {
+      for (const p of repo.commit(c).parents) {
+        if (!row.has(p)) continue;
+        const x1 = X(lane(c)), y1 = Y(row.get(c)!), x2 = X(lane(p)), y2 = Y(row.get(p)!);
+        const d = x1 === x2 ? `M${x1} ${y1}L${x2} ${y2}` : `M${x1} ${y1}C${x1} ${y1 + 22} ${x2} ${y2 - 22} ${x2} ${y2}`;
+        s.append(svg('path', { d, fill: 'none', stroke: `hsl(${hue(Math.max(lane(c), lane(p)))} 55% 50%)`, 'stroke-width': 2.5 }));
+      }
+    }
+    for (const c of commits) {
+      const o = repo.commit(c), x = X(lane(c)), y = Y(row.get(c)!);
+      const head = repo.headSha() === c;
+      s.append(svg('circle', { cx: x, cy: y, r: head ? 8 : 6.5, fill: `hsl(${hue(lane(c))} 55% 50%)`, stroke: head ? 'var(--ink)' : 'var(--panel)', 'stroke-width': head ? 3 : 2 }));
+      const t = svg('text', { x: X(lanes) + 4, y: y + 4, 'font-size': 12, 'font-family': 'var(--mono)', fill: 'var(--ink)' });
+      const sha = svg('tspan', { fill: 'var(--sun)' }); sha.textContent = c.slice(0, 7) + ' ';
+      t.append(sha);
+      const deco = repo.decorations(c);
+      if (deco) { const d = svg('tspan', { fill: 'var(--bamboo)', 'font-weight': 700 }); d.textContent = `(${deco}) `; t.append(d); }
+      const msg = svg('tspan', {}); msg.textContent = o.message.split('\n')[0].slice(0, 34);
+      t.append(msg);
+      const tip = svg('title', {}); tip.textContent = `${c}\n${o.parents.length > 1 ? 'merge commit - two parents' : o.parents.length ? '1 parent' : 'root commit - no parent'}`;
+      t.append(tip);
+      s.append(t);
+    }
+    box.replaceChildren(s);
+  }
+
+  function drawAreas(root: HTMLElement, repo: Repo) {
+    const st = repo.initialized ? repo.status() : null;
+    const head = repo.treeOfCommit(repo.headSha());
+    const fill = (name: string, items: [string, string][]) => {
+      const ul = root.querySelector(`[data-area="${name}"]`)!;
+      ul.replaceChildren(...(items.length ? items.map(([p, cls]) => el('li', { class: cls }, p)) : [el('li', { class: 'none' }, '-')]));
+    };
+    const changed = new Set(st?.unstaged.map((u) => u.path));
+    const untracked = new Set(st?.untracked);
+    const stagedSet = new Set(st?.staged.map((u) => u.path));
+    fill('work', [...repo.workdir.keys()].sort().map((p) => [p, untracked.has(p) ? 'new' : changed.has(p) ? 'mod' : '']));
+    fill('index', [...repo.index.keys()].sort().map((p) => [p, stagedSet.has(p) ? 'staged' : '']));
+    fill('head', [...head.keys()].sort().map((p) => [p, '']));
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-git-playground]')) {
+    const mission = GIT_MISSIONS[root.dataset.mission ?? ''];
+    const termBox = root.querySelector<HTMLElement>('[data-term]')!;
+    const graph = root.querySelector<HTMLElement>('[data-graph]')!;
+    const panel = root.querySelector<HTMLElement>('[data-mission-panel]')!;
+    let state: GitState;
+    let refreshMission = () => {};
+    const fresh = () => { state = mission ? mission.setup() : { repo: new Repo(), history: [] }; };
+    fresh();
+    const redraw = () => { drawGraph(graph, state.repo); drawAreas(root, state.repo); refreshMission(); };
+    const term = mountTerminal(termBox, {
+      prompt: 'panda $',
+      greeting: mission
+        ? [`Mission: ${mission.title}. The checklist on the right follows what you do.`, 'Type help for commands. Up-arrow repeats the last one.']
+        : ['A real-hash git sandbox. Nothing here touches your computer.', 'Type help to see commands, or start with: git init'],
+      onCommand: (line) => {
+        state.history.push(line);
+        const out = run(state.repo, line);
+        redraw();
+        return out;
+      },
+    });
+    if (mission) {
+      panel.hidden = false;
+      refreshMission = mountMission(panel, mission, () => state, (cmd) => term.type(cmd));
+    }
+    root.querySelector('[data-reset]')!.addEventListener('click', () => { fresh(); term.clear(); term.print([{ text: 'Fresh start.', kind: 'dim' }]); redraw(); });
+    redraw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the pods, nodes and file lists are
+     created by the script, and Astro's scoped styles never reach elements it did
+     not render, so scoped rules here silently styled nothing. */
+  .git-pg .git-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .git-pg .git-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+  .git-pg .git-left, .git-pg .git-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .git-pg .git-areas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .git-pg .git-areas > div { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+  .git-pg .git-areas ul { list-style: none; margin: 4px 0 0; padding: 0; font: 12.5px/1.6 var(--mono); }
+  .git-pg .git-areas li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-pg .git-areas li.new { color: var(--berry); }
+  .git-pg .git-areas li.new::after { content: " ?"; }
+  .git-pg .git-areas li.mod { color: var(--sun); }
+  .git-pg .git-areas li.mod::after { content: " ✎"; }
+  .git-pg .git-areas li.staged { color: var(--bamboo); font-weight: 700; }
+  .git-pg .git-areas li.none { color: var(--muted); }
+  .git-pg .graph-box { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .git-pg .graph { overflow-x: auto; margin-top: 6px; }
+  .git-pg .graph svg { display: block; max-width: none; }
+</style>

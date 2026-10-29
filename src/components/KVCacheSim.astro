@@ -1,0 +1,114 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card kv" data-kvsim data-mission={mission}>
+  <div class="widget-head"><strong>GPU memory, one square per 16-token block</strong><span class="spacer"></span><span class="pill info" data-step>step 0</span></div>
+  <div class="controls">
+    <label>Memory <select data-policy><option value="contiguous">reserve the max per request</option><option value="paged">pages on demand (vLLM)</option></select></label>
+    <label>Batching <select data-batch><option value="static">static - wait for the whole batch</option><option value="continuous">continuous - refill every step</option></select></label>
+  </div>
+  <div class="controls">
+    <button class="btn primary small" type="button" data-play>Run</button>
+    <button class="btn small" type="button" data-one>Step</button>
+    <button class="btn small" type="button" data-reset>Reset</button>
+    <button class="btn small" type="button" data-race>Race all four</button>
+  </div>
+  <div class="kv-blocks" data-blocks role="img" aria-label="KV cache blocks coloured by request; pale squares are reserved but empty"></div>
+  <div class="legend"><span><i style="background:hsl(150 55% 45%)"></i>tokens stored</span><span><i style="background:hsl(150 55% 45% / .22); outline: 1px dashed var(--line-2)"></i>reserved, still empty</span><span><i style="background:var(--bg-2); outline: 1px solid var(--line)"></i>free</span></div>
+  <div class="stats">
+    <div class="stat">serving now<b data-running>0</b></div>
+    <div class="stat">waiting<b data-waiting>0</b></div>
+    <div class="stat">finished<b data-done>0</b></div>
+    <div class="stat">reserved but empty<b data-waste>-</b></div>
+    <div class="stat">tokens per step<b data-tps>-</b></div>
+    <div class="stat">evictions<b data-pre>0</b></div>
+  </div>
+  <div class="race" data-race-out hidden></div>
+</div>
+
+<script>
+  import { KVSim, workload, type Policy, type Batching } from '../lib/kv/sim.ts';
+  import { award } from '../lib/ui.ts';
+
+  const CFG = { blocks: 96, blockSize: 16, maxSeqLen: 512, maxBatch: 16 };
+  const WORK = workload(48, 21, CFG.maxSeqLen);
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-kvsim]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const policy = q<HTMLSelectElement>('[data-policy]'), batch = q<HTMLSelectElement>('[data-batch]');
+    let sim: KVSim, timer: ReturnType<typeof setInterval> | undefined;
+    const blocksBox = q('[data-blocks]');
+    const cells = Array.from({ length: CFG.blocks }, () => { const d = document.createElement('i'); blocksBox.append(d); return d; });
+
+    const fresh = () => { sim = new KVSim({ ...CFG, policy: policy.value as Policy, batching: batch.value as Batching }, WORK); draw(); };
+    const draw = () => {
+      const fill = new Map<number, number>();
+      for (const r of sim.running) {
+        let left = sim.tokensHeld(r);
+        for (const b of r.blocks) { fill.set(b, Math.max(0, Math.min(1, left / CFG.blockSize))); left -= CFG.blockSize; }
+      }
+      cells.forEach((c, i) => {
+        const o = sim.owner[i];
+        if (o === null) { c.className = 'free'; c.style.background = ''; return; }
+        const h = (o * 67) % 360, f = fill.get(i) ?? 0;
+        c.className = 'used';
+        c.style.background = `linear-gradient(to top, hsl(${h} 55% 45%) ${f * 100}%, hsl(${h} 55% 45% / .2) ${f * 100}%)`;
+        c.title = `request #${o} · ${Math.round(f * CFG.blockSize)}/${CFG.blockSize} tokens`;
+      });
+      const s = sim.stats();
+      q('[data-step]').textContent = sim.finished ? `done in ${sim.step} steps` : `step ${sim.step}`;
+      q('[data-running]').textContent = String(sim.running.length);
+      q('[data-waiting]').textContent = String(sim.waiting.length);
+      q('[data-done]').textContent = `${sim.done.length}/${WORK.length}`;
+      q('[data-waste]').textContent = s.reserved ? `${Math.round(s.waste * 100)}%` : '-';
+      q('[data-tps]').textContent = sim.step ? (sim.generatedTokens / sim.step).toFixed(1) : '-';
+      q('[data-pre]').textContent = String(sim.done.concat(sim.running, sim.waiting).reduce((n, r) => n + r.preemptions, 0));
+      if (sim.finished) stop();
+    };
+    const play = q<HTMLButtonElement>('[data-play]');
+    const stop = () => { clearInterval(timer); timer = undefined; play.textContent = 'Run'; };
+    play.addEventListener('click', () => {
+      if (timer) return stop();
+      if (sim.finished) fresh();
+      play.textContent = 'Pause';
+      timer = setInterval(() => { sim.tick(); draw(); }, 70);
+    });
+    q('[data-one]').addEventListener('click', () => { sim.tick(); draw(); });
+    q('[data-reset]').addEventListener('click', () => { stop(); fresh(); });
+    policy.addEventListener('change', () => { stop(); fresh(); });
+    batch.addEventListener('change', () => { stop(); fresh(); });
+
+    q('[data-race]').addEventListener('click', () => {
+      const combos: [Policy, Batching, string][] = [
+        ['contiguous', 'static', 'reserve max · static'], ['contiguous', 'continuous', 'reserve max · continuous'],
+        ['paged', 'static', 'paged · static'], ['paged', 'continuous', 'paged · continuous (vLLM)'],
+      ];
+      const results = combos.map(([p, b, label]) => ({ label, steps: new KVSim({ ...CFG, policy: p, batching: b }, WORK).runToEnd().step }));
+      const worst = Math.max(...results.map((r) => r.steps));
+      const out = q('[data-race-out]');
+      out.hidden = false;
+      out.replaceChildren(...results.map((r) => {
+        const row = document.createElement('div');
+        row.className = 'race-row';
+        row.innerHTML = `<span></span><div><i style="width:${(r.steps / worst) * 100}%"></i></div><b>${r.steps} steps · ${(worst / r.steps).toFixed(1)}×</b>`;
+        row.querySelector('span')!.textContent = r.label;
+        return row;
+      }));
+      if (root.dataset.mission) award('missions', root.dataset.mission, 30, 'Raced the four serving strategies');
+    });
+    fresh();
+  }
+</script>
+
+<style>
+  .kv-blocks { display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; margin: 12px 0 8px; }
+  .kv-blocks :global(i) { aspect-ratio: 1; border-radius: 3px; background: var(--bg-2); outline: 1px solid var(--line); }
+  .kv-blocks :global(i.used) { outline: 0; }
+  .race { display: grid; gap: 6px; margin-top: 8px; padding: 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+  .race :global(.race-row) { display: grid; grid-template-columns: minmax(120px, 210px) 1fr auto; gap: 10px; align-items: center; font-size: 0.85rem; }
+  .race :global(.race-row div) { height: 12px; background: var(--bg-2); border-radius: 4px; overflow: hidden; }
+  .race :global(.race-row i) { display: block; height: 100%; background: var(--sky); }
+  @media (max-width: 560px) { .race :global(.race-row) { grid-template-columns: 1fr; gap: 2px; } }
+</style>

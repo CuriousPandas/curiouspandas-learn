@@ -1,0 +1,87 @@
+---
+title: Why vLLM is fast
+summary: Serving a language model to many people at once is mostly a memory problem. Watch a KV cache fill, fragment and page, then race four serving strategies.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+sources:
+  - title: Kwon et al., "Efficient Memory Management for Large Language Model Serving with PagedAttention", SOSP 2023
+    url: https://arxiv.org/abs/2309.06180
+  - title: Yu et al., "Orca - A Distributed Serving System for Transformer-Based Generative Models", OSDI 2022
+    url: https://www.usenix.org/conference/osdi22/presentation/yu
+  - title: vLLM on GitHub
+    url: https://github.com/vllm-project/vllm
+---
+
+A language model writes one token at a time. To pick each new token it needs to "attend" to every token before it, and recomputing all of that from scratch at every step would be hopelessly slow. So the server keeps intermediate results for every token so far, the **keys and values**, in GPU memory. That store is the **KV cache**. It grows by one token's worth with every token generated, for every conversation in progress.
+
+That makes serving a memory problem. The more conversations whose caches fit in GPU memory at once, the more people you serve per second on the same expensive GPU.
+
+## How big is the cache?
+
+It's easy to underestimate. Pick a model and a workload:
+
+<KVCalc />
+
+In the vLLM paper's own example, a 13-billion-parameter model on a 40 GB A100, the weights take about 65% of GPU memory and the KV cache close to 30%. How well that 30% is managed decides how many people you can serve.
+
+## The waste
+
+Before vLLM, serving systems gave each request one **contiguous** slab of memory sized for the *longest* answer it might give, for example 2,048 tokens. Most answers are much shorter, and nobody knows in advance how long each will be. The slab sits mostly empty. The holes left between slabs of different sizes are too small to reuse.
+
+The vLLM authors measured this. In the systems they compared against, **only 20.4% to 38.2% of KV cache memory held actual token data**. vLLM held 96.3%.
+
+## What vLLM changed
+
+**PagedAttention** borrows the oldest trick in operating systems: virtual memory. The cache is cut into small fixed-size **blocks** (16 tokens here) that are handed out only as a conversation actually grows, and they don't need to sit next to each other. Waste is at most one partly filled block per conversation.
+
+**Continuous batching** (Orca calls it iteration-level scheduling) fixes the other leak. A static batch waits for its slowest member to finish before anyone new starts, so seats sit empty. Continuous batching refills a seat the moment a conversation ends.
+
+Run it. Each square is one block. A solid colour means tokens are stored there, a pale tint means reserved but still empty, and grey means free. Try "reserve the max" first, then switch to pages.
+
+<KVCacheSim mission="kv-race" />
+
+<Callout kind="tip">
+Press **Race all four** to run the same 48 requests through every combination and compare the step counts. Paging is where most of the gain comes from: more conversations fit at once. Continuous batching adds to it by never leaving a seat empty.
+</Callout>
+
+<Callout kind="real">
+The simulator is crude on purpose. Every step generates one token per conversation, and reading the prompt (prefill) takes one step. Real servers mix prefill and decode, share blocks between requests that have the same prompt prefix, and pick block sizes for GPU efficiency. The paper reports **2-4× the throughput** of FasterTransformer and Orca at the same latency, and more with longer sequences and larger models. Your race result is a toy number. That one is measured.
+</Callout>
+
+<Quiz
+  id="llm-vllm-1"
+  q="Why does reserving memory for the longest possible answer waste so much?"
+  options={["GPUs can't allocate small amounts", "Most answers are far shorter than the maximum, and their length isn't known in advance, so most of each reservation sits empty", "The KV cache is compressed"]}
+  answer={1}
+  explain="Answer lengths vary widely and are unknown at the start. A reservation sized for the worst case is mostly empty for the typical case. The vLLM paper measured 20-38% of cache memory actually used in such systems."
+/>
+
+<Quiz
+  id="llm-vllm-2"
+  q="With paged blocks of 16 tokens, what's the most memory a single conversation can waste?"
+  options={["Up to its maximum length", "Less than one block: only its last block can be partly empty", "Nothing at all"]}
+  answer={1}
+  explain="Blocks are handed out only when the previous one is full, so only the newest block can be partly empty. That's at most 15 empty token slots per conversation, whatever its length."
+/>
+
+<Quiz
+  id="llm-vllm-3"
+  q="Paged memory runs out mid-answer. What did you see the simulator (and vLLM) do?"
+  options={["Crash the request", "Evict the newest conversation, free its blocks, and recompute it later", "Write the cache to disk silently"]}
+  answer={1}
+  explain="Preemption trades some repeated work for not refusing new requests. Watch the evictions counter: it isn't free, because the evicted conversation's tokens are generated again."
+/>
+
+<DoItForReal id="llm-vllm-real" profile="full">
+
+A real vLLM server needs a supported GPU. The tilt platform runs [Ollama](https://ollama.com) instead, which serves small models on an ordinary CPU. Turn it on in `tilt-config.json` (`flux_apps.ollama.enabled: true`) and see [Run your own model](/tracks/llm/). With a GPU:
+
+```bash
+pip install vllm
+vllm serve Qwen/Qwen2.5-0.5B-Instruct
+```
+
+Read the startup log: vLLM reports how many KV cache blocks it could fit. That number is this whole lesson.
+
+</DoItForReal>

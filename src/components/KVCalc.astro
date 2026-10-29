@@ -1,0 +1,41 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card kvc" data-kvcalc>
+  <div class="widget-head"><strong>How much memory does the cache need?</strong></div>
+  <div class="controls">
+    <label>Model <select data-preset>
+      <option value="32,32,128">Llama-2-7B (32 layers, 32 KV heads)</option>
+      <option value="32,8,128" selected>Llama-3-8B (32 layers, 8 KV heads)</option>
+      <option value="80,8,128">Llama-3-70B (80 layers, 8 KV heads)</option>
+    </select></label>
+    <label>Precision <select data-bytes><option value="2" selected>fp16 / bf16 (2 bytes)</option><option value="1">fp8 (1 byte)</option></select></label>
+  </div>
+  <div class="controls">
+    <label>Tokens per conversation <input type="number" min="1" max="1000000" value="8192" data-ctx /></label>
+    <label>People at once <input type="number" min="1" max="10000" value="32" data-users /></label>
+  </div>
+  <p class="kvc-out" data-out></p>
+  <p class="muted small">Keys and values, for every layer and every KV head: 2 × layers × heads × head size × bytes. Weights are extra - an 8B model in fp16 is about 16 GB before the cache.</p>
+</div>
+<script>
+  import { kvBytesPerToken } from '../lib/kv/sim.ts';
+  for (const root of document.querySelectorAll<HTMLElement>('[data-kvcalc]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const calc = () => {
+      const [l, h, d] = q<HTMLSelectElement>('[data-preset]').value.split(',').map(Number);
+      const per = kvBytesPerToken(l, h, d, Number(q<HTMLSelectElement>('[data-bytes]').value));
+      const total = per * Number(q<HTMLInputElement>('[data-ctx]').value) * Number(q<HTMLInputElement>('[data-users]').value);
+      const fmt = (b: number) => b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)} GiB` : `${(b / 2 ** 20).toFixed(1)} MiB`;
+      q('[data-out]').innerHTML = `<b>${fmt(per)}</b> per token → <b>${fmt(total)}</b> of KV cache for everyone at once.`;
+    };
+    root.addEventListener('input', calc);
+    calc();
+  }
+</script>
+<style>
+  .kvc-out { font-size: 1.05rem; margin: 12px 0 4px; }
+  .kvc-out :global(b) { color: var(--sun); font-variant-numeric: tabular-nums; }
+  .controls input[type="number"] { width: 110px; }
+  .small { font-size: 0.82rem; }
+</style>

@@ -1,0 +1,98 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card scrape" data-scrape data-mission={mission}>
+  <div class="widget-head"><strong>Why is this graph empty?</strong><span class="spacer"></span><button class="btn small" type="button" data-break>Break it (like lab 08)</button></div>
+  <div class="sc-grid">
+    <section class="sc-col">
+      <div class="eyebrow">ServiceMonitor hello</div>
+      <pre class="sc-yaml">spec:
+  selector:
+    matchLabels:
+      <select data-key aria-label="Label key"><option>app.kubernetes.io/name</option><option>app</option></select>: <select data-val aria-label="Label value"><option>hello</option><option>hello-world</option></select>
+  endpoints:
+    - port: <select data-port aria-label="Port name"><option>http</option><option>metrics</option><option>http-metrics</option></select></pre>
+      <div class="eyebrow">Service hello (what actually exists)</div>
+      <pre class="sc-yaml">metadata:
+  labels:
+    app.kubernetes.io/name: hello
+spec:
+  ports:
+    - name: http
+      port: 9898</pre>
+    </section>
+    <section class="sc-col">
+      <div class="eyebrow">What you would normally check</div>
+      <ul class="sc-k8s">
+        <li><span class="ok">✓</span> servicemonitor/hello exists, no events</li>
+        <li><span class="ok">✓</span> pod hello 1/1 Running, Ready</li>
+        <li><span class="ok">✓</span> logs: serving requests</li>
+      </ul>
+      <div class="eyebrow">Grafana: requests per second</div>
+      <svg class="sc-panel" viewBox="0 0 300 90" preserveAspectRatio="none" data-panel role="img" aria-label="Requests per second panel"></svg>
+      <p class="sc-nodata" data-nodata hidden>No data</p>
+      <button class="btn small" type="button" data-targets>Open Prometheus /targets</button>
+      <div class="sc-targets" data-targetbox hidden></div>
+    </section>
+  </div>
+</div>
+
+<script>
+  import { Scraper, targets, HELLO } from '../lib/obs/scrape.ts';
+  import { award } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-scrape]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const key = q<HTMLSelectElement>('[data-key]'), val = q<HTMLSelectElement>('[data-val]'), port = q<HTMLSelectElement>('[data-port]');
+    const s = new Scraper({ selectorKey: key.value, selectorValue: val.value, port: port.value });
+    s.step(40);
+    let broken = false, lookedWhileBroken = false, targetsOpen = false;
+    const sm = () => ({ selectorKey: key.value, selectorValue: val.value, port: port.value });
+
+    const draw = () => {
+      const pts = s.panel(40);
+      const svg = q('[data-panel]');
+      q('[data-nodata]').hidden = pts.length > 0;
+      // Break the line where scrapes were missing: joining across the gap
+      // would draw data for a time nobody was collecting any.
+      const runs: (typeof pts)[] = [];
+      for (const p of pts) { const last = runs[runs.length - 1]; if (last && p.tick - last[last.length - 1].tick === 1) last.push(p); else runs.push([p]); }
+      svg.innerHTML = runs.map((run) => `<polyline fill="none" style="stroke:var(--sky)" stroke-width="2" points="${run.map((p) => `${((p.tick - (s.tick - 40)) / 40) * 300},${90 - p.value * 12}`).join(' ')}" />`).join('');
+      const t = targets([HELLO], sm());
+      if (targetsOpen) {
+        q('[data-targetbox]').innerHTML = t.length
+          ? `<p><b class="up">UP</b> serviceMonitor/monitoring/hello/0 · ${t[0].endpoint} · last scrape ${(s.tick - (s.lastScrape ?? 0)) * 5}s ago</p>`
+          : `<p><b class="down">No target for serviceMonitor/monitoring/hello</b></p><p class="muted">Nothing here is an error. Prometheus was given no endpoint to scrape, so it did not scrape one. Last sample: ${s.lastScrape === null ? 'never' : `${(s.tick - s.lastScrape) * 5}s ago`}.</p>`;
+      }
+      if (broken && !t.length && targetsOpen) lookedWhileBroken = true;
+      if (root.dataset.mission && lookedWhileBroken && t.length && pts.length > 3) {
+        award('missions', root.dataset.mission, 50, 'Found the missing scrape target');
+      }
+    };
+    for (const el of [key, val, port]) el.addEventListener('change', () => { s.sm = sm(); if (!targets([HELLO], s.sm).length) broken = true; draw(); });
+    q('[data-break]').addEventListener('click', () => { port.value = 'metrics'; s.sm = sm(); broken = true; draw(); });
+    q('[data-targets]').addEventListener('click', () => { targetsOpen = !targetsOpen; q('[data-targetbox]').hidden = !targetsOpen; draw(); });
+    setInterval(() => { if (!document.hidden) { s.step(); draw(); } }, 500);
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global and prefixed: the panel line and the targets text are written by the script. */
+  .scrape .sc-grid { display: grid; gap: 12px; }
+  @media (min-width: 820px) { .scrape .sc-grid { grid-template-columns: 1fr 1fr; } }
+  .scrape .sc-col { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .scrape .sc-yaml { margin: 0; font-size: 12.5px; }
+  .scrape .sc-yaml select { font: inherit; background: #2a2d35; color: var(--term-hint); border: 1px solid #444; border-radius: 4px; }
+  .scrape .sc-k8s { list-style: none; margin: 0; padding: 0; font-size: 0.9rem; }
+  .scrape .sc-k8s .ok { color: var(--bamboo); font-weight: 800; margin-right: 6px; }
+  .scrape .sc-panel { width: 100%; height: 90px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+  .scrape .sc-nodata { margin: -60px 0 30px; text-align: center; color: var(--muted); font-weight: 600; }
+  .scrape .sc-targets { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 0.88rem; overflow-wrap: anywhere; }
+  .scrape .sc-targets p { margin: 4px 0; }
+  .scrape .sc-targets .up { color: var(--bamboo); }
+  .scrape .sc-targets .down { color: var(--berry); }
+  .scrape .btn { align-self: flex-start; }
+</style>

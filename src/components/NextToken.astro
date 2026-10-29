@@ -1,0 +1,71 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card nt" data-nexttoken>
+  <div class="widget-head"><strong>Pick the next token</strong><span class="spacer"></span><span class="pill info">a toy language model, same knobs as the real ones</span></div>
+  <div class="nt-text" data-out contenteditable="true" spellcheck="false" aria-label="Text so far - edit it to change the context">the panda</div>
+  <div class="controls">
+    <label>Temperature <input type="range" min="0" max="2" step="0.05" value="0.8" data-temp /> <b data-tv>0.80</b></label>
+    <label>Top-k <input type="range" min="1" max="20" step="1" value="8" data-k /> <b data-kv>8</b></label>
+    <label>Context <select data-order><option value="1">1 char</option><option value="2">2 chars</option><option value="3">3 chars</option><option value="5" selected>5 chars</option><option value="8">8 chars</option></select></label>
+  </div>
+  <div class="dist" data-dist></div>
+  <div class="controls">
+    <button class="btn primary small" type="button" data-one>Pick one</button>
+    <button class="btn small" type="button" data-many>Write 80 more</button>
+    <button class="btn small" type="button" data-reset>Reset</button>
+  </div>
+</div>
+
+<script>
+  import { NGram } from '../lib/tokens/bpe.ts';
+  import { rng } from '../lib/nn/mlp.ts';
+  import { CORPUS } from '../data/corpus.ts';
+
+  const models = new Map<number, NGram>();
+  const model = (n: number) => { if (!models.has(n)) models.set(n, new NGram(n, CORPUS)); return models.get(n)!; };
+  const rand = rng(Date.now() % 100000);
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-nexttoken]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const out = q('[data-out]');
+    const knobs = () => ({ t: Number(q<HTMLInputElement>('[data-temp]').value), k: Number(q<HTMLInputElement>('[data-k]').value), n: Number(q<HTMLSelectElement>('[data-order]').value) });
+    const show = () => {
+      const { t, k, n } = knobs();
+      q('[data-tv]').textContent = t.toFixed(2);
+      q('[data-kv]').textContent = String(k);
+      const dist = model(n).next(out.textContent ?? '', t, k);
+      q('[data-dist]').replaceChildren(...dist.map((d) => {
+        const row = document.createElement('div');
+        row.className = 'bar';
+        const label = document.createElement('code');
+        label.textContent = d.token === ' ' ? '␠' : d.token === '\n' ? '↵' : d.token;
+        const track = document.createElement('div');
+        const fill = document.createElement('i');
+        fill.style.width = `${(d.p * 100).toFixed(1)}%`;
+        track.append(fill);
+        const pct = document.createElement('span');
+        pct.textContent = `${(d.p * 100).toFixed(1)}%`;
+        row.append(label, track, pct);
+        return row;
+      }));
+    };
+    const pick = () => { const { t, k, n } = knobs(); out.textContent = (out.textContent ?? '') + model(n).sample(out.textContent ?? '', t, k, rand); };
+    q('[data-one]').addEventListener('click', () => { pick(); show(); });
+    q('[data-many]').addEventListener('click', () => { for (let i = 0; i < 80; i++) pick(); show(); });
+    q('[data-reset]').addEventListener('click', () => { out.textContent = 'the panda'; show(); });
+    for (const s of ['[data-temp]', '[data-k]', '[data-order]']) q(s).addEventListener('input', show);
+    out.addEventListener('input', show);
+    show();
+  }
+</script>
+
+<style>
+  .nt-text { font: 15px/1.6 var(--mono); padding: 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); min-height: 70px; margin-bottom: 10px; white-space: pre-wrap; word-break: break-word; }
+  .dist { display: grid; gap: 4px; margin: 10px 0; }
+  .dist :global(.bar) { display: grid; grid-template-columns: 32px 1fr 56px; align-items: center; gap: 8px; font-size: 0.85rem; }
+  .dist :global(.bar code) { text-align: center; }
+  .dist :global(.bar div) { height: 14px; background: var(--bg-2); border-radius: 4px; overflow: hidden; }
+  .dist :global(.bar i) { display: block; height: 100%; background: linear-gradient(90deg, var(--sun), var(--bamboo)); transition: width .25s; }
+  .dist :global(.bar span) { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+</style>

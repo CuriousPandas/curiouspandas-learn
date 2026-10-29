@@ -1,0 +1,73 @@
+---
+title: Why won't it schedule?
+summary: A pod stuck in Pending has a reason, and it's never printed where you're looking. Find it, read it, and fix the request rather than the cluster.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: Kubernetes docs - Resource Management for Pods and Containers
+    url: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+  - title: Kubernetes docs - Kubernetes Scheduler
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/
+---
+
+You ask for three replicas. Two start. The third sits in **Pending** and stays there. Nothing crashed and nothing is red. `kubectl get pods` shows the word Pending and nothing else.
+
+Pending means the pod exists but no node has been chosen for it. The **scheduler** keeps trying, and each time it fails it records *why* as an **event** on the pod. You only see events if you ask for them.
+
+## Requests, not usage
+
+The scheduler places pods by what they **request**, not by what they actually use. Every container can declare `requests.cpu` and `requests.memory`. The scheduler adds up the requests already placed on each node and won't go past the node's capacity. From the Kubernetes docs:
+
+> although actual memory or CPU resource usage on nodes is very low, the scheduler still refuses to place a Pod on a node if the capacity check fails.
+
+That surprises people the first time. A node can sit at 3% CPU and still be "full", because everything on it *asked* for a lot. It's deliberate: a request is a reservation for your peak, not a guess at your average.
+
+## Find it, read it, fix it
+
+This cluster has two nodes with 2 CPUs (2000m) each. Someone deployed `big` with three replicas, each requesting 1500m. Work out why one won't start, then fix it *without* scaling down.
+
+<KubeSim mission="kube-pending" title="Three big pandas, two small nodes" />
+
+<Callout kind="tip">
+`m` means millicores: 1000m is one CPU. `1500m` asks for one and a half CPUs, reserved for that pod whether it uses them or not.
+</Callout>
+
+<Callout kind="trap">
+If your fix still doesn't fit *next to* the old pods, the update itself waits. With the default rolling strategy, new pods must start before old ones are removed, and they need room to do it. Choose a request that fits in what's left on a node.
+</Callout>
+
+<Quiz
+  id="kube-sched-1"
+  q="A node shows 4% CPU usage in your monitoring, but new pods won't schedule there because of Insufficient cpu. How can both be true?"
+  options={["Monitoring is broken", "Scheduling counts what pods requested, not what they use, and the requests already add up to the node's capacity", "The node is cordoned"]}
+  answer={1}
+  explain="The scheduler sums requests, not usage. Idle pods with large requests fill a node as surely as busy ones. The fix is usually right-sizing requests, not adding nodes."
+/>
+
+<Quiz
+  id="kube-sched-2"
+  q="Where does the reason a pod is Pending show up?"
+  options={["In the container logs", "In the pod's events: kubectl describe pod, or kubectl get events", "In the Deployment's READY column"]}
+  answer={1}
+  explain="A Pending pod never started, so it has no logs. The scheduler writes a FailedScheduling event, such as '0/2 nodes are available: 2 Insufficient cpu.', which describe shows at the bottom."
+/>
+
+<Callout kind="real">
+Real scheduling checks much more than CPU and memory: taints and tolerations, node selectors and affinity, topology spread, volume zones and more. The event message lists every reason, for example `0/3 nodes are available: 1 node(s) had untolerated taint, 2 Insufficient memory.` The habit is the same: describe the pod and read the last lines.
+</Callout>
+
+<DoItForReal id="kube-sched-real">
+
+There's no dedicated tilt lab for this one; the minimal platform is enough. Ask for more CPU than any laptop has:
+
+```bash
+kubectl create deployment big --image=nginx --replicas=2
+kubectl set resources deployment big --requests=cpu=100   # 100 whole CPUs
+kubectl get pods                     # Pending
+kubectl describe pod -l app=big | tail -5
+kubectl describe node | grep -A6 "Allocated resources"
+kubectl delete deployment big
+```
+
+</DoItForReal>

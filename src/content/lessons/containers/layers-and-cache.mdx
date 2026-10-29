@@ -1,0 +1,79 @@
+---
+title: Layers and the build cache
+summary: Every Dockerfile step is a cached layer, and one change rebuilds everything after it. Reorder two lines and stop reinstalling the internet on every code change.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: Docker docs - Docker build cache
+    url: https://docs.docker.com/build/cache/
+  - title: Docker docs - Build cache invalidation
+    url: https://docs.docker.com/build/cache/invalidation/
+  - title: Docker docs - Optimize cache usage in builds
+    url: https://docs.docker.com/build/cache/optimize/
+---
+
+An image is built one **Dockerfile instruction** at a time, and each step's result is kept as a **layer**. Build again and Docker checks each step against its cache: if the step and everything it depends on are unchanged, it reuses the old layer instead of running the step.
+
+Two rules decide whether a step is a cache hit. Both come straight from Docker's documentation:
+
+- **`RUN` is matched on its command text alone.** The builder doesn't look at what the command would download. Same text, cache hit.
+- **`COPY` is matched on a checksum of the files it copies.** Edit one of those files and the checksum changes.
+
+And the rule that makes ordering matter: **once one step misses, every step after it is rebuilt.** In the docs' own words, "Once the cache is invalidated, all subsequent Dockerfile commands generate new images and the cache isn't used."
+
+## Watch the cascade
+
+This project is a small Node.js app. The first Dockerfile copies everything, *then* installs dependencies. Edit `src/server.js` and watch which steps rebuild. Then switch to "Package files first" and do the same.
+
+<LayerCache mission="docker-cache" />
+
+With everything copied first, a one-character code change changes the checksum of `COPY . .`. That invalidates `RUN npm ci` after it, so you reinstall every dependency on every edit. Copy just `package.json` and the lockfile first, install, and *then* copy the rest. Now a code change only misses at the second `COPY`, and the slow install stays cached. It only reruns when the dependency files themselves change, which is exactly when it should.
+
+<Quiz
+  id="ctr-cache-1"
+  q="Your Dockerfile has COPY . . on line 3 and RUN npm ci on line 4. You fix a typo in README.md. Does npm ci run again?"
+  options={["No: README.md isn't JavaScript", "Yes: README.md is one of the files COPY . . copies, so its checksum changed and every later step rebuilds", "Only if the typo was in a code block"]}
+  answer={1}
+  explain="COPY . . copies the whole build context, so any file in it, docs included, changes its checksum. Try the .dockerignore box in the simulator: a file that isn't in the context can't bust the cache."
+/>
+
+<Callout kind="trap" title="The cache that's too good">
+Because `RUN` is matched on its text, `RUN apt-get update && apt-get install -y curl` stays cached for as long as that line is unchanged. That means an old package list and an old `curl` with it, build after build. Docker's docs warn that RUN caches aren't invalidated automatically between builds. Rebuild without the cache (`docker build --no-cache`) on a schedule, or your images quietly miss security updates.
+</Callout>
+
+<Quiz
+  id="ctr-cache-2"
+  q="Which line order keeps dependency installs cached across ordinary code changes?"
+  options={["COPY . . then RUN npm ci", "COPY package.json package-lock.json ./ then RUN npm ci then COPY . .", "RUN npm ci then COPY . ."]}
+  answer={1}
+  explain="Copy only what the install depends on, install, then copy the rest. (Option three doesn't work at all: npm ci would run before package.json exists in the image.)"
+/>
+
+<Quiz
+  id="ctr-cache-3"
+  q="You add a dependency to package.json. With the cache-friendly order, what rebuilds?"
+  options={["Nothing: the install is cached", "The package COPY, npm ci, and everything after them", "Only the last step"]}
+  answer={1}
+  explain="The package COPY's checksum changes, so it misses, and everything after it reruns, including the install. That's correct: the cache must never hide a real dependency change. The good order makes installs rerun only when they need to."
+/>
+
+<Callout kind="real">
+The simulator's timings are made up to make the point. Real ones depend on your network and your dependencies, but the dependency install is nearly always the slow step. BuildKit, Docker's builder, also offers cache mounts (`RUN --mount=type=cache`) that keep a package manager's download cache between builds even when the step itself reruns.
+</Callout>
+
+<DoItForReal id="ctr-cache-real">
+
+In any Node project with Docker:
+
+```bash
+docker build -t cache-demo .        # first build: everything runs
+docker build -t cache-demo .        # again: every step shows CACHED
+echo "// edit" >> src/server.js
+docker build -t cache-demo .        # which steps rebuilt?
+docker history cache-demo           # one line per layer
+```
+
+Swap your Dockerfile to the package-files-first order and repeat the edit.
+
+</DoItForReal>

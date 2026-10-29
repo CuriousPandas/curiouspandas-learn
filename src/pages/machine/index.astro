@@ -1,0 +1,60 @@
+---
+import Base from '../../layouts/Base.astro';
+import { TIERS } from '../../data/tracks.ts';
+---
+<Base title="What can my device run?" description="Checks this browser for the features each kind of lesson needs. Nothing is sent anywhere.">
+  <section class="wrap page">
+    <p class="eyebrow">Your device</p>
+    <h1>What can this device run?</h1>
+    <p class="lede">These checks run in your browser and report only to you - nothing is sent anywhere. Every lesson's points can be earned on the first tier, so a "no" below never locks you out of anything.</p>
+    <div class="checks" data-checks>
+      <div class="card check" data-c="browser"><span class="st">…</span><div><strong>{TIERS.browser.label}</strong><p data-d>Checking…</p></div></div>
+      <div class="card check" data-c="browser-plus"><span class="st">…</span><div><strong>{TIERS['browser-plus'].label}</strong><p data-d>Checking…</p></div></div>
+      <div class="card check" data-c="machine"><span class="st">?</span><div><strong>{TIERS.machine.label}</strong><p>{TIERS.machine.detail} A browser cannot measure your disk or install state, so this one is yours to check: the measured numbers come from the platform's own <a href="https://github.com/TemplateMechanics/tilt/blob/main/docs/STUDENT-SETUP.md">student setup guide</a> (heaviest profile: 9.7 GB of images, 5.9 GB of memory). The default profile uses less; it has not been measured separately.</p><p data-mem></p></div></div>
+      <div class="card check" data-c="codespace"><span class="st">-</span><div><strong>{TIERS.codespace.label}</strong><p>{TIERS.codespace.detail}</p></div></div>
+    </div>
+  </section>
+</Base>
+<script>
+  const set = (c: string, ok: boolean | null, text: string) => {
+    const el = document.querySelector<HTMLElement>(`[data-c="${c}"]`)!;
+    el.querySelector('.st')!.textContent = ok === null ? '?' : ok ? '✓' : '✗';
+    el.classList.toggle('ok', ok === true);
+    el.classList.toggle('no', ok === false);
+    const d = el.querySelector('[data-d]');
+    if (d) d.textContent = text;
+  };
+  let storage = false;
+  try { localStorage.setItem('__probe', '1'); localStorage.removeItem('__probe'); storage = true; } catch {}
+  const canvas = !!document.createElement('canvas').getContext('2d');
+  set('browser', canvas, canvas
+    ? `Everything the core lessons need is here.${storage ? '' : ' One caveat: this browser will not let the site save progress (a private window?), so XP lasts until you close the tab.'}`
+    : 'This browser has no canvas support, which the neural network and cluster views need. A current Chrome, Edge, Firefox or Safari will work.');
+
+  (async () => {
+    const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+    if (!gpu) { set('browser-plus', false, 'No WebGPU in this browser. The optional in-browser model extras will not run here; every lesson still works without them.'); return; }
+    try {
+      const a = await gpu.requestAdapter();
+      set('browser-plus', !!a, a ? 'WebGPU is available, so GPU extras can run. How fast depends on your graphics hardware.' : 'This browser knows WebGPU, but no GPU adapter was offered (often a driver or power-saving setting). The extras will not run.');
+    } catch { set('browser-plus', false, 'WebGPU refused to start here. The extras will not run; nothing else is affected.'); }
+  })();
+
+  // deviceMemory is Chromium-only and rounded down, with 8 as the top answer, so
+  // "8" means "8 or more" - never read it as an exact amount.
+  const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const cores = navigator.hardwareConcurrency;
+  document.querySelector('[data-mem]')!.textContent = mem
+    ? `This browser reports ${mem >= 8 ? 'at least 8' : `about ${mem}`} GB of memory and ${cores ?? '?'} CPU threads.${mem < 8 ? ' That is below what the platform asks for spare, so use the minimal profile or wait for the cloud option.' : ''}`
+    : `This browser does not report memory (only Chromium browsers do). ${cores ? `It reports ${cores} CPU threads.` : ''}`;
+</script>
+<style>
+  .page { padding-top: 32px; max-width: 860px; }
+  .lede { color: var(--ink-2); }
+  .checks { display: grid; gap: 12px; margin-top: 20px; }
+  .check { display: flex; gap: 14px; padding: 14px 16px; align-items: flex-start; }
+  .check p { margin: 4px 0 0; color: var(--ink-2); font-size: 0.94rem; }
+  .st { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--bg-2); color: var(--muted); }
+  .check.ok .st { background: var(--bamboo); color: var(--bamboo-ink); }
+  .check.no .st { background: var(--berry-soft); color: var(--berry); }
+</style>

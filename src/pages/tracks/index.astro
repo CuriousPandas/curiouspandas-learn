@@ -1,0 +1,19 @@
+---
+import Base from '../../layouts/Base.astro';
+import TrackCard from '../../components/TrackCard.astro';
+import { curriculum, totals } from '../../lib/curriculum.ts';
+const tracks = await curriculum();
+const t = totals(tracks);
+---
+<Base title="Learn" description="Eight tracks from your first git commit to how vLLM serves a model.">
+  <section class="wrap page">
+    <p class="eyebrow">Learn</p>
+    <h1>Pick a trail through the forest</h1>
+    <p class="lede">Eight tracks, roughly in order: each one leans on the ones before it. {t.ready} of {t.lessons} lessons are ready today - the rest are listed so you can see where this goes, and marked plainly as still being written.</p>
+    <div class="grid three">{tracks.map((tr, i) => <TrackCard track={tr} n={i + 1} />)}</div>
+  </section>
+</Base>
+<style>
+  .page { padding-top: 32px; }
+  .lede { max-width: 680px; color: var(--ink-2); font-size: 1.06rem; margin-bottom: 28px; }
+</style>

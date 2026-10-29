@@ -1,0 +1,81 @@
+---
+title: Two TLS errors, one message
+summary: A wrong name and an untrusted issuer look identical in a browser and in curl. One verify code tells them apart, and they have opposite fixes.
+minutes: 15
+xp: 40
+tiers: [browser, machine]
+tiltLab: 04-break-tls
+sources:
+  - title: OpenSSL x509_vfy.h - verification error codes
+    url: https://github.com/openssl/openssl/blob/master/include/openssl/x509_vfy.h.in
+  - title: OpenSSL x509_txt.c - verification error messages
+    url: https://github.com/openssl/openssl/blob/master/crypto/x509/x509_txt.c
+  - title: RFC 8446 - The Transport Layer Security (TLS) Protocol Version 1.3
+    url: https://www.rfc-editor.org/rfc/rfc8446
+  - title: TemplateMechanics/tilt lab 04 - Break TLS two different ways
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/04-break-tls
+---
+
+During the TLS stage the server hands over a **certificate**. It says, roughly, "I am `shop.bamboo.example`, and *Bamboo Root CA* vouches for me." Your machine checks two separate things:
+
+1. **The name.** Does the certificate list the name you asked for? Certificates carry their names in a field called the Subject Alternative Name (SAN).
+2. **The trust.** Can it follow the chain of signatures up to a root certificate that your machine already trusts? Your operating system and browser ship with a list of trusted roots, the **trust store**.
+
+Fail either one and you get the same scary browser page and the same curl exit code: **60**. That sameness is the trap. The two failures have opposite fixes, and fixing the wrong one wastes an afternoon.
+
+## Same symptom, different code
+
+OpenSSL's `s_client` does tell them apart, with a numbered verify code:
+
+| Verify code | Meaning | Fix |
+|---|---|---|
+| **62** hostname mismatch | the chain is trusted; the name isn't on the certificate | edit the **certificate**: add the name |
+| **20** unable to get local issuer certificate | the name is right; nothing you trust signed it | fix the **trust store** (or the chain the server sends) |
+
+Codes 18 to 21 are the family of trust failures. 18, for example, is a self-signed certificate. The rule from tilt lab 04 is short: **62 means go edit the certificate; 18 to 21 mean go fix the trust store.**
+
+<RequestJourney only="ok,tls-name,tls-trust" start="tls-name" checks={false} title="Name or trust?" />
+
+<Quiz
+  id="web-tls-1"
+  q="curl says exit 60 for your internal site. openssl s_client says 'Verify return code: 62 (hostname mismatch)'. What do you change?"
+  options={["Install the company root CA on your laptop", "Reissue the certificate with the hostname you're using in its SAN list", "Turn off certificate checking"]}
+  answer={1}
+  explain="62 means the chain verified, so trust is fine, but the certificate doesn't name the host you asked for. Installing more roots changes nothing. The certificate needs the name."
+/>
+
+<Quiz
+  id="web-tls-2"
+  q="A brand-new laptop gets code 20 against a site that works on every other machine in the office. Most likely cause?"
+  options={["The certificate has the wrong hostname", "The laptop's trust store is missing the company's root CA that the other machines have", "The server is down"]}
+  answer={1}
+  explain="If the name were wrong, every machine would fail with 62. Failing only on the new laptop with 20 points at that laptop's trust store: it has never been told to trust the issuer."
+/>
+
+<Callout kind="trap" title="The fix that isn't">
+`curl -k` and "proceed anyway" make both errors go away by switching off the check. That doesn't fix anything. It removes the only thing telling you whether you're talking to the real server. If it ends up in a script, it stays there.
+</Callout>
+
+<Callout kind="real">
+The playground shows certificates as one tidy line each. Real chains usually have an **intermediate** certificate between the server and the root, and a server that forgets to send it produces code 20 on some clients and not others, depending on what each client has cached. Also, in TLS 1.3 the certificate itself is encrypted on the wire, so you inspect it with `openssl s_client` or the browser's padlock, not by sniffing packets.
+</Callout>
+
+<DoItForReal id="web-tls-real" lab="04-break-tls">
+
+Tilt lab 04 does this for real, against a certificate that cert-manager issues on your cluster:
+
+```bash
+./labs/04-break-tls/break.sh mismatch
+./labs/04-break-tls/probe.sh hello.localhost             # Verify return code: 62
+./labs/04-break-tls/fix.sh
+./labs/04-break-tls/probe.sh hello.localhost --untrusted # Verify return code: 20
+./scripts/platform.sh lab 04
+```
+
+Without the platform, the public test site badssl.com has one host per failure:
+
+```bash
+openssl s_client -connect wrong.host.badssl.com:443 -servername wrong.host.badssl.com -verify_hostname wrong.host.badssl.com </dev/null | grep "Verify return"
+```
+
+</DoItForReal>

@@ -1,0 +1,73 @@
+---
+title: Tags move, digests do not
+summary: node:22 today is not node:22 next month. A tag is a name someone can repoint; a digest is the hash of the content itself.
+minutes: 11
+xp: 30
+tiers: [browser, machine]
+sources:
+  - title: OCI Image Spec - Descriptors and digests
+    url: https://github.com/opencontainers/image-spec/blob/main/descriptor.md
+  - title: Docker docs - docker image pull (pull by digest)
+    url: https://docs.docker.com/reference/cli/docker/image/pull/
+  - title: Docker docs - docker image tag
+    url: https://docs.docker.com/reference/cli/docker/image/tag/
+---
+
+An image reference like `node:22-slim` has two parts: the **repository** (`node`) and the **tag** (`22-slim`). Leave the tag off and Docker assumes `latest`.
+
+A tag is a **label**, and labels can be moved. When Node publishes a security fix, the maintainers rebuild and point `node:22-slim` at the new image. That's the whole point of a tag like `22-slim`: it means "the current one". It also means that two builds a month apart, from the same Dockerfile, can contain different software.
+
+If this sounds familiar, it should. A git **branch** is a name that moves to the newest commit, and a commit **hash** names exact contents forever. Images work the same way:
+
+| | git | container images |
+|---|---|---|
+| a name that moves | branch (`main`) | tag (`node:22-slim`) |
+| a name for exact contents | commit hash | digest (`sha256:...`) |
+
+## Digests
+
+Every image has a **digest**: the hash of its manifest, which itself lists the hashes of every layer. The OCI image specification defines the format as `algorithm:encoded`. For SHA-256 that's `sha256:` followed by 64 lowercase hex characters:
+
+```
+node@sha256:<64 hex characters>
+```
+
+Change one byte in one layer and that layer's hash changes, the manifest that lists it changes, and so the digest changes. Same idea as git. A digest can't be repointed, because it isn't a pointer. It *is* the content's name.
+
+Docker's documentation calls pulling by digest pulling by an "immutable identifier", and lists the trade-off fairly: pinning guarantees the image is always the same, and it also means you don't get updated versions, "which may include security updates".
+
+<Quiz
+  id="ctr-tags-1"
+  q="Your Dockerfile says FROM python:3.12. It built fine in March. In June the same Dockerfile builds an image that behaves differently. Nothing in your repo changed. How?"
+  options={["Docker caches expire after 90 days", "The python:3.12 tag was moved to a newer image; your build pulled different contents under the same name", "Python 3.12 changed its version number"]}
+  answer={1}
+  explain="Tags are mutable pointers. The 3.12 tag follows the newest 3.12.x build, so the same line can mean different bytes on different days. To get identical bytes every time, pin the digest."
+/>
+
+<Quiz
+  id="ctr-tags-2"
+  q="Which reference guarantees you get exactly the same image every time?"
+  options={["myapp:latest", "myapp:v1.4.2", "myapp@sha256:3f1e...(64 hex)"]}
+  answer={2}
+  explain="Only the digest is derived from the content. Even a version-looking tag like v1.4.2 is a label someone could repoint. Good registries can protect tags from being overwritten, but that's a policy, not a property of the name."
+/>
+
+<Callout kind="trap" title="latest is not a version">
+`latest` is only the tag Docker uses when you don't give one. It isn't promised to be newest, stable or even recent. Deploying `:latest` means "whatever that label points at right now, on whichever machine pulled it", and two nodes in one cluster can disagree.
+</Callout>
+
+<Callout kind="real">
+A common middle path: write a readable tag *and* the digest, as in `node:22-slim@sha256:...`. The digest decides which bytes you get; the tag is there so humans can read which version it was meant to be. Tools like Renovate or Dependabot then open a pull request whenever the tag moves, so updates are deliberate and reviewed instead of silent.
+</Callout>
+
+<DoItForReal id="ctr-tags-real">
+
+```bash
+docker pull alpine:3.20
+docker image inspect alpine:3.20 --format '{{index .RepoDigests 0}}'
+docker pull alpine@sha256:<paste the digest from above>
+```
+
+The two pulls give the same image. Run the inspect again in a few months and the tag may well point at a different digest.
+
+</DoItForReal>

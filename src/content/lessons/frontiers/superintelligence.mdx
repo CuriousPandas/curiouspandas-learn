@@ -1,0 +1,84 @@
+---
+title: Superintelligence, honestly
+summary: What AGI and superintelligence mean, what scaling laws actually measured, and what thousands of AI researchers say about where this goes - including how much they disagree.
+minutes: 18
+xp: 40
+tiers: [browser]
+sources:
+  - title: Kaplan et al. - Scaling Laws for Neural Language Models (2020)
+    url: https://arxiv.org/abs/2001.08361
+  - title: Hoffmann et al. - Training Compute-Optimal Large Language Models ("Chinchilla", 2022)
+    url: https://arxiv.org/abs/2203.15556
+  - title: Grace et al. - Thousands of AI Authors on the Future of AI (survey of 2,778 researchers)
+    url: https://arxiv.org/abs/2401.02843
+  - title: Center for AI Safety - Statement on AI Risk (2023)
+    url: https://aistatement.com/
+---
+
+Few topics attract more confident claims and less evidence than "superintelligence". This lesson separates three things that usually get blurred together: **definitions**, **measurements**, and **forecasts**. They deserve very different amounts of trust.
+
+## Definitions (these are choices, not facts)
+
+- **Narrow AI** does one kind of task, sometimes far better than any person: playing chess, folding proteins, recognising speech.
+- **AGI (artificial general intelligence)** loosely means a system that can do most cognitive work a human can do, about as well. There's **no agreed definition**. Researchers, companies and contracts each draw the line in different places, which is one reason arguments about "is it AGI yet?" go nowhere.
+- **Superintelligence** usually means going far beyond the best humans at nearly every intellectual task, not just matching them.
+
+When someone claims AGI has arrived, or is decades away, the first question is: by which definition?
+
+## Measurements (the solid ground)
+
+What has actually been measured is narrower and more interesting than headlines suggest.
+
+**Scaling laws (2020).** Researchers at OpenAI found that a language model's loss, the "how wrong" number from [Learning is turning knobs](/learn/ml/what-is-learning/), falls smoothly and predictably as a power law with model size, data size and the compute used for training. Some of the trends held across more than seven orders of magnitude. Bigger models also turned out to learn more from each example.
+
+**Compute-optimal training (2022).** DeepMind trained over 400 models, from 70 million to over 16 billion parameters, and found that model size and training data should be scaled *equally*: double one, double the other. They tested this with **Chinchilla**, a 70B model given the same compute budget as their 280B Gopher but about four times more data. Chinchilla outperformed Gopher (280B), GPT-3 (175B) and others.
+
+<Callout kind="trap" title="What a scaling law does NOT say">
+A scaling law predicts **loss** - how well a model predicts the next token. It doesn't directly predict which *abilities* will appear, when, or whether the curve continues past the range anyone has measured. "Loss keeps falling" is measured. "Therefore superintelligence by year X" is a forecast built on top of it, with assumptions about data, compute and what lower loss turns into.
+</Callout>
+
+## Forecasts (where experts disagree)
+
+The largest survey of AI researchers to date asked 2,778 people who had published at top AI venues. Their answers are worth reading *as a spread*, not as one number:
+
+- On when unaided machines could outperform humans at *every possible task*, the aggregate estimate was a **10% chance by 2027 and 50% by 2047**. That 50% date was **13 years earlier** than in the same team's survey a year before. Forecasts are moving, which is itself a sign of how uncertain they are.
+- **68.3%** thought good outcomes from superhuman AI were more likely than bad ones.
+- Yet **between 38% and 51%** gave at least a 10% chance to outcomes as bad as human extinction.
+- **More than half** said "substantial" or "extreme" concern is warranted about scenarios including misinformation, authoritarian control and inequality.
+- Most expressed **substantial uncertainty**, and they disagreed about whether faster or slower progress would be better.
+
+So the same group of experts is, on average, optimistic, worried, and unsure, all at once. That's what an honest picture of an unsolved question looks like.
+
+In 2023 the Center for AI Safety published a one-sentence statement, signed by many AI researchers and leaders: *"Mitigating the risk of extinction from AI should be a global priority alongside other societal-scale risks such as pandemics and nuclear war."* Other prominent researchers argue that such risks are overstated, or that attention should go to harms already happening, such as bias, misinformation, surveillance and concentration of power. Both camps include serious, well-informed people.
+
+<Callout kind="real" title="As of 2026">
+Today's most capable systems are strong at many language, coding and reasoning tasks, and still make confident mistakes, struggle with long multi-step work, and need checking. Whether scaling up today's methods leads to general intelligence, or needs new ideas, is genuinely unresolved. Anyone who tells you it's settled, in either direction, is telling you about their beliefs, not the evidence.
+</Callout>
+
+<Quiz
+  id="frontier-si-1"
+  q="What did the 2020 scaling-laws paper actually measure?"
+  options={["The date AGI will arrive", "That language-model loss falls as a smooth power law as model size, data and compute grow", "That bigger models are always more honest"]}
+  answer={1}
+  explain="It measured how loss scales - over a very wide range, but only loss, and only within the range tested. Everything about dates and abilities is extrapolation on top of it."
+/>
+
+<Quiz
+  id="frontier-si-2"
+  q="What was Chinchilla's lesson?"
+  options={["Always build the biggest model you can", "For a fixed compute budget, model size and training data should grow together - a smaller model on more data beat a much bigger one", "Data doesn't matter"]}
+  answer={1}
+  explain="Chinchilla (70B) used Gopher's compute budget but about four times the data, and outperformed the 280B Gopher. Many earlier models had been too big for the amount of data they were trained on."
+/>
+
+<Quiz
+  id="frontier-si-3"
+  q="Thousands of AI researchers were surveyed about the future. What's the most accurate summary?"
+  options={["They agree superintelligence is impossible", "They agree it's coming next year", "Their estimates vary widely: on average they lean optimistic, many still assign real probability to very bad outcomes, and most report substantial uncertainty"]}
+  answer={2}
+  explain="The survey's own abstract stresses uncertainty and disagreement. A single headline number hides the spread - which is the most important finding."
+/>
+
+<Callout kind="tip">
+The most useful thing you can do with this topic is what this whole site trains: ask what was **measured**, what was **assumed**, and **who is telling you**. Then go and build things, because the people who understand how these systems actually work are the ones best placed to steer them.
+</Callout>

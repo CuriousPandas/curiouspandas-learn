@@ -1,0 +1,115 @@
+---
+import '../styles/widgets.css';
+// only: comma-separated scenario ids to offer (default: all).
+// start: the scenario shown first. checks: show the three-check scoreboard.
+interface Props { only?: string; start?: string; checks?: boolean; title?: string }
+const { only = '', start = 'ok', checks = true, title = 'Break one stage of a request' } = Astro.props;
+---
+<div class="widget card journey" data-journey data-only={only} data-start={start} data-checks={checks ? '1' : ''}>
+  <div class="widget-head"><strong>{title}</strong><span class="spacer"></span><span class="pill info">real curl output</span></div>
+  <div class="j-picks" data-picks role="group" aria-label="Choose what goes wrong"></div>
+  <ol class="j-stages" data-stages></ol>
+  <div class="j-grid">
+    <div class="j-term"><div class="eyebrow">$ curl -v https://shop.bamboo.example/</div><pre data-trace></pre></div>
+    <div class="j-side">
+      <div class="j-facts" data-facts></div>
+      <p class="j-meaning" data-meaning></p>
+      <table class="j-checks" data-checktable hidden>
+        <caption>Would your health check notice?</caption>
+        <tbody data-checkrows></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { SCENARIOS, STAGES, CHECKS, honest, type Scenario } from '../lib/web/journey.ts';
+
+  const el = (tag: string, cls = '', text = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-journey]')) {
+    const q = (s: string) => root.querySelector<HTMLElement>(s)!;
+    const ids = (root.dataset.only ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const offered = ids.length ? SCENARIOS.filter((s) => ids.includes(s.id)) : SCENARIOS;
+    const showChecks = !!root.dataset.checks;
+    q('[data-checktable]').hidden = !showChecks;
+
+    const show = (s: Scenario) => {
+      for (const b of root.querySelectorAll<HTMLButtonElement>('[data-pick]')) b.setAttribute('aria-pressed', String(b.dataset.pick === s.id));
+      const failIdx = s.failedAt ? STAGES.findIndex((x) => x.id === s.failedAt) : -1;
+      q('[data-stages]').replaceChildren(...STAGES.map((st, i) => {
+        const state = failIdx < 0 || i < failIdx ? 'pass' : i === failIdx ? (s.failedAt === 'http' ? 'answer' : 'fail') : 'skip';
+        const li = el('li', `st-${state}`);
+        li.append(el('span', 'dot', state === 'pass' ? '✓' : state === 'fail' ? '✗' : state === 'answer' ? '!' : '·'), el('span', '', st.label));
+        return li;
+      }));
+      const pre = q('[data-trace]');
+      pre.replaceChildren(...s.trace.map((line) => el('div', line.startsWith('curl:') ? 'err' : line.startsWith('<') ? 'in' : line.startsWith('>') ? 'out' : 'dim', line)));
+      if (s.body !== null) pre.append(el('div', 'body', s.body));
+      const facts = q('[data-facts]');
+      facts.replaceChildren();
+      const fact = (label: string, value: string, cls = '') => { const d = el('div', `fact ${cls}`); d.append(el('span', '', label), el('b', '', value)); facts.append(d); };
+      fact('exit code', String(s.exit), s.exit === 0 ? 'ok' : 'bad');
+      fact('HTTP status', s.status === null ? 'none - never got that far' : String(s.status), s.status === 200 ? 'ok' : s.status === null ? 'bad' : 'warn');
+      if (s.verify) fact('openssl s_client says', s.verify.replace('Verify return code: ', ''), 'warn');
+      q('[data-meaning]').textContent = s.meaning;
+      if (showChecks) {
+        q('[data-checkrows]').replaceChildren(...CHECKS.map((c) => {
+          const tr = el('tr', honest(c, s) ? 'honest' : 'fooled');
+          const pass = c.passes(s);
+          tr.append(el('td', '', c.label), el('td', 'res', pass ? 'passes' : 'fails'), el('td', 'verdict', honest(c, s) ? (s.id === 'ok' ? 'correct' : 'caught it') : 'fooled'));
+          return tr;
+        }));
+      }
+    };
+
+    q('[data-picks]').replaceChildren(...offered.map((s) => {
+      const b = el('button', 'btn small', s.title) as HTMLButtonElement;
+      b.type = 'button';
+      b.dataset.pick = s.id;
+      b.addEventListener('click', () => show(s));
+      return b;
+    }));
+    show(offered.find((s) => s.id === root.dataset.start) ?? offered[0]);
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: almost everything here is created
+     by the script, which Astro's scoped styles never reach. */
+  .journey .j-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .journey .j-picks .btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .journey .j-stages { list-style: none; padding: 0; margin: 0 0 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+  .journey .j-stages li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.84rem; background: var(--bg); }
+  .journey .j-stages .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 0.8rem; background: var(--bg-2); color: var(--muted); }
+  .journey .st-pass .dot { background: var(--bamboo); color: var(--bamboo-ink); }
+  .journey .st-fail { border-color: var(--berry); }
+  .journey .st-fail .dot { background: var(--berry); color: #fff; }
+  .journey .st-answer { border-color: var(--sun); }
+  .journey .st-answer .dot { background: var(--sun); color: #fff; }
+  .journey .st-skip { opacity: .5; }
+  .journey .j-grid { display: grid; gap: 12px; }
+  @media (min-width: 860px) { .journey .j-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); } }
+  .journey .j-term { background: var(--term-bg); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .journey .j-term .eyebrow { color: var(--term-ok); text-transform: none; letter-spacing: 0; font: 600 12.5px var(--mono); }
+  .journey .j-term pre { margin: 6px 0 0; padding: 0; background: none; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .journey .j-term .err { color: var(--term-err); }
+  .journey .j-term .in { color: var(--term-ok); }
+  .journey .j-term .out { color: var(--term-hint); }
+  .journey .j-term .dim { color: var(--term-dim); }
+  .journey .j-term .body { color: var(--term-ink); margin-top: 6px; padding-top: 6px; border-top: 1px dashed #333; }
+  .journey .j-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .journey .j-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .journey .fact { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 0.78rem; color: var(--muted); }
+  .journey .fact b { display: block; font-size: 1rem; color: var(--ink); }
+  .journey .fact.bad b { color: var(--berry); }
+  .journey .fact.ok b { color: var(--bamboo); }
+  .journey .fact.warn b { color: var(--sun); }
+  .journey .j-meaning { margin: 0; font-size: 0.93rem; }
+  .journey .j-checks { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
+  .journey .j-checks caption { text-align: left; font-weight: 700; padding-bottom: 4px; }
+  .journey .j-checks td { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  .journey .j-checks .res { color: var(--muted); }
+  .journey .j-checks .honest .verdict { color: var(--bamboo); font-weight: 700; }
+  .journey .j-checks .fooled .verdict { color: var(--berry); font-weight: 700; }
+</style>

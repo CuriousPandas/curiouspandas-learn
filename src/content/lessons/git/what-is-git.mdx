@@ -1,0 +1,76 @@
+---
+title: Snapshots with names
+summary: Git saves snapshots of your whole project and names each one by its contents. Make your first commit and see the name it gets.
+minutes: 12
+xp: 30
+tiers: [browser, machine]
+sources:
+  - title: Pro Git, chapter 10.2 - Git Objects
+    url: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+---
+
+Every project you'll ever work on changes. Files get edited, deleted, renamed, broken and fixed again. **Git** is the tool almost every software team uses to remember all of it. It can tell you what the project looked like last Tuesday, who changed this line, and give you back the version from before you broke it.
+
+The idea underneath is simpler than its reputation:
+
+1. You work on files as normal, in your **working tree**.
+2. When you have something worth keeping, you put those changes in the **staging area** (`git add`).
+3. Then you take a **snapshot** of everything staged (`git commit`). The snapshot is permanent, and it gets a name.
+
+That name is the interesting part. Git doesn't number snapshots 1, 2, 3. It runs the snapshot's exact contents through a hash function called SHA-1 and uses the 40-character result as the name. Same contents, same name, on every computer in the world. Change one letter and you get a completely different name.
+
+<Callout kind="tip">
+The three boxes under the terminal are the three places a file can be: your working tree, the staging area, and the last commit. Watch your file move from box to box as you go.
+</Callout>
+
+## Your first commit
+
+The playground below is a small git that runs entirely in your browser. It isn't a recording: it stores files exactly the way real git does. Every hash you see is the hash real git would print for the same file, author and time. Follow the mission, and use **hint** if you get stuck.
+
+<GitPlayground mission="git-first-commit" title="Your first repository" />
+
+<Quiz
+  id="git-what-1"
+  q="Two files in different folders contain exactly the same text. How many copies of that text does git store?"
+  options={["Two, one for each file", "One, because identical contents get the identical name", "It depends on the file names"]}
+  answer={1}
+  explain="Git names contents by their bytes alone, never by the file name, so identical contents get the identical hash and are stored once. The names live elsewhere, as you'll see when you look inside .git."
+/>
+
+## Why staging exists
+
+Beginners often ask why you can't just commit straight away. Staging lets you choose what goes into a snapshot. Say you fixed a bug and also left some debugging junk lying around: you stage the fix, commit it, and the junk stays out of history. One commit should be one idea.
+
+<Callout kind="trap">
+`git commit -am "msg"` stages every *tracked* file that changed, then commits. It never picks up brand-new files, because untracked files aren't tracked yet. "I committed but my new file isn't there" is nearly always this.
+</Callout>
+
+<Quiz
+  id="git-what-2"
+  q="git status shows a file under 'Untracked files'. What does that mean?"
+  options={["Git has a copy but it's out of date", "The file exists in your folder, but git has never been told about it", "The file is corrupt"]}
+  answer={1}
+  explain="Untracked means it exists in your working tree and has never been added. Git knows nothing about its history because it has none yet. git add starts tracking it."
+/>
+
+<Callout kind="real">
+Real git puts all of this in a hidden `.git` folder next to your files, and it opens a text editor when you leave out `-m`. This sandbox has no editor, so it always asks for `-m`.
+</Callout>
+
+<DoItForReal id="git-first-commit-real">
+
+On your own machine, with [git installed](https://git-scm.com/downloads):
+
+```bash
+mkdir panda && cd panda
+git init
+echo "hello, panda" > hello.txt
+git add hello.txt
+git commit -m "my first commit"
+git log
+git hash-object hello.txt
+```
+
+`git hash-object hello.txt` prints the same hash the playground showed for the same contents. Try it.
+
+</DoItForReal>

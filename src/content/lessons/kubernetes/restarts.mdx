@@ -1,0 +1,84 @@
+---
+title: Why did it restart?
+summary: Two pods crash forever, both with exit code 137, and they need opposite fixes. Learn which two fields tell them apart before you reach for more memory.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+tiltLab: 09-why-did-it-restart
+sources:
+  - title: Kubernetes docs - Pod Lifecycle (container restarts and probes)
+    url: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
+  - title: Kubernetes docs - Configure Liveness, Readiness and Startup Probes
+    url: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+  - title: TemplateMechanics/tilt lab 09 - Why did it restart?
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/09-why-did-it-restart
+---
+
+**CrashLoopBackOff** is the most famous status in Kubernetes, and it tells you almost nothing. It means the container keeps exiting and the kubelet keeps restarting it, waiting longer each time. The docs give the curve: 10s, 20s, 40s and so on, capped at 5 minutes, resetting once a container has run for 10 minutes without trouble.
+
+So *something* is wrong. The status won't say what.
+
+## The number that isn't an answer
+
+The usual next step is the exit code. Here's the trap: both pods in this lesson exit with **137**. That's 128 + 9, and signal 9 is SIGKILL. It tells you something killed the process. It doesn't tell you who did it or why.
+
+This isn't made up. The tilt platform hit both for real. Keycloak was **OOMKilled at a 2Gi limit, eight restarts deep**. Wazuh's API was killed by its own liveness probe before it finished starting, and the error that surfaced pointed at a different component entirely.
+
+## The two fields that actually tell you
+
+1. **The termination reason** (`Last State: Terminated, Reason: ...` in `kubectl describe pod`). `OOMKilled` means the kernel killed it for using more memory than its limit.
+2. **The events.** `Liveness probe failed` followed by `Killing` means the kubelet killed it because a health check gave up.
+
+<KubeSim mission="kube-two-crashes" title="starved and impatient" />
+
+<Callout kind="trap">
+"Give it more memory" is the reflex, and for **impatient** it changes nothing. That process is healthy, just slow. Its liveness probe starts checking after 15 seconds and kills it before it finishes starting. Raising memory leaves it crash-looping forever. Try it.
+</Callout>
+
+## Why a startup probe, not a longer delay
+
+The right fix for a slow start is a **startupProbe**. The Kubernetes docs say that while a startup probe is configured, liveness and readiness checks don't run until it succeeds. Startup gets as long as it needs, and then liveness takes over with its normal tight interval.
+
+The tempting alternative is a big `initialDelaySeconds` on the liveness probe. It works on day one, but then a real hang takes minutes longer to notice, forever.
+
+<Quiz
+  id="kube-restart-1"
+  q="A pod's last termination shows exit code 137. What do you know for certain?"
+  options={["It ran out of memory", "Something sent it SIGKILL (128 + 9). The reason field and the events say who and why", "The image is broken"]}
+  answer={1}
+  explain="137 only means killed by signal 9. OOMKilled is one cause and a liveness kill is another. Read the termination reason and the events before choosing a fix."
+/>
+
+<Quiz
+  id="kube-restart-2"
+  q="An app takes 60 seconds to start and its liveness probe begins checking after 15. What's the best fix?"
+  options={["Double its memory limit", "Add a startupProbe that allows the slow start, so liveness only starts once the app is up", "Delete the liveness probe"]}
+  answer={1}
+  explain="A startup probe holds liveness off until the app has started, then liveness keeps its quick interval for real hangs. Deleting liveness means a hung process is never restarted."
+/>
+
+<Quiz
+  id="kube-restart-3"
+  q="A container exits with code 1 and its previous logs say 'DATABASE_URL is not set'. Which command showed you that?"
+  options={["kubectl logs <pod> --previous", "kubectl get pods", "kubectl top pod"]}
+  answer={0}
+  explain="After a restart, plain kubectl logs shows the new container. --previous shows the one that crashed, which is where the reason usually is. Try panda/needs-config:1.0 in the playground."
+/>
+
+<Callout kind="real">
+The tilt lab's grader checks the *shape* of each fix, not just that pods went green. Raising memory on the probe-killed pod might eventually look healthy for the wrong reason. It also waits for the rollout to **finish**: while the lab was being written, the grader once passed on the old pod, which was Ready and still had the bug. "A pod is Ready" and "your change is live" are different facts.
+</Callout>
+
+<DoItForReal id="kube-restart-real" lab="09-why-did-it-restart">
+
+```bash
+kubectl apply -f labs/09-why-did-it-restart/workloads.yaml
+kubectl -n lab09 get pods -w          # wait a couple of minutes
+kubectl -n lab09 get pods -o jsonpath='{range .items[*]}{.metadata.labels.app}{"  "}{.status.containerStatuses[0].lastState.terminated.reason}{"\n"}{end}'
+./labs/09-why-did-it-restart/fix.sh
+./scripts/platform.sh lab 09
+```
+
+Re-break it with `break.sh`, not `kubectl apply`. The lab README explains why apply leaves a half-broken state.
+
+</DoItForReal>

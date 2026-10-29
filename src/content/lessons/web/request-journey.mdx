@@ -1,0 +1,81 @@
+---
+title: What happens when you press Enter
+summary: Four stages - DNS, TCP, TLS, HTTP - stand between you and every web page. Break each one and learn to read where a request died from how it died.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+tiltLab: 02-route-a-hostname
+sources:
+  - title: RFC 1034 - Domain Names, Concepts and Facilities
+    url: https://www.rfc-editor.org/rfc/rfc1034
+  - title: RFC 9293 - Transmission Control Protocol (TCP)
+    url: https://www.rfc-editor.org/rfc/rfc9293
+  - title: RFC 8446 - The Transport Layer Security (TLS) Protocol Version 1.3
+    url: https://www.rfc-editor.org/rfc/rfc8446
+  - title: RFC 9110 - HTTP Semantics
+    url: https://www.rfc-editor.org/rfc/rfc9110
+  - title: libcurl error codes
+    url: https://curl.se/libcurl/c/libcurl-errors.html
+---
+
+You type `shop.bamboo.example` and press Enter. Before a single pixel of the shop shows up, your computer has to get through four separate stages, in order. Each can fail on its own, and each fails in its own way:
+
+1. **DNS** turns the name into an address. Computers route packets to numbers like `203.0.113.10`, not names, so your machine asks a DNS resolver, which may ask other servers, and caches the answer for a while.
+2. **TCP** opens a connection to that address and port. Three messages go back and forth (SYN, SYN+ACK, ACK) before either side sends any real data. RFC 9293 calls it the three-way handshake.
+3. **TLS** proves you're talking to the real `shop.bamboo.example` and encrypts everything after. The server shows a certificate; your machine checks the name on it and who signed it.
+4. **HTTP** finally asks for the page (`GET /`) and gets an answer: a status code, some headers and a body.
+
+The useful skill isn't memorising the stages. It's reading **where** a request died from **how** it died. A failed DNS lookup and a crashed server both mean "the site is down", but one is a typo in a record and the other is a 3 a.m. phone call.
+
+## Break it
+
+Pick a failure. The stage tracker shows how far the request got, and the terminal shows what `curl -v` actually prints. The exit codes and messages are real curl output, captured for this lesson.
+
+<RequestJourney checks={false} only="ok,dns,refused,timeout,reset,tls-name,401" title="One request, four stages" />
+
+<Callout kind="tip">
+Notice the *speed* of each failure. "Connection refused" comes back in milliseconds: a machine answered to say nothing is listening. A timeout takes as long as you're willing to wait: nothing answered at all. Fast-no and slow-silence point at different culprits.
+</Callout>
+
+<Quiz
+  id="web-journey-1"
+  q="curl fails with exit code 6, 'Could not resolve host'. Which of these could NOT be the cause?"
+  options={["A typo in the hostname", "A missing DNS record", "The web server process has crashed"]}
+  answer={2}
+  explain="Exit 6 means the request never got past DNS: no address, so no connection was ever attempted. A crashed server would get you a refused connection (7), a timeout (28) or an error status. Never a DNS failure."
+/>
+
+<Quiz
+  id="web-journey-2"
+  q="One request fails with 'Connection refused' (exit 7) after 3 ms. Another fails with a timeout (exit 28) after 10 seconds. Which is more likely a firewall silently dropping traffic?"
+  options={["The refused one", "The timeout", "They mean the same thing"]}
+  answer={1}
+  explain="Refused is an answer: a machine got your SYN and replied that no program is on that port. A firewall that drops packets sends nothing back, so you wait until you give up. Silence is the firewall's signature."
+/>
+
+<Callout kind="real">
+Browsers and servers are moving to **HTTP/3**, which runs over QUIC on UDP and folds the TCP and TLS stages into one handshake. The stages blur together, but the questions don't change: did the name resolve, did anything answer, did it prove who it is, and what did it say?
+</Callout>
+
+<Quiz
+  id="web-journey-3"
+  q="A request gets a 401 Unauthorized. Which stages definitely worked?"
+  options={["Only DNS", "DNS and TCP, but not TLS", "All four: the application received and read the request, then refused it"]}
+  answer={2}
+  explain="A 401 is an HTTP answer, so DNS resolved, TCP connected, TLS verified, and the application read your request and decided you lack valid credentials. It's a statement about authentication, not about the network."
+/>
+
+<DoItForReal id="web-journey-real" lab="02-route-a-hostname">
+
+With the tilt platform up, watch all four stages against a real service:
+
+```bash
+curl -v https://hello.localhost/
+curl -v https://no-such-name.invalid/       # stage 1 fails: exit 6
+curl -v http://127.0.0.1:9/                 # stage 2 fails: exit 7
+echo $?                                     # the exit code of the last command
+```
+
+Names ending in `.localhost` point at your own machine (RFC 6761), and that's how the platform gets real hostnames with no DNS setup. Lab 02 then has you route a second hostname.
+
+</DoItForReal>

@@ -1,0 +1,62 @@
+---
+title: Look inside .git
+summary: Blobs, trees and commits. Three kinds of object, each named by its own hash. Take a commit apart and find two files sharing one blob.
+minutes: 15
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: Pro Git, chapter 10.2 - Git Objects
+    url: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+---
+
+Git is a small database with three kinds of object in it, each one stored under the hash of its own contents:
+
+| Object | Holds | Points to |
+|---|---|---|
+| **blob** | the bytes of one file, with no name attached | nothing |
+| **tree** | a directory listing: names, modes, and the hashes of blobs and sub-trees | blobs and trees |
+| **commit** | a tree, its parent commit(s), author, time and message | a tree and parents |
+
+That's all git stores. A filename lives in a tree, not in the blob. So two files with identical contents share **one** blob, however many folders they're in.
+
+There's one more consequence. A commit names its tree and its parent by hash, and the parent names *its* parent, and so on. Change anything in history and every hash after it changes. That's why nobody can quietly rewrite git history: the names would stop matching.
+
+## Take a commit apart
+
+This repository has three files, and two of them have identical contents. `git cat-file -p` prints any object by hash. Start at `HEAD` and work down.
+
+<GitPlayground mission="git-objects" title="Plumbing" />
+
+<Quiz
+  id="git-inside-1"
+  q="Where does git store a file's name?"
+  options={["Inside the blob, before the contents", "In the tree that lists it", "In the commit message"]}
+  answer={1}
+  explain="Blobs are pure content. The name, and the mode (file or folder), live in the tree entry that points at the blob. That's why identical contents can share one blob under many names."
+/>
+
+<Quiz
+  id="git-inside-2"
+  q="Someone edits a commit from last month and force-pushes. Why does everyone's later history now look different?"
+  options={["Git sends an alert", "Each commit names its parent by hash, so changing one commit changes every hash after it", "The server renumbers the commits"]}
+  answer={1}
+  explain="Hashes chain. A changed commit gets a new hash, so its child must record a different parent, which changes the child's hash, and so on to the tip. This chaining is the same idea behind other tamper-evident logs."
+/>
+
+<Callout kind="real">
+Real git compresses each object with zlib and keeps it in `.git/objects/ab/cdef...` (the first two hex characters are the folder name). It also packs objects into `.pack` files, storing deltas between similar ones. The hashes don't change, because they're computed before compression.
+</Callout>
+
+<DoItForReal id="git-inside-real">
+
+In any repository:
+
+```bash
+git cat-file -p HEAD
+git cat-file -p HEAD^{tree}
+ls .git/objects | head
+```
+
+Git is moving from SHA-1 to SHA-256 (`git init --object-format=sha256`). Same design, longer names.
+
+</DoItForReal>
