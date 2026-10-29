@@ -48,6 +48,23 @@ npm run build && npm run check:site   # screenshots land in .site-check/ - look 
 npm run sync:cncf      # refresh CNCF maturity, then review the diff
 ```
 
+## Deploying
+
+Every push to `main` runs the full verification. The exact `dist/` it checked
+is published to GitHub Pages, and nothing is rebuilt between check and
+deploy. Two one-time settings live outside the repo, recorded here so the setup
+can be rebuilt:
+
+```bash
+gh api -X POST repos/TemplateMechanics/curiouspandas-learn/pages -f build_type=workflow
+gh api -X PUT  repos/TemplateMechanics/curiouspandas-learn/pages -f cname=curiouspandas.dev
+```
+
+DNS for curiouspandas.dev is on Cloudflare: the GitHub Pages apex A/AAAA
+records plus `www` CNAME `templatemechanics.github.io`, set **DNS only** (grey
+cloud) so GitHub can issue the certificate. curiouspandas.us and
+curiouspanda.codes redirect to it with Cloudflare redirect rules.
+
 ## Adding a lesson
 
 1. List it in `src/data/tracks.ts`, with status `soon` until it is written.

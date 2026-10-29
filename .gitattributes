@@ -1,0 +1,4 @@
+# LF everywhere, whatever core.autocrlf says on the machine. The git parity
+# tests hash file contents, and a CRLF checkout would change every blob.
+* text=auto eol=lf
+*.png binary
