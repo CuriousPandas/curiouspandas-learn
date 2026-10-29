@@ -3,6 +3,11 @@
 .widget-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
 .widget-head h3, .widget-head strong { margin: 0; font-size: 1.02rem; }
 .widget-head .spacer { flex: 1; }
+/* Linux fonts run wider than Windows ones: a nowrap pill and long <select>
+   options pushed phones sideways by 9-42px in CI while passing locally. */
+.widget-head .pill { white-space: normal; }
+.widget select, .widget input[type="range"] { max-width: 100%; min-width: 0; }
+.widget .controls label, .widget label.controls { max-width: 100%; flex-wrap: wrap; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.9rem; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
 .controls select, .controls input[type="number"] { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }

@@ -37,6 +37,10 @@ jobs:
         with:
           name: site-check
           path: .site-check/
+          # A dot-directory is "hidden" and upload-artifact skips hidden files
+          # by default - the first run uploaded nothing and only warned.
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 14
       # The site that was just checked is the site that ships - no second build
       # that could differ from the one the browser check looked at.
