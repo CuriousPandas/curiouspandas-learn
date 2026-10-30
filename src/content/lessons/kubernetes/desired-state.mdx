@@ -24,6 +24,34 @@ That's the whole idea. The rest of Kubernetes is that loop applied to more kinds
 - The **scheduler** notices pods with no node yet and picks one for each.
 - The **kubelet** on each node notices pods assigned to it and starts their containers.
 
+<Diagram
+  id="kube-chain-of-command"
+  title="One promise, five loops"
+  desc="You store a Deployment once, wanting three copies. It creates a ReplicaSet, which keeps comparing want with have and creates a pod with a new name to close any gap. The scheduler assigns the new pod a node, and the kubelet on that node starts its containers."
+  nodes={[
+    { id: 'you', label: 'you, once', sub: 'kubectl create', x: 0, y: 0 },
+    { id: 'deploy', label: 'Deployment', sub: 'want: 3 copies', x: 1, y: 0, kind: 'ok' },
+    { id: 'rs', label: 'ReplicaSet', sub: 'want 3, have 2?', x: 2, y: 0, kind: 'warn' },
+    { id: 'pod', label: 'new pod', sub: 'new name, no node', x: 3, y: 0, kind: 'info' },
+    { id: 'kubelet', label: 'kubelet', sub: 'starts containers', x: 2, y: 1 },
+    { id: 'sched', label: 'scheduler', sub: 'picks a node', x: 3, y: 1 },
+  ]}
+  edges={[
+    { from: 'you', to: 'deploy', label: 'stores' },
+    { from: 'deploy', to: 'rs', label: 'creates' },
+    { from: 'rs', to: 'pod', label: 'creates' },
+    { from: 'sched', to: 'pod', label: 'assigns node' },
+    { from: 'kubelet', to: 'pod', label: 'runs it' },
+  ]}
+  steps={[
+    { caption: 'You store a promise once: a Deployment that wants three copies. Nothing has run yet.', show: ['you', 'deploy', 'you->deploy'], focus: ['deploy'] },
+    { caption: 'The Deployment creates a ReplicaSet, whose loop keeps comparing want with have. Delete a pod and it sees 2 where it wants 3.', show: ['rs', 'deploy->rs'], focus: ['rs'] },
+    { caption: 'It closes the gap by creating a pod - a new one, with a new name. The pod has no node yet.', show: ['pod', 'rs->pod'], focus: ['pod'] },
+    { caption: 'The scheduler watches for pods with no node, and picks one.', show: ['sched', 'sched->pod'], focus: ['sched'] },
+    { caption: 'The kubelet on that node sees a pod assigned to it and starts the containers. Nobody called anybody: each loop found its own work.', show: ['kubelet', 'kubelet->pod'], focus: ['kubelet'] },
+  ]}
+/>
+
 Nobody calls anybody. Each piece watches for work and does its own part. The simulator below runs those same loops every tick.
 
 <KubeSim mission="kube-self-heal" title="Three pandas, always" />

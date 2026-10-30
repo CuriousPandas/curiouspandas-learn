@@ -25,6 +25,37 @@ You type `shop.bamboo.example` and press Enter. Before a single pixel of the sho
 3. **TLS** proves you're talking to the real `shop.bamboo.example` and encrypts everything after. The server shows a certificate; your machine checks the name on it and who signed it.
 4. **HTTP** finally asks for the page (`GET /`) and gets an answer: a status code, some headers and a body.
 
+<Diagram
+  id="web-four-stages"
+  title="Four stages, and how each one fails"
+  desc="A request passes DNS, then TCP, then TLS, then HTTP, each handing the next what it needs. Under each stage is how curl reports a failure there: exit 6 for DNS, exit 7 or 28 for TCP, exit 60 for TLS. An HTTP 4xx or 5xx is an answer, so curl still exits 0."
+  nodes={[
+    { id: 'dns', label: 'DNS', sub: 'name -> address', x: 0, y: 0, kind: 'info' },
+    { id: 'tcp', label: 'TCP', sub: 'SYN, SYN+ACK, ACK', x: 1, y: 0, kind: 'info' },
+    { id: 'tls', label: 'TLS', sub: 'certificate checked', x: 2, y: 0, kind: 'info' },
+    { id: 'http', label: 'HTTP', sub: 'GET / -> status', x: 3, y: 0, kind: 'info' },
+    { id: 'dns-fail', label: 'exit 6', sub: 'Could not resolve host', x: 0, y: 1, kind: 'bad' },
+    { id: 'tcp-fail', label: 'exit 7 or 28', sub: 'refused / timed out', x: 1, y: 1, kind: 'bad' },
+    { id: 'tls-fail', label: 'exit 60', sub: 'cert not verified', x: 2, y: 1, kind: 'bad' },
+    { id: 'http-fail', label: 'a 4xx or 5xx', sub: 'curl still exits 0', x: 3, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'dns', to: 'tcp', label: 'address' },
+    { from: 'tcp', to: 'tls', label: 'connected' },
+    { from: 'tls', to: 'http', label: 'verified' },
+    { from: 'dns', to: 'dns-fail', dashed: true },
+    { from: 'tcp', to: 'tcp-fail', dashed: true },
+    { from: 'tls', to: 'tls-fail', dashed: true },
+    { from: 'http', to: 'http-fail', dashed: true },
+  ]}
+  steps={[
+    { caption: 'DNS turns the name into an address. Fail here and nothing after it is even attempted: curl exits 6.', show: ['dns', 'dns-fail', 'dns->dns-fail'], focus: ['dns-fail'] },
+    { caption: 'TCP knocks on that address. A fast "refused" (7) means a machine answered; a slow timeout (28) means nothing did.', show: ['tcp', 'dns->tcp', 'tcp-fail', 'tcp->tcp-fail'], focus: ['tcp-fail'] },
+    { caption: 'TLS checks the certificate: the right name, signed by someone you trust. Fail either and curl exits 60.', show: ['tls', 'tcp->tls', 'tls-fail', 'tls->tls-fail'], focus: ['tls-fail'] },
+    { caption: 'Only now does HTTP ask for the page. A 401 or a 500 is an answer, so every stage before it worked - and curl exits 0.', show: ['http', 'tls->http', 'http-fail', 'http->http-fail'], focus: ['http-fail'] },
+  ]}
+/>
+
 The useful skill isn't memorising the stages. It's reading **where** a request died from **how** it died. A failed DNS lookup and a crashed server both mean "the site is down", but one is a typo in a record and the other is a 3 a.m. phone call.
 
 ## Break it

@@ -21,6 +21,33 @@ During the TLS stage the server hands over a **certificate**. It says, roughly, 
 1. **The name.** Does the certificate list the name you asked for? Certificates carry their names in a field called the Subject Alternative Name (SAN).
 2. **The trust.** Can it follow the chain of signatures up to a root certificate that your machine already trusts? Your operating system and browser ship with a list of trusted roots, the **trust store**.
 
+<Diagram
+  id="tls-chain-of-trust"
+  title="Two checks on one certificate"
+  desc="The server's certificate for shop.bamboo.example is signed by an intermediate, which is signed by a root. Check one compares the name you asked for with the certificate's name list; a miss is verify code 62. Check two follows the signatures up and needs the root to be in your trust store; a miss is verify code 20."
+  nodes={[
+    { id: 'leaf', label: 'server certificate', sub: 'shop.bamboo.example', x: 0, y: 0 },
+    { id: 'inter', label: 'intermediate', sub: 'Bamboo Issuing CA', x: 1, y: 0 },
+    { id: 'root', label: 'root certificate', sub: 'Bamboo Root CA', x: 2, y: 0, kind: 'info' },
+    { id: 'store', label: 'your trust store', sub: 'roots you trust', x: 3, y: 0, kind: 'ok' },
+    { id: 'name', label: 'check 1: name', sub: 'missing: code 62', x: 0, y: 1, kind: 'warn' },
+    { id: 'trust', label: 'check 2: trust', sub: 'not trusted: code 20', x: 3, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'leaf', to: 'inter', label: 'signed by' },
+    { from: 'inter', to: 'root', label: 'signed by' },
+    { from: 'root', to: 'store', label: 'listed in?' },
+    { from: 'leaf', to: 'name', label: 'SAN list', dashed: true },
+    { from: 'store', to: 'trust', dashed: true },
+  ]}
+  steps={[
+    { caption: 'The server hands over its certificate: the names it is valid for, and who signed it.', show: ['leaf'], focus: ['leaf'] },
+    { caption: 'Check one: is the name you asked for in its name list? If not, OpenSSL reports 62. The fix is a new certificate.', show: ['name', 'leaf->name'], focus: ['name'] },
+    { caption: 'Check two follows the signatures upward. Real chains usually have an intermediate between the server and the root.', show: ['inter', 'root', 'leaf->inter', 'inter->root'], focus: ['inter', 'root'] },
+    { caption: 'The chain must end at a root already in your trust store. If it does not, you get 20. The fix is the trust store, or the chain the server sends.', show: ['store', 'trust', 'root->store', 'store->trust'], focus: ['trust', 'root->store'] },
+  ]}
+/>
+
 Fail either one and you get the same scary browser page and the same curl exit code: **60**. That sameness is the trap. The two failures have opposite fixes, and fixing the wrong one wastes an afternoon.
 
 ## Same symptom, different code

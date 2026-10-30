@@ -37,6 +37,33 @@ This cluster has two nodes with 2 CPUs (2000m) each. Someone deployed `big` with
 If your fix still doesn't fit *next to* the old pods, the update itself waits. With the default rolling strategy, new pods must start before old ones are removed, and they need room to do it. Choose a request that fits in what's left on a node.
 </Callout>
 
+Here's what the scheduler did each time it tried the third pod:
+
+<Diagram
+  id="kube-why-pending"
+  title="Why the third pod waits"
+  desc="A pending pod requests 1500m of CPU. The scheduler adds up what pods already on each node requested: both nodes have 2000m and 1500m already promised, leaving 500m, so neither fits. It records the reason as a FailedScheduling event on the pod and tries again later."
+  nodes={[
+    { id: 'pod', label: 'pending pod', sub: 'requests 1500m', x: 0, y: 0, kind: 'warn' },
+    { id: 'sched', label: 'scheduler', sub: 'adds up requests', x: 1, y: 0, kind: 'info' },
+    { id: 'w1', label: 'worker-1', sub: '1500m of 2000m taken', x: 2, y: 0, kind: 'bad' },
+    { id: 'w2', label: 'worker-2', sub: '1500m of 2000m taken', x: 2, y: 1, kind: 'bad' },
+    { id: 'event', label: 'FailedScheduling', sub: 'an event on the pod', x: 1, y: 1 },
+  ]}
+  edges={[
+    { from: 'pod', to: 'sched', label: 'no node yet' },
+    { from: 'sched', to: 'w1', label: 'fits?' },
+    { from: 'sched', to: 'w2', label: 'fits?' },
+    { from: 'sched', to: 'event', label: 'writes' },
+  ]}
+  steps={[
+    { caption: 'A pod asks for 1500m. Until a node is chosen it stays Pending - nothing crashed, nothing is red.', show: ['pod'], focus: ['pod'] },
+    { caption: 'The scheduler adds up what the pods on each node requested. Not what they use.', show: ['sched', 'pod->sched'], focus: ['sched'] },
+    { caption: 'Each node has 2000m and has already promised 1500m. 500m is left on each, so neither fits.', show: ['w1', 'w2', 'sched->w1', 'sched->w2'], focus: ['w1', 'w2'] },
+    { caption: 'So it writes the reason as an event on the pod and tries again later. kubectl describe pod is where you read it.', show: ['event', 'sched->event'], focus: ['event'] },
+  ]}
+/>
+
 <Quiz
   id="kube-sched-1"
   q="A node shows 4% CPU usage in your monitoring, but new pods won't schedule there because of Insufficient cpu. How can both be true?"

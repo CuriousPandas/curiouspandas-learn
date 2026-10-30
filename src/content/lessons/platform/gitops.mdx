@@ -30,6 +30,32 @@ That last point depends entirely on what's doing the reconciling, and that's whe
 - A **Kustomization** applies plain manifests. The Flux docs say each reconciliation, every `interval`, applies the manifests again, "correcting any existing drift in the process". With `prune` turned on, it also deletes objects that were removed from git.
 - A **HelmRelease** installs a Helm chart. Its `interval` re-checks the *release* against the spec. Comparing the live objects is a separate, optional feature: `.spec.driftDetection` is opt-in.
 
+<Diagram
+  id="gitops-two-reconcilers"
+  title="Who puts it back?"
+  desc="Desired state lives in a git repository. A Kustomization applies its manifests to the cluster again every interval, so a kubectl edit is corrected. A HelmRelease installs a chart and, without driftDetection, does not compare live objects, so the same edit stays until the next upgrade."
+  nodes={[
+    { id: 'git', label: 'git repository', sub: 'desired state', x: 0, y: 0, kind: 'info' },
+    { id: 'ks', label: 'Kustomization', sub: 'apply again', x: 1, y: 0, kind: 'ok' },
+    { id: 'hr', label: 'HelmRelease', sub: 'no driftDetection', x: 1, y: 1, kind: 'warn' },
+    { id: 'cluster', label: 'cluster', sub: 'live state', x: 2, y: 0 },
+    { id: 'edit', label: 'kubectl edit', sub: 'a hand change', x: 3, y: 0, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'git', to: 'ks', label: 'manifests' },
+    { from: 'ks', to: 'cluster', label: 'on interval' },
+    { from: 'edit', to: 'cluster', label: 'drift' },
+    { from: 'git', to: 'hr', label: 'chart + values' },
+    { from: 'hr', to: 'cluster', label: 'on upgrade' },
+  ]}
+  steps={[
+    { caption: 'The desired state lives in git. Every change is a commit, with an author and a reason.', show: ['git'], focus: ['git'] },
+    { caption: 'A Kustomization applies those manifests to the cluster again on every interval.', show: ['ks', 'cluster', 'git->ks', 'ks->cluster'], focus: ['ks'] },
+    { caption: 'A hand edit changes the cluster but not git. That gap is drift - and the next Kustomization run puts git back.', show: ['edit', 'edit->cluster'], focus: ['edit->cluster', 'ks->cluster'] },
+    { caption: 'A HelmRelease re-checks the release, not the live objects. Without driftDetection, the same edit stays until the next upgrade.', show: ['hr', 'git->hr', 'hr->cluster'], focus: ['hr'] },
+  ]}
+/>
+
 Pick a reconciler, scale the Deployment by hand, and watch what happens to your edit.
 
 <GitOpsSim mission="gitops-drift" />

@@ -36,6 +36,34 @@ Each time, Kubernetes was content, Prometheus reported nothing wrong, and eighte
 
 With the Prometheus Operator, you don't edit Prometheus's config. You create a **ServiceMonitor**, which says "scrape the **Services** with *this label*, on the port with *this name*". Both are matched exactly. Get either wrong and the operator generates no scrape target, and it doesn't consider that an error. Nothing failed, so nothing alerts.
 
+<Diagram
+  id="obs-scrape-wiring"
+  title="From ServiceMonitor to panel"
+  desc="A ServiceMonitor names a Service label and a port name, which must match a real Service exactly. The Prometheus Operator turns each match into a scrape target; no match gives no target and no error. Prometheus scrapes the pods behind the Service, and Grafana draws what Prometheus stored. Prometheus's targets page is the only place a missing target shows."
+  nodes={[
+    { id: 'sm', label: 'ServiceMonitor', sub: 'label + port name', x: 0, y: 0 },
+    { id: 'svc', label: 'Service hello', sub: 'port name: http', x: 0, y: 1 },
+    { id: 'op', label: 'operator', sub: 'no match: no error', x: 1, y: 0, kind: 'warn' },
+    { id: 'prom', label: 'Prometheus', sub: 'the truth: /targets', x: 2, y: 0, kind: 'info' },
+    { id: 'pod', label: 'pod hello', sub: 'serves /metrics', x: 2, y: 1 },
+    { id: 'graf', label: 'Grafana panel', sub: 'empty = no target?', x: 3, y: 0 },
+  ]}
+  edges={[
+    { from: 'sm', to: 'svc', label: 'must match' },
+    { from: 'sm', to: 'op', label: 'read by' },
+    { from: 'op', to: 'prom', label: 'targets' },
+    { from: 'svc', to: 'pod', label: 'endpoints' },
+    { from: 'prom', to: 'pod', label: 'scrapes' },
+    { from: 'prom', to: 'graf', label: 'queried by' },
+  ]}
+  steps={[
+    { caption: 'A ServiceMonitor names a label and a port name. Both must match a real Service exactly - "metrics" is not "http-metrics".', show: ['sm', 'svc', 'sm->svc'], focus: ['sm->svc'] },
+    { caption: 'The operator turns each match into a scrape target. No match, no target - and it does not count that as an error.', show: ['op', 'sm->op'], focus: ['op'] },
+    { caption: 'Prometheus scrapes /metrics on the pods behind the Service. Its /targets page is the one place a missing target shows.', show: ['prom', 'pod', 'op->prom', 'svc->pod', 'prom->pod'], focus: ['prom'] },
+    { caption: 'Grafana draws what Prometheus stored. No target means an empty panel on a perfectly healthy cluster.', show: ['graf', 'prom->graf'], focus: ['graf'] },
+  ]}
+/>
+
 <ScrapeSim mission="obs-empty-dashboard" />
 
 <Callout kind="tip">
