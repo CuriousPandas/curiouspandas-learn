@@ -65,6 +65,10 @@
 /* Long unbroken inline code ("api.example.com.<namespace>.svc.cluster.local")
    pushed phones 61px sideways in Firefox. Code blocks keep scrolling instead. */
 :not(pre) > code { overflow-wrap: anywhere; }
+/* The monospace stack (Cascadia Code first) draws >= as one glyph, so code
+   showed SQLite's "(<expr>=?)" as "(<expr≥?)" - wrong characters in a lesson
+   about exact syntax. Code is shown exactly as typed. */
+code, pre, kbd, samp, .term-out, textarea { font-variant-ligatures: none; }
 /* Let fieldsets shrink with the page (their default min-width is min-content)
    and let legends wrap. WebKit still keeps a <legend> at its desktop width
    after the window narrows, ignoring max-width - neither rule fixes that, so

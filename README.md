@@ -34,8 +34,13 @@ TypeScript, running in the learner's own browser tab.
   an allow-list of commands implemented against an in-memory model. Anything not
   on the list is refused by name ("real git has this, this sandbox does not
   yet", or "command not found"), never silently ignored. Typed text
-  is never evaluated, never sent anywhere, and only ever reaches the page as
-  text nodes, never as HTML.
+  is never evaluated as JavaScript, never sent anywhere, and only ever reaches
+  the page as text nodes, never as HTML.
+- **One exception, deliberately: SQL.** On the two database consoles, typed
+  SQL is executed - by SQLite compiled to WebAssembly (`sql.js`, bundled and
+  served from this site), against a small in-memory database, inside a Web
+  Worker that is terminated after 4 seconds so a runaway query cannot hang the
+  tab. It has no network and no access to the page; reloading discards it.
 - **The models are faithful where it matters.** The git engine writes real
   blob/tree/commit objects with SHA-1 in JavaScript, and `tests/git-parity.test.ts`
   replays sessions through the real `git` binary to prove the hashes and merge

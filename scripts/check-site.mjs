@@ -1053,8 +1053,8 @@ await scenario('sre-slo', '/learn/sre/slos/', async (page) => {
   const stroke = await page.locator(`${r} .sl-line`).evaluate((e) => getComputedStyle(e).stroke);
   if (!stroke || stroke === 'none') throw new Error('budget line is unstyled - widget styles are not applying');
   for (const sc of ['blip', 'fast', 'slow']) await runWith(sc, 'burn');
-  await expectText(page, `${r} [data-cell="burn:fast"]`, /^âœ“ paged \d+ minutes in/);
-  await expectText(page, `${r} [data-cell="burn:slow"]`, /^âœ“ opened a ticket/);
+  await expectText(page, `${r} [data-cell="burn:fast"]`, /^✓ paged \d+ minutes in/);
+  await expectText(page, `${r} [data-cell="burn:slow"]`, /^✓ opened a ticket/);
   await expectText(page, `${r} .m-debrief`, /burn rate asks a different question/i);
 });
 
@@ -1101,6 +1101,7 @@ await scenario('sre-scale', '/learn/sre/autoscaling/', async (page) => {
   await expectText(page, `${r} [data-verdict]`, /and drained\.$/);
   await expectText(page, `${r} .m-debrief`, /scale on what the work actually is/);
 });
+
 
 // ---- agents (writer AG)
 // Each widget: play its mission the way a learner would, and check the
