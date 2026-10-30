@@ -86,7 +86,7 @@ export const TRACKS: Track[] = [
       { slug: 'pipelines', title: 'A pipeline on every push', status: 'ready' },
       { slug: 'infrastructure-as-code', title: 'Plan, apply, drift', status: 'ready' },
       { slug: 'release-strategies', title: 'Canary, blue-green and the rollback', status: 'ready' },
-      { slug: 'release-automation', title: 'Commit messages that cut releases', status: 'soon' },
+      { slug: 'release-automation', title: 'Commit messages that cut releases', status: 'ready' },
     ],
   },
   {

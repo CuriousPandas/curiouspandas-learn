@@ -1,0 +1,127 @@
+---
+import '../styles/widgets.css';
+import { CHANGES } from '../lib/delivery/releasesim.ts';
+const first = Object.values(CHANGES)[0];
+---
+<div class="widget card relauto" data-relauto>
+  <div class="widget-head">
+    <strong>A repository with release-please</strong>
+    <span class="pill info">simulated: the spec's parsing, release-please's default bumps</span>
+  </div>
+  <div class="ra-grid">
+    <div class="ra-main">
+      <div class="controls">
+        <label>The change you made
+          <select data-change>{Object.entries(CHANGES).map(([id, c]) => <option value={id}>{c.label}</option>)}</select>
+        </label>
+      </div>
+      <label class="ra-msg"><span class="eyebrow">Commit message</span>
+        <textarea rows="3" spellcheck="false" data-msg>{first.suggest}</textarea>
+      </label>
+      <div class="controls"><button class="btn small primary" type="button" data-commit>Commit to main</button></div>
+      <span class="eyebrow ra-since-head" data-since-head>Commits since release 1.4.2</span>
+      <ol class="ra-since" data-since aria-live="polite"></ol>
+    </div>
+    <div class="ra-side">
+      <div class="ra-pr" data-pr></div>
+      <span class="eyebrow">Releases</span>
+      <ol class="ra-releases" data-releases><li class="muted">v1.4.2 - where you start. Users installed it with ^1.4.2.</li></ol>
+      <div data-mission-panel></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { CHANGES, RELEASE_AUTO_MISSION } from '../lib/delivery/releasesim.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-relauto]')) {
+    const state = RELEASE_AUTO_MISSION.setup();
+    const repo = state.repo;
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), RELEASE_AUTO_MISSION, () => state, () => {});
+    const change = q<HTMLSelectElement>('[data-change]');
+    const msg = q<HTMLTextAreaElement>('[data-msg]');
+
+    const badge = (text: string, kind: string) => el('span', { class: `ra-badge ${kind}` }, text);
+
+    const draw = () => {
+      q('[data-since-head]').textContent = `Commits since release ${repo.tag}`;
+      q('[data-since]').replaceChildren(...(repo.since.length ? repo.since.map((e) => {
+        const head = e.message.split('\n')[0];
+        const tag = e.commit
+          ? badge(e.commit.breaking ? `${e.commit.type}! - breaking` : e.commit.type, e.commit.breaking ? 'bad' : e.commit.type === 'feat' ? 'info' : e.commit.type === 'fix' ? 'ok' : 'plain')
+          : badge('ignored', 'warn');
+        const li = el('li', {}, tag, el('code', {}, head));
+        if (e.error) li.append(el('span', { class: 'ra-why' }, `Not a conventional commit: ${e.error}. release-please will not count it.`));
+        return li;
+      }) : [el('li', { class: 'muted' }, 'Nothing yet.')]));
+
+      const p = repo.pending();
+      const pr = q('[data-pr]');
+      if (!p.next) {
+        pr.className = 'ra-pr empty';
+        pr.replaceChildren(el('span', { class: 'eyebrow' }, 'Release PR'), el('p', {}, `No release PR: nothing releasable since v${repo.tag}. Only feat, fix and deps commits - or anything marked breaking - start one.`));
+      } else {
+        pr.className = 'ra-pr';
+        const notes = el('div', { class: 'ra-notes' }, el('h4', {}, `${p.next} (${p.bump})`));
+        for (const s of p.sections) notes.append(el('h5', { class: s.heading.startsWith('⚠') ? 'bad' : '' }, s.heading), el('ul', {}, ...s.items.map((i) => el('li', {}, i.replace(/\*\*/g, '')))));
+        const merge = el('button', { class: 'btn small primary', type: 'button', 'data-merge': '' }, 'Merge release PR');
+        merge.addEventListener('click', () => {
+          const rec = repo.mergeRelease();
+          if (rec) {
+            const li = el('li', { class: rec.brokeUsers ? 'bad' : 'ok' }, el('b', {}, `v${rec.version}`), ` ${rec.bump}`);
+            li.append(el('span', { class: 'ra-why' }, rec.brokeUsers
+              ? `Everyone on ^${rec.from} installed this automatically - and the renamed field broke their code.`
+              : rec.bump === 'major' ? `Nobody on ^${rec.from} gets it by accident. They upgrade when they choose, and the changelog tells them what to change.`
+              : `Users on ^${rec.from} receive it on their next install.`));
+            q('[data-releases]').append(li);
+          }
+          draw();
+        });
+        pr.replaceChildren(el('span', { class: 'eyebrow' }, 'Release PR, kept up to date by release-please'), el('strong', { class: 'ra-title' }, `chore(main): release ${p.next}`), notes, merge);
+      }
+      refresh();
+    };
+
+    change.addEventListener('change', () => { msg.value = CHANGES[change.value].suggest; });
+    q('[data-commit]').addEventListener('click', () => {
+      if (!msg.value.trim()) return;
+      repo.commit(change.value, msg.value);
+      draw();
+    });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the commit list, the release PR and the releases are created by the script. */
+  .relauto .ra-grid { display: grid; gap: 14px; margin-top: 10px; }
+  @media (min-width: 900px) { .relauto .ra-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .relauto .ra-main, .relauto .ra-side { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .relauto .controls label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .relauto .ra-msg { display: grid; gap: 4px; }
+  .relauto .ra-msg textarea { font: 14px/1.5 var(--mono); padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); resize: vertical; width: 100%; }
+  .relauto .ra-since, .relauto .ra-releases { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.88rem; }
+  .relauto .ra-since li { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: baseline; padding: 6px 8px; border-radius: 8px; background: var(--bg-2); }
+  .relauto .ra-since code { overflow-wrap: anywhere; }
+  .relauto .ra-why { flex-basis: 100%; color: var(--ink-2); font-size: 0.84rem; }
+  .relauto .ra-badge { font: 600 0.74rem var(--sans); padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line-2); white-space: nowrap; }
+  .relauto .ra-badge.ok { background: var(--bamboo-soft); color: var(--bamboo); border-color: transparent; }
+  .relauto .ra-badge.info { background: var(--sky-soft); color: var(--sky); border-color: transparent; }
+  .relauto .ra-badge.bad { background: var(--berry-soft); color: var(--berry); border-color: transparent; }
+  .relauto .ra-badge.warn { background: var(--sun-soft); color: var(--sun-text); border-color: transparent; }
+  .relauto .ra-pr { border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; background: var(--bg); }
+  .relauto .ra-pr.empty { border-style: dashed; background: transparent; }
+  .relauto .ra-pr p { margin: 0; font-size: 0.9rem; color: var(--ink-2); }
+  .relauto .ra-title { font: 600 0.92rem var(--mono); overflow-wrap: anywhere; }
+  .relauto .ra-notes { border-left: 3px solid var(--line-2); padding-left: 10px; font-size: 0.88rem; }
+  .relauto .ra-notes h4 { margin: 0 0 4px; font-size: 0.95rem; }
+  .relauto .ra-notes h5 { margin: 6px 0 2px; font-size: 0.84rem; }
+  .relauto .ra-notes h5.bad { color: var(--berry); }
+  .relauto .ra-notes ul { margin: 0; padding-left: 18px; }
+  .relauto .ra-releases li { padding: 6px 8px; border-radius: 8px; background: var(--bg-2); }
+  .relauto .ra-releases li.ok { background: var(--bamboo-soft); }
+  .relauto .ra-releases li.bad { background: var(--berry-soft); }
+  .relauto .ra-releases li .ra-why { display: block; }
+</style>

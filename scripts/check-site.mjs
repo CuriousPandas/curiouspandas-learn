@@ -877,6 +877,42 @@ await scenario('net-lb', '/learn/network/load-balancers/', async (page) => {
   await expectText(page, 'header [data-xp]', /^[1-9]/);
 });
 
+// ---- release automation (writer RP)
+// The release PR reads only the message. The tempting "fix:" on the API rename
+// must ship a patch that breaks ^ users and leave the last step open; "!" fixes it.
+
+await scenario('release-please', '/learn/delivery/release-automation/', async (page) => {
+  const r = '[data-relauto]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const commit = async (change, message) => {
+    await page.selectOption(`${r} [data-change]`, change);
+    if (message !== undefined) await page.fill(`${r} [data-msg]`, message);
+    await page.click(`${r} [data-commit]`);
+  };
+  const merge = () => page.click(`${r} [data-merge]`);
+  await commit('typo');
+  await expectText(page, `${r} [data-pr]`, /chore\(main\): release 1\.4\.3/);
+  await merge();
+  await expectText(page, `${r} [data-releases]`, /v1\.4\.3 patch/);
+  await commit('readme', 'Fixed stuff');
+  await expectText(page, `${r} [data-since]`, /ignored[\s\S]*release-please will not count it/);
+  await expectText(page, `${r} [data-pr]`, /No release PR/);
+  await commit('csv');
+  await expectText(page, `${r} [data-pr]`, /release 1\.5\.0[\s\S]*Features/);
+  await merge();
+  // The tempting message: a patch that every ^1.5.0 user installs automatically.
+  await commit('rename');
+  await expectText(page, `${r} [data-pr]`, /release 1\.5\.1/);
+  await merge();
+  await expectText(page, `${r} [data-releases]`, /v1\.5\.1 patch[\s\S]*broke their code/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 3) throw new Error('shipping the breaking rename as a patch must not complete the mission');
+  await commit('rename', 'feat(api)!: rename the user field to account');
+  await expectText(page, `${r} [data-pr]`, /release 2\.0\.0[\s\S]*BREAKING CHANGES/);
+  await merge();
+  await expectText(page, `${r} .m-debrief`, /commit message is the release note/);
+  await expectText(page, 'header [data-xp]', /^[1-9]/);
+});
+
 await browser.close();
 server?.kill();
 
