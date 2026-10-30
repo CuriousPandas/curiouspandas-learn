@@ -1096,7 +1096,10 @@ await scenario('sre-scale', '/learn/sre/autoscaling/', async (page) => {
   await expectText(page, `${r} [data-verdict]`, /Their CPU never moved/);
   await page.selectOption(`${r} [data-metric]`, 'queue');
   // The target list must follow the metric: CPU percentages make no sense for a queue.
-  await expectText(page, `${r} [data-target]`, /messages waiting per pod/);
+  // A <select>'s innerText is its options' text in Chromium and WebKit but ""
+  // in Firefox, so this check failed there while the widget was fine. Read the
+  // options' textContent instead, which every engine agrees on.
+  await page.waitForFunction((sel) => [...document.querySelectorAll(sel)].some((o) => /messages waiting per pod/.test(o.textContent)), `${r} [data-target] option`, { timeout: 8000 });
   await page.click(`${r} [data-run]`);
   await expectText(page, `${r} [data-verdict]`, /and drained\.$/);
   await expectText(page, `${r} .m-debrief`, /scale on what the work actually is/);
