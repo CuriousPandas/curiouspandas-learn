@@ -1,0 +1,117 @@
+---
+title: Agents that help run a business
+summary: Chasing invoices, triaging support, following up leads, sorting the inbox - an agent can take hours of this off a small team. Decide what it may do alone and what needs a person, then price it with real numbers.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: OWASP Top 10 for LLM Applications 2025 - LLM06 Excessive Agency
+    url: https://genai.owasp.org/llmrisk/llm062025-excessive-agency/
+  - title: Anthropic docs - Pricing (checked 2026-10-30)
+    url: https://platform.claude.com/docs/en/about-claude/pricing
+  - title: Anthropic docs - Tool use with Claude (tutorial - build a tool-using agent)
+    url: https://platform.claude.com/docs/en/agents-and-tools/tool-use/build-a-tool-using-agent
+  - title: Ollama - Tool support (Jul 2024)
+    url: https://ollama.com/blog/tool-support
+---
+
+Small businesses drown in work that is too fiddly for software and too boring for people: chasing the invoice that's three weeks late, sorting the shared inbox, replying "your order shipped yesterday" for the fortieth time. That's where agents earn their keep. It's also where they can do real damage, because these jobs touch customers and money.
+
+The skill this lesson teaches is deciding, **action by action**, what the agent may do on its own.
+
+## Three levels of trust
+
+For every action an agent could take, pick one:
+
+- **Alone.** Reading, sorting, drafting, making internal notes. If it gets one wrong, someone notices and fixes it, and nobody outside is affected.
+- **Ask a person.** Anything that reaches a customer, moves money or can't be undone. The agent prepares it - the email written, the fee calculated - and a person clicks send.
+- **Never.** Actions where even an approved mistake would be too costly, or where a person should do the whole job anyway.
+
+OWASP's name for getting this wrong is **excessive agency**. It lists three root causes, "excessive functionality", "excessive permissions" and "excessive autonomy", and the fix for the last is to "require a human to approve high-impact actions before they are taken". Its example is a mail assistant whose plugin "also contains functions for sending messages" when it only needed to read. One injected email, and the agent forwards your customers' data to an attacker.
+
+<Diagram
+  id="agents-trust"
+  title="How much each action may do alone"
+  desc="Reading and drafting run alone. Sending to a customer and moving money wait for a person's approval. Irreversible actions such as pausing a customer's account are never done by the agent. A refund under a hard cap enforced in code can run alone."
+  nodes={[
+    { id: 'read', label: 'read, sort', sub: 'alone', x: 0, y: 0, kind: 'ok' },
+    { id: 'draft', label: 'draft a reply', sub: 'alone', x: 1, y: 0, kind: 'ok' },
+    { id: 'send', label: 'send, charge', sub: 'a person approves', x: 2, y: 0, kind: 'warn' },
+    { id: 'pause', label: 'pause account', sub: 'never by the agent', x: 3, y: 0, kind: 'bad' },
+    { id: 'capped', label: 'refund <= EUR 50', sub: 'alone: capped in code', x: 2, y: 1, kind: 'info' },
+  ]}
+  edges={[
+    { from: 'read', to: 'draft' },
+    { from: 'draft', to: 'send', label: 'then' },
+  ]}
+  steps={[
+    { caption: 'The everyday reading, sorting and drafting run alone. That is most of the work, and a mistake there is caught before it leaves the building.', show: ['read', 'draft', 'read->draft'], focus: ['read', 'draft'] },
+    { caption: 'Anything a customer will see, or that moves money, waits for one click from a person. The agent did the work; a person owns the decision.', show: ['send', 'draft->send'], focus: ['send'] },
+    { caption: 'Some actions stay with people entirely. And a small refund can run alone - if the cap is enforced in the payment code, not just written in the prompt.', show: ['pause', 'capped'], focus: ['pause', 'capped'] },
+  ]}
+/>
+
+## Design one
+
+Pick a job, set each action, choose how many tasks a month and which model, and check the design. Two checks grade it: **risk** (nothing that reaches outside, moves uncapped money or can't be undone runs alone) and **useful** (the everyday work runs alone, and the job itself isn't switched off). An agent that asks permission for everything isn't safe. It's just slow.
+
+<AgentDesigner />
+
+## What it costs
+
+The model bill is tokens times price. On 2026-10-30, Anthropic's list prices per million tokens were:
+
+| Model | Input | Output |
+|---|---|---|
+| Claude Haiku 5.5 (prompts up to 100,000 tokens) | $0.10 | $0.50 |
+| Claude Sonnet 5.5 | $2 | $10 |
+| Claude Opus 5.5 | $4 | $20 |
+
+Prices change, so check the [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) before you budget. Repeated context can be cached: the same page lists cache reads on Opus 5.5 and Sonnet 5.5 at 0.05 times the input price, which matters for agents because every turn re-reads the conversation.
+
+In the widget, chasing 200 invoices a month on Sonnet 5.5 comes to about $8 in model costs, under a dollar on Haiku 5.5 and about $16 on Opus 5.5. That's using an illustrative profile of four turns per invoice. Compare it with the other number on screen: 240 approvals, about four hours of someone's month. For a small business, **the expensive part of an agent is rarely the model. It's the attention it needs** - which is why getting the "alone" list right matters more than the model choice.
+
+<Callout kind="trap">
+"We'll start with it fully automatic and add approvals if something goes wrong" gets the order backwards. You find out something went wrong from a customer. Start with the agent drafting and a person sending. Move an action to "alone" once you have weeks of logs showing it gets that action right.
+</Callout>
+
+## Before you switch it on
+
+- **Shadow it first.** Let the agent draft for a few weeks while people keep doing the job, and compare. The drafts that were wrong become your [eval set](/learn/agents/guardrails-and-evals/).
+- **Give it its own narrow accounts.** A read-only login to the invoicing system, a mailbox that can only draft. OWASP's mail example recommends exactly that: a read-only plugin and a read-only access scope.
+- **Know where the data goes.** Customer emails sent to a hosted model leave your building. Read the provider's data terms, or run a local model for the sensitive jobs.
+- **Log every action.** When a customer asks "why did I get this email?", you need the answer.
+
+<Quiz
+  id="agents-business-1"
+  q="An invoice-chasing agent can read invoices, draft reminders, send them, and add late fees. Which design passes both checks?"
+  options={["Everything alone - it saves the most time", "Read and draft alone; sending and late fees need a person", "Everything needs a person's approval"]}
+  answer={1}
+  explain="Sending reaches a customer and fees move money, so they get a person. Reading and drafting are the everyday work: asking about those every time makes the agent slower than doing it yourself."
+/>
+
+<Quiz
+  id="agents-business-2"
+  q="A support agent may refund up to EUR 50 on its own. What makes that acceptable?"
+  options={["The prompt says 'never refund more than EUR 50'", "The EUR 50 cap is enforced in the payment code, so a fooled agent cannot exceed it", "Small amounts never matter"]}
+  answer={1}
+  explain="A limit in code holds even if the model is confused or injected. A limit in the prompt is a request. With a hard cap, the worst a bad day can cost is known in advance."
+/>
+
+<Quiz
+  id="agents-business-3"
+  q="For a small business running 200 tasks a month, what usually costs the most?"
+  options={["The model's tokens", "People's time reviewing approvals and fixing mistakes", "Hosting the agent"]}
+  answer={1}
+  explain="At these volumes the model bill is a few dollars a month. Review time adds up much faster, which is why the 'alone' list - and an eval that lets you trust it - matters more than the cheapest model."
+/>
+
+<DoItForReal id="agents-business-real" needs="terminal">
+
+Build a small agent for one of these jobs on your own machine, with fake data first. Two neutral starting points:
+
+- **A hosted model.** Anthropic's [tutorial: build a tool-using agent](https://platform.claude.com/docs/en/agents-and-tools/tool-use/build-a-tool-using-agent) goes from one tool call to a full loop. Current model IDs include `claude-haiku-5-5`, `claude-sonnet-5-5` and `claude-opus-5-5`. Other providers' tool-calling APIs follow the same shape.
+- **A local model.** [Ollama](/learn/llm/run-your-own/) supports tool calling with models such as Llama 3.1 and Mistral Nemo, passing tool definitions in the chat request's `tools` field. Nothing leaves your machine, which suits customer data.
+
+Whichever you pick: give it read tools first, make every "send" tool write a draft file instead of sending, put a step limit in the loop, and log every call. Run it on ten fake invoices and read the log before it ever sees a real one.
+</DoItForReal>

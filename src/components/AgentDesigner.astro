@@ -1,0 +1,108 @@
+---
+// Design an agent for a small business: decide, action by action, what it may
+// do alone, what needs a person, and what it may never do. Two checks grade
+// the design, and the cost uses real list prices, dated (src/lib/agents/business.ts).
+import '../styles/widgets.css';
+import { JOBS, MODELS, PRICES_CHECKED, MINUTES_PER_APPROVAL } from '../lib/agents/business.ts';
+---
+<div class="widget card agent-designer" data-agent-designer>
+  <div class="widget-head">
+    <strong>Design an agent for a small business</strong>
+    <span class="pill info">prices checked {PRICES_CHECKED}</span>
+  </div>
+  <div class="controls">
+    <label>Job
+      <select data-job>{JOBS.map((j) => <option value={j.id}>{j.title}</option>)}</select>
+    </label>
+  </div>
+  <div class="ad-grid">
+    <div class="ad-main">
+      <ul class="ad-actions" data-actions aria-label="What the agent may do"></ul>
+      <div class="controls">
+        <label>Tasks a month <input type="number" min="1" max="100000" value="200" data-volume /></label>
+        <label>Model
+          <select data-model>{MODELS.map((m) => <option value={m.id} selected={m.id === 'sonnet'}>{m.label} (${m.inPerM} / ${m.outPerM} per M tokens)</option>)}</select>
+        </label>
+        <button class="btn small primary" type="button" data-check>Check the design</button>
+      </div>
+      <div class="ad-verdict" data-verdict aria-live="polite"></div>
+      <p class="muted ad-note">Approvals assume {MINUTES_PER_APPROVAL} minute of a person's time each. Token use per task is an illustrative profile for each job, not a measurement.</p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { JOBS, check, type Autonomy, type ModelId } from '../lib/agents/business.ts';
+  import { DESIGN_MISSION } from '../lib/agents/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const LEVELS: [Autonomy, string][] = [['alone', 'Alone'], ['approve', 'Ask a person'], ['never', 'Never']];
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-agent-designer]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = DESIGN_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), DESIGN_MISSION, () => state, () => {});
+    const job = () => JOBS.find((j) => j.id === q<HTMLSelectElement>('[data-job]').value)!;
+
+    const tags = (a: (typeof JOBS)[number]['actions'][number]) => [
+      a.external && 'reaches outside', a.money && (a.capped ? 'money, capped' : 'money'), a.irreversible && 'cannot undo', a.purpose && 'the job',
+    ].filter(Boolean) as string[];
+
+    const drawActions = () => {
+      q('[data-actions]').replaceChildren(...job().actions.map((a) => {
+        const sel = el('select', { 'data-action': a.id, 'aria-label': a.label },
+          ...LEVELS.map(([v, l]) => el('option', { value: v }, l)));
+        return el('li', {}, el('span', { class: 'ad-label' }, a.label, ...tags(a).map((t) => el('span', { class: 'ad-tag' }, t))), sel);
+      }));
+      q('[data-verdict]').replaceChildren();
+    };
+
+    const runCheck = () => {
+      const j = job();
+      const choices = Object.fromEntries([...root.querySelectorAll<HTMLSelectElement>('[data-action]')].map((s) => [s.dataset.action!, s.value as Autonomy]));
+      const model = q<HTMLSelectElement>('[data-model]').value as ModelId;
+      const volume = Math.max(1, Math.min(100000, Math.round(Number(q<HTMLInputElement>('[data-volume]').value) || 1)));
+      const v = check(j, choices, model, volume);
+      state.checks.push({ job: j.id, choices, model, volume, verdict: v });
+      const box = (ok: boolean, title: string, problems: string[], good: string) => el('div', { class: `ad-box ${ok ? 'ok' : 'bad'}` },
+        el('strong', {}, `${ok ? 'Pass' : 'Fail'}: ${title}`),
+        ...(problems.length ? [el('ul', {}, ...problems.map((p) => el('li', {}, p)))] : [el('p', {}, good)]));
+      q('[data-verdict]').replaceChildren(
+        box(v.riskOk, 'risk', v.riskProblems, 'Nothing that reaches a customer, moves uncapped money or cannot be undone happens without a person.'),
+        box(v.usefulOk, 'useful', v.usefulProblems, 'It does the everyday reading and drafting alone, and the job is switched on.'),
+        el('div', { class: 'stats' },
+          el('div', { class: 'stat' }, 'approvals a month', el('b', {}, `${v.approvalsPerMonth.toLocaleString('en')} (~${v.reviewHours.toFixed(1)} h)`)),
+          el('div', { class: 'stat' }, 'model cost a task', el('b', {}, `$${v.costPerTask.toFixed(4)}`)),
+          el('div', { class: 'stat' }, `model cost for ${volume.toLocaleString('en')} a month`, el('b', {}, `$${v.costPerMonth.toFixed(2)}`))));
+      refresh();
+    };
+
+    q('[data-job]').addEventListener('change', drawActions);
+    q('[data-check]').addEventListener('click', runCheck);
+    drawActions();
+    refresh();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the action rows and verdict are created by the script. */
+  .agent-designer .ad-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .agent-designer .ad-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .agent-designer .ad-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .agent-designer .ad-actions { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .agent-designer .ad-actions li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 0.9rem; }
+  .agent-designer .ad-label { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; min-width: 0; }
+  .agent-designer .ad-tag { font-size: 0.72rem; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--sun-soft); color: var(--sun-text); }
+  .agent-designer select, .agent-designer input[type=number] { font: inherit; font-size: 0.86rem; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; }
+  .agent-designer input[type=number] { width: 7em; }
+  .agent-designer .ad-verdict { display: grid; gap: 8px; }
+  .agent-designer .ad-box { padding: 8px 12px; border-radius: 10px; font-size: 0.88rem; }
+  .agent-designer .ad-box.ok { background: var(--bamboo-soft); }
+  .agent-designer .ad-box.ok strong { color: var(--bamboo); }
+  .agent-designer .ad-box.bad { background: var(--berry-soft); }
+  .agent-designer .ad-box.bad strong { color: var(--berry); }
+  .agent-designer .ad-box ul { margin: 4px 0 0; padding-left: 18px; }
+  .agent-designer .ad-box p { margin: 4px 0 0; }
+  .agent-designer .ad-note { font-size: 0.8rem; margin: 0; }
+</style>

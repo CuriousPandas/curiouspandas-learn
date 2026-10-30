@@ -1,0 +1,89 @@
+---
+// A demo versus an eval set. The agent's behaviour per configuration follows
+// stated rules (src/lib/agents/evals.ts); every check is graded by code.
+import '../styles/widgets.css';
+---
+<div class="widget card eval-bench" data-eval-bench>
+  <div class="widget-head">
+    <strong>Support agent: demo or eval?</strong>
+    <span class="pill info">8 test cases, graded by code</span>
+  </div>
+  <div class="eb-setup">
+    <label>System prompt
+      <select data-prompt>
+        <option value="v1">v1 - "Answer the customer's question. Refunds go to staff."</option>
+        <option value="v2">v2 - "Be proactive: resolve problems without bothering staff, and reply in the customer's language."</option>
+      </select>
+    </label>
+    <label class="eb-check"><input type="checkbox" data-guard /> Guardrail in code: refunds over EUR 100 go to staff, whatever the prompt says</label>
+    <div class="controls">
+      <button class="btn small" type="button" data-which="demo">Run the demo</button>
+      <button class="btn small primary" type="button" data-which="all">Run all 8 cases</button>
+    </div>
+  </div>
+  <div class="eb-grid">
+    <div class="eb-main">
+      <p class="eb-score" data-score aria-live="polite">Nothing run yet.</p>
+      <ol class="eb-cases" data-cases aria-label="Case results"></ol>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { runEval, type Prompt } from '../lib/agents/evals.ts';
+  import { EVAL_MISSION } from '../lib/agents/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-eval-bench]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = EVAL_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), EVAL_MISSION, () => state, () => {});
+
+    const draw = () => {
+      const r = state.runs.at(-1);
+      if (r) {
+        const passed = r.results.filter((x) => x.pass).length;
+        const s = q('[data-score]');
+        s.textContent = `${r.which === 'demo' ? 'Demo' : 'Eval'} on prompt ${r.config.prompt}${r.config.guardrail ? ' + guardrail' : ''}: ${passed} of ${r.results.length} passed.`;
+        s.className = `eb-score ${passed === r.results.length ? 'ok' : 'bad'}`;
+      }
+      q('[data-cases]').replaceChildren(...(r ? r.results.map((c) => el('li', { class: c.pass ? 'ok' : 'bad' },
+        el('span', { class: 'eb-verdict' }, c.pass ? 'PASS' : 'FAIL'),
+        el('strong', {}, c.title),
+        el('span', { class: 'eb-did' }, `Agent ${c.did}.`),
+        el('span', { class: 'eb-rule' }, `Check: ${c.check}`))) : []));
+      refresh();
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-which]').forEach((b) => b.addEventListener('click', () => {
+      const config = { prompt: q<HTMLSelectElement>('[data-prompt]').value as Prompt, guardrail: q<HTMLInputElement>('[data-guard]').checked };
+      const which = b.dataset.which as 'demo' | 'all';
+      state.runs.push({ config, which, results: runEval(config, which) });
+      draw();
+    }));
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the case list is created by the script. */
+  .eval-bench .eb-setup { display: grid; gap: 10px; }
+  .eval-bench .eb-setup > label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--ink-2); }
+  .eval-bench .eb-setup select { font: inherit; font-size: 0.86rem; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; white-space: normal; }
+  .eval-bench .eb-check { display: flex !important; gap: 8px; align-items: flex-start; }
+  .eval-bench .eb-check input { margin-top: 4px; flex: none; }
+  .eval-bench .eb-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .eval-bench .eb-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .eval-bench .eb-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .eval-bench .eb-score { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; }
+  .eval-bench .eb-score.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .eval-bench .eb-score.bad { background: var(--berry-soft); color: var(--berry); }
+  .eval-bench .eb-cases { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .eval-bench .eb-cases li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.88rem; }
+  .eval-bench .eb-cases li.bad { border-color: var(--berry); background: var(--berry-soft); }
+  .eval-bench .eb-verdict { grid-row: span 3; align-self: start; font: 700 0.74rem var(--mono); padding: 2px 6px; border-radius: 6px; background: var(--bamboo); color: var(--bamboo-ink); }
+  .eval-bench li.bad .eb-verdict { background: var(--berry); color: var(--chip-ink); }
+  .eval-bench .eb-did { overflow-wrap: anywhere; }
+  .eval-bench .eb-rule { color: var(--ink-2); font-size: 0.82rem; }
+</style>

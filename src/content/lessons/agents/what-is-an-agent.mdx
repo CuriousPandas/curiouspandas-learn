@@ -1,0 +1,141 @@
+---
+title: A model, a loop and some tools
+summary: An agent is a language model that can ask your code to do things, in a loop, until it has an answer. Step through one call at a time, watch the context grow, and find out who actually decides when it stops.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: Anthropic docs - Tool use with Claude (how a tool call round trip works)
+    url: https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
+  - title: Anthropic - Building effective agents (Dec 2024)
+    url: https://www.anthropic.com/engineering/building-effective-agents
+  - title: Yao et al. - ReAct - Synergizing Reasoning and Acting in Language Models (2022)
+    url: https://arxiv.org/abs/2210.03629
+---
+
+[Agents are loops with tools](/learn/frontiers/agents/) told you what an agent is and how it can go wrong. This track is about building one: the moving parts, which part does what, and which of those parts you control.
+
+Start with the uncomfortable fact. **A language model can't do anything.** It reads text and writes text. It can't open a file, look up an invoice or send an email. What it *can* write is a request: "please call `find_invoice` with `1042`". Your program reads that request, runs the real function, and pastes the result back into the conversation. Then it asks the model again.
+
+Anthropic's tool-use docs describe exactly that split. The model "determines when to call a tool based on the user's request and the tool's description", and returns "a structured call that your application runs". When the model wants a tool, the response says so with a stop reason of `tool_use`; your code runs the operation "and sends back a `tool_result`".
+
+So an agent is three things:
+
+1. **A model**, which only ever decides: call this tool with these arguments, or answer.
+2. **Tools**, which are ordinary functions you wrote, with a name and a description the model can read.
+3. **A loop**, also code you wrote, that runs the model, runs the tools it asks for, and decides when enough is enough.
+
+<Diagram
+  id="agents-loop"
+  title="Who does what in the loop"
+  desc="The task goes to the model. The model either answers or writes a tool call. Your code runs the tool and adds the result to the conversation, which the model reads again in full on its next call. The loop, which is also your code, can stop it at any point."
+  nodes={[
+    { id: 'task', label: 'task', sub: 'from a person', x: 0, y: 0 },
+    { id: 'model', label: 'model', sub: 'decides only', x: 1, y: 0, kind: 'info' },
+    { id: 'answer', label: 'answer', sub: 'the model is done', x: 2, y: 0, kind: 'ok' },
+    { id: 'convo', label: 'conversation', sub: 'grows every turn', x: 0, y: 1 },
+    { id: 'code', label: 'your code', sub: 'runs the tool', x: 1, y: 1 },
+    { id: 'loop', label: 'the loop', sub: 'limits: steps, money', x: 2, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'task', to: 'model' },
+    { from: 'model', to: 'answer', label: 'answers' },
+    { from: 'model', to: 'code', label: 'tool call' },
+    { from: 'code', to: 'convo', label: 'result' },
+    { from: 'convo', to: 'model', label: 'read again' },
+    { from: 'loop', to: 'code', label: 'can stop', dashed: true },
+  ]}
+  steps={[
+    { caption: 'A person gives the model a task. The model reads it - plus its instructions and the descriptions of every tool it has.', show: ['task', 'model', 'task->model'], focus: ['model'] },
+    { caption: 'The model writes a tool call. That is all it can do: describe what it wants done.', show: ['code', 'model->code'], focus: ['model->code'] },
+    { caption: 'Your code runs the real function and adds the result to the conversation. The model keeps no memory, so its next call reads the whole conversation again.', show: ['convo', 'code->convo', 'convo->model'], focus: ['code', 'convo'] },
+    { caption: 'Eventually the model writes an answer instead of a call. Or the loop - your code again - stops it first.', show: ['answer', 'model->answer', 'loop', 'loop->code'], focus: ['answer', 'loop'] },
+  ]}
+/>
+
+## Run one
+
+The agent below has three tools and one question about an overdue invoice. Its "model" is **a simulation**: a short set of rules, written out in the next lesson, that picks tools the way a real model does, by reading their descriptions. No AI is called and nothing leaves your browser. What you see is the real shape of the loop, one model call at a time.
+
+<AgentLoop />
+
+<Callout kind="real">
+A real model isn't four rules. It reads the whole conversation, can call several tools in one turn, and sometimes surprises you - in both directions. What it shares with this simulation is everything around it: it writes requests, your code runs them, and every turn it reads the whole conversation again.
+</Callout>
+
+## The context only grows
+
+Look at the bars beside the trace. Every model call reads **everything so far**: the instructions, the tool definitions, the task, every tool call and every result. The model doesn't remember the last call. It is handed the whole transcript again.
+
+Two costs follow from that:
+
+- **Money.** You pay for every token every call reads. Tool definitions count too: the docs list "tool names, descriptions, and schemas" as part of the input, plus a fixed tool-use instruction the API adds (286 tokens on Claude Opus 5.5). A ten-step run pays for its early steps ten times. The "tokens read in total" counter shows the sum.
+- **Attention.** A long, cluttered context is harder for the model to use well, which is one more reason to give an agent fewer, clearer tools and shorter results. [Tokens, not words](/learn/llm/tokens/) covers what a token is.
+
+## Who decides when it stops
+
+The model ends a run only one way: by answering. Nothing in the model says "this is taking too long" or "I've spent enough". A confused model can call tools forever.
+
+So the loop needs its own limits, written in plain code the model can't talk its way around: a maximum number of steps, a time limit, a spending cap. Anthropic's guidance on building agents recommends "extensive testing in sandboxed environments, along with the appropriate guardrails", and a step limit is the first of them.
+
+<Callout kind="trap">
+"The model will know when it's finished" is a hope, not a stop condition. Every agent loop you write should end in two ways: the model answers, or a limit you set is reached. If the second one never fires, test it until it does - in the widget, a limit of 2 is enough.
+</Callout>
+
+Take away its tool for counting days, too. A good agent says what it couldn't do instead of guessing. Real models don't always manage that, which is why the next lessons put checks outside the model rather than trusting its final answer.
+
+<Quiz
+  id="agents-loop-1"
+  q="Your agent's model replies with stop_reason tool_use and a call to find_invoice. What happens next?"
+  options={["The model runs find_invoice itself", "Your code runs find_invoice and sends the result back as a tool_result", "The API looks the invoice up for you"]}
+  answer={1}
+  explain="For tools you define, the model only writes the request. Your application runs the function and returns the result, and the model is called again with it. (Anthropic also offers server tools such as web search that run on its side, but your own functions always run in your code.)"
+/>
+
+<Quiz
+  id="agents-loop-2"
+  q="A run takes 10 model calls. Roughly how many times do you pay to send the original task?"
+  options={["Once", "10 times - every call reads the whole conversation again", "Never, the model remembers it"]}
+  answer={1}
+  explain="The model keeps no memory between calls. Each call is sent the full transcript, so early content is paid for on every turn. Prompt caching makes repeated content cheaper, but it is still read."
+/>
+
+<Quiz
+  id="agents-loop-3"
+  q="Which of these actually guarantees an agent stops?"
+  options={["An instruction in the prompt: 'stop after 5 steps'", "A step limit enforced by the loop in your code", "Asking the model whether it is finished"]}
+  answer={1}
+  explain="Only code outside the model is guaranteed to run. A prompt instruction is advice the model may follow; the loop's limit is a fact."
+/>
+
+<DoItForReal id="agents-loop-real" needs="terminal">
+
+Build the same loop for real in a few lines. You need your own API key for a hosted model, or a local model through [Ollama](/learn/llm/run-your-own/). With Anthropic's Python SDK (`pip install anthropic`, key in `ANTHROPIC_API_KEY`), following the [tool-use docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview):
+
+```python
+import json, anthropic
+
+client = anthropic.Anthropic()
+tools = [{
+    "name": "find_invoice",
+    "description": "Look up an invoice by its number: amount, customer and due date.",
+    "input_schema": {"type": "object", "properties": {"number": {"type": "string"}}, "required": ["number"]},
+}]
+
+def find_invoice(number):                # your code, your data
+    return {"number": number, "customer": "Bamboo Bakery", "due": "2026-10-12", "status": "unpaid"}
+
+messages = [{"role": "user", "content": "Is invoice 1042 overdue? Today is 2026-10-30."}]
+for step in range(5):                    # the step limit lives here, in your code
+    reply = client.messages.create(model="claude-sonnet-5-5", max_tokens=1024, tools=tools, messages=messages)
+    messages.append({"role": "assistant", "content": reply.content})
+    if reply.stop_reason != "tool_use":
+        print([b.text for b in reply.content if b.type == "text"], reply.stop_reason)
+        break
+    results = [{"type": "tool_result", "tool_use_id": b.id, "content": json.dumps(find_invoice(**b.input))}
+               for b in reply.content if b.type == "tool_use"]
+    messages.append({"role": "user", "content": results})
+```
+
+Print `reply.usage` inside the loop and watch the input tokens grow each step. This costs money on your own account - a run like this is a fraction of a cent, but check current prices first.
+</DoItForReal>

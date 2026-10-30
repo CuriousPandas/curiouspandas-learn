@@ -1,0 +1,107 @@
+---
+title: Guardrails, approvals and evals
+summary: A demo shows an agent working once. An eval shows whether it still works after you change it. Improve a support agent's prompt, watch the demo stay green while two real cases break, and fix it with a line of code instead of a sentence.
+minutes: 16
+xp: 40
+tiers: [browser]
+sources:
+  - title: Anthropic docs - Define success criteria and build evaluations
+    url: https://platform.claude.com/docs/en/test-and-evaluate/develop-tests
+  - title: Anthropic - Building effective agents (Dec 2024)
+    url: https://www.anthropic.com/engineering/building-effective-agents
+  - title: OWASP Top 10 for LLM Applications 2025 - LLM06 Excessive Agency
+    url: https://genai.owasp.org/llmrisk/llm062025-excessive-agency/
+---
+
+You change one line in your agent's system prompt to make it friendlier. You try it on the example you always use, and it's great. You ship it. Next week, finance asks why a sofa was refunded without anyone signing it off.
+
+Nothing in that story was careless. The demo just couldn't see the problem. This lesson is about the two things that could: **guardrails**, which limit what the agent can do whatever it decides, and **evals**, which tell you whether a change made it better or worse.
+
+## Guardrails live in code
+
+A guardrail is a check that runs *outside* the model, in the loop you wrote, every time. The common ones:
+
+- **Limits** on steps, time and money, so a confused agent can't run forever. Lesson one's step limit was one.
+- **Approval gates**: a person confirms before anything risky runs. OWASP's advice for agents is to "require a human to approve high-impact actions before they are taken".
+- **Hard rules in the tools themselves**: a refund function that refuses anything over EUR 100 without a staff ID, whatever argument it receives.
+- **Logs** of every model call, tool call and result - the traces the widgets in this track show. When something goes wrong, the log is how you find out why.
+
+A sentence in the prompt saying "never refund more than EUR 100" is not a guardrail. It's a request. The model may honour it - until a prompt change, a new model version or an unusual email nudges it the other way.
+
+## Evals: tests for behaviour
+
+An **eval** is a fixed set of test cases, each with a check that says pass or fail, run every time you change the agent. Anthropic's guidance on building them:
+
+- "**Be task-specific:** Design evals that mirror your real-world task distribution. Don't forget to factor in edge cases!"
+- "**Automate when possible:** Structure questions to allow for automated grading" - multiple choice, string match, checks in code.
+- "**Prioritize volume over quality:** More questions with slightly lower signal automated grading is better than fewer questions with high-quality human hand-graded evals."
+
+For an agent, the most useful checks are about what it *did*, not how its reply sounds. Did the refund tool run? Was the reply in Spanish? Did any other customer's address appear? Code can grade all of those, so the whole suite runs in seconds.
+
+<Diagram
+  id="agents-eval-gate"
+  title="Every change goes through the eval"
+  desc="A change to the prompt, the model or the tools runs against the full eval set. Each case is graded by a check in code. Only a change that passes every case ships; a failing case sends you back to fix it."
+  nodes={[
+    { id: 'change', label: 'a change', sub: 'prompt, model, tools', x: 0, y: 0 },
+    { id: 'eval', label: 'eval set', sub: 'every case, every time', x: 1, y: 0, kind: 'info' },
+    { id: 'ship', label: 'ship it', sub: 'all cases pass', x: 2, y: 0, kind: 'ok' },
+    { id: 'fix', label: 'fix it', sub: 'a case failed', x: 1, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'change', to: 'eval' },
+    { from: 'eval', to: 'ship', label: 'all pass' },
+    { from: 'eval', to: 'fix', label: 'any fails' },
+    { from: 'fix', to: 'change', label: 'try again', dashed: true },
+  ]}
+  steps={[
+    { caption: 'Anything that can change behaviour counts as a change: a prompt edit, a new model version, a new tool, a new description.', show: ['change'], focus: ['change'] },
+    { caption: 'The whole eval set runs, not just the example you had in mind. Each case is graded by code, so it takes seconds.', show: ['eval', 'change->eval'], focus: ['eval'] },
+    { caption: 'One failing case blocks the change. That is the point: the eval sees the cases you were not thinking about.', show: ['fix', 'eval->fix', 'fix->change', 'ship', 'eval->ship'], focus: ['fix', 'eval->ship'] },
+  ]}
+/>
+
+## The demo was fine
+
+The agent below answers support emails and can refund orders. Prompt **v1** is cautious and sends all refunds to staff. Prompt **v2** was written to fix two complaints: customers who write in Spanish get English replies, and small refunds wait days for staff. The eval set has eight cases; the demo is the first one.
+
+<EvalBench />
+
+Look at what happened:
+
+- **The demo passed for every version.** It asks where an order is, which every version handles. A demo can only show you the case you chose.
+- **v1 failed two cases**: the Spanish speaker and the EUR 40 refund. Those are the complaints v2 was written to fix.
+- **v2 fixed both, and broke two others.** "Resolve problems without bothering staff" also meant refunding a EUR 650 sofa, and obeying the injected bulk refund from [the tools lesson](/learn/agents/tools/).
+- **Going back to v1 doesn't help.** It brings the first two failures back. The fix that keeps v2's improvements is a guardrail in code: refunds over EUR 100 go to staff, whatever the prompt says. With it, all eight pass.
+
+<Callout kind="trap">
+Never fix a guardrail failure by editing the prompt and re-running the one case that failed. That's a second demo. The next prompt change can undo it, and you'll only find out from finance. Put the rule in code, keep the case in the eval, and run all of them.
+</Callout>
+
+<Callout kind="real">
+Real eval sets grow with every incident. When a customer finds a new way to confuse the agent, the email becomes a test case, so that failure can never quietly come back. Teams also run their evals on every new model version before switching, because a "better" model can still change behaviour you relied on.
+</Callout>
+
+<Quiz
+  id="agents-evals-1"
+  q="Your agent passes the demo you always show. What does that tell you about a prompt change?"
+  options={["It is safe to ship", "Only that this one case still works - not what the change did to the others", "Nothing, demos are random"]}
+  answer={1}
+  explain="A demo is one case, usually the easiest. Regressions hide in the cases you weren't looking at, which is exactly what an eval set is for."
+/>
+
+<Quiz
+  id="agents-evals-2"
+  q="v2 refunds a EUR 650 order without approval. What is the most reliable fix?"
+  options={["Add 'never refund more than EUR 100' to the prompt", "Enforce the EUR 100 limit in code before the refund tool runs, and keep the case in the eval", "Go back to v1"]}
+  answer={1}
+  explain="A prompt rule is advice the model may follow; code always runs. Going back to v1 brings back the failures v2 fixed. A code guardrail keeps v2's improvements and makes the limit a fact - and the eval proves it."
+/>
+
+<Quiz
+  id="agents-evals-3"
+  q="Which check is easiest to grade automatically?"
+  options={["'Was the reply warm and helpful?'", "'Did the refund tool run for more than EUR 100 without approval?'", "'Would a customer be happy?'"]}
+  answer={1}
+  explain="Checks on what the agent did - tools called, amounts, languages, data that appeared - can be graded by code in milliseconds. Questions of tone need a person or another model to judge. Have both, but lean on the ones code can grade."
+/>

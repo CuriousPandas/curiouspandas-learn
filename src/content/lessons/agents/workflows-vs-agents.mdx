@@ -1,0 +1,103 @@
+---
+title: Workflows first, agents when you must
+summary: Most jobs that sound like they need an agent are a fixed sequence of model calls with a few branches. Run 20 support tickets through a workflow, an agent and a mix of the two, and compare what each one handles, costs and keeps you waiting for.
+minutes: 14
+xp: 35
+tiers: [browser]
+sources:
+  - title: Anthropic - Building effective agents (Dec 2024)
+    url: https://www.anthropic.com/engineering/building-effective-agents
+  - title: Anthropic docs - Pricing (Claude Sonnet 5.5, checked 2026-10-30)
+    url: https://platform.claude.com/docs/en/about-claude/pricing
+---
+
+"Agent" is the exciting word, so it gets used for everything. Anthropic's guide to building them draws a useful line between two kinds of system:
+
+- **Workflows** are "systems where LLMs and tools are orchestrated through predefined code paths". You decide the steps; the model fills each one in.
+- **Agents** are "systems where LLMs dynamically direct their own processes and tool usage". The model decides the steps.
+
+Its advice is to start with "the simplest solution possible, and only increasing complexity when needed", because "agentic systems often trade latency and cost for better task performance". An agent can handle the unexpected. A workflow is cheaper, faster and does the same thing every time - which is what you want when the job is the same every time.
+
+## The common workflow shapes
+
+The same guide names five patterns. In plain terms:
+
+- **Prompt chaining** - step one's output becomes step two's input: draft, then check, then translate.
+- **Routing** - one call sorts the input, and each kind goes to its own handler: refunds here, password resets there.
+- **Parallelisation** - several calls at once: check a reply for tone, facts and policy separately, then combine.
+- **Orchestrator-workers** - one call splits a job into pieces it can't predict in advance and hands them out.
+- **Evaluator-optimiser** - one call writes, another grades, and they go round until the grade passes.
+
+Only the last two let the model decide much. The first three are ordinary code with model calls in the slots.
+
+<Diagram
+  id="agents-routing"
+  title="A router with an agent behind it"
+  desc="Each ticket goes to a classifier, a single model call. Known kinds - order status and refunds - go to fixed handlers, one call each. Anything the classifier marks as other goes to an agent that can take as many steps as it needs."
+  nodes={[
+    { id: 'ticket', label: 'ticket', sub: 'from a customer', x: 0, y: 0 },
+    { id: 'classify', label: 'classifier', sub: '1 model call', x: 1, y: 0, kind: 'info' },
+    { id: 'status', label: 'status handler', sub: '1 call, fixed steps', x: 2, y: 0, kind: 'ok' },
+    { id: 'refund', label: 'refund handler', sub: '1 call, fixed steps', x: 2, y: 1, kind: 'ok' },
+    { id: 'agent', label: 'agent', sub: 'many calls', x: 3, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'ticket', to: 'classify' },
+    { from: 'classify', to: 'status', label: 'status' },
+    { from: 'classify', to: 'refund', label: 'refund' },
+    { from: 'classify', to: 'agent', label: 'other' },
+  ]}
+  steps={[
+    { caption: 'One cheap call reads the ticket and labels it. That is the only judgement the workflow asks the model for.', show: ['ticket', 'classify', 'ticket->classify'], focus: ['classify'] },
+    { caption: 'Each known kind has its own handler: a fixed prompt and fixed tools. Same steps every time, so cost and time are predictable.', show: ['status', 'refund', 'classify->status', 'classify->refund'], focus: ['status', 'refund'] },
+    { caption: 'Whatever the classifier cannot place goes to an agent, which can take as many steps as the odd case needs. Only those tickets pay agent prices.', show: ['agent', 'classify->agent'], focus: ['agent'] },
+  ]}
+/>
+
+## Try all three
+
+Twenty tickets: order questions, refunds, password resets, and three odd ones that fit none of those. Each design runs over all twenty. Costs use Claude Sonnet 5.5's list price on 2026-10-30 ($2 per million input tokens, $10 per million output). The token counts per call are illustrative, but their shape is real: a fixed handler costs the same every time, and an agent's turns get dearer because each one re-reads everything before it.
+
+<WorkflowLab />
+
+What the numbers say:
+
+- **The fixed workflow** handled 17 of 20 for about $0.13, with no ticket taking more than 2 calls. The three odd tickets went to the nearest handler and got confidently wrong answers - the worst kind of failure, because nothing errors.
+- **The agent** handled all 20, but cost about $0.58, over four times as much, and its slowest ticket took 8 calls. Most of that money went on tickets the workflow had already handled correctly.
+- **The mix** handled all 20 for about $0.31. Note what it didn't fix: its slowest ticket still took 9 calls, the classifier plus the agent. The odd cases are still slow. They're just the only slow ones.
+
+<Callout kind="trap">
+The workflow's three failures didn't look like failures. A misrouted ticket gets a fluent, polite, wrong answer. If your workflow has no "other" route, find out how often real tickets fall between your categories before you trust its success rate.
+</Callout>
+
+## When an agent is worth it
+
+Before reaching for an agent, ask:
+
+1. **Can you write the steps down?** If yes, write them as code. The model fills in the hard parts of each step.
+2. **What does a wrong step cost?** An agent chooses its own actions, so its mistakes are harder to predict. Anthropic recommends "extensive testing in sandboxed environments, along with the appropriate guardrails" - that's the [next lesson](/learn/agents/guardrails-and-evals/).
+3. **How many will you run?** The cost difference above is small on 20 tickets. At 50,000 a month it decides whether the project pays for itself.
+
+<Quiz
+  id="agents-flows-1"
+  q="In Anthropic's definitions, what makes something an agent rather than a workflow?"
+  options={["It uses tools", "The model decides its own steps and tool use, instead of following predefined code paths", "It uses the largest model"]}
+  answer={1}
+  explain="Workflows can use tools and big models too. The difference is who decides the sequence: your code (workflow) or the model (agent)."
+/>
+
+<Quiz
+  id="agents-flows-2"
+  q="Your router has no 'other' category. What happens to a ticket that fits none of the routes?"
+  options={["The workflow raises an error", "It goes to the nearest handler and gets a wrong answer that looks fine", "The model refuses to answer"]}
+  answer={1}
+  explain="A classifier with a fixed set of labels always picks one of them. Without a route for 'none of these', odd inputs are silently forced into the wrong box. Add an 'other' route and send it somewhere that can cope - a person or an agent."
+/>
+
+<Quiz
+  id="agents-flows-3"
+  q="Why does an agent's cost grow faster than the number of its steps?"
+  options={["Later steps use a bigger model", "Each step re-reads the whole conversation so far, so later steps read more tokens", "Agents are billed per minute"]}
+  answer={1}
+  explain="Every model call is sent the full transcript. Step ten reads everything steps one to nine produced. A workflow's fixed handlers each read only what they need."
+/>
