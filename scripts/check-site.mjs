@@ -103,6 +103,16 @@ for (const path of pages('dist')) {
   if (errors.length) fail(path, `console errors: ${errors.join(' | ')}`);
   if (failed.length) fail(path, `failed requests: ${failed.join(' | ')}`);
   if (overflow > 1) fail(path, `scrolls sideways by ${overflow}px at 375px wide: ${wide.join(', ')}`);
+  // Diagrams: ids must be unique on a page (they key the SVG title, desc and
+  // arrowhead ids - a duplicate silently borrows another diagram's arrows), and
+  // each must draw at least one box.
+  const diagrams = await page.evaluate(() => [...document.querySelectorAll('[data-diagram]')].map((d) => ({ id: d.getAttribute('data-diagram'), boxes: d.querySelectorAll('.d-node').length })));
+  const seen = new Set();
+  for (const d of diagrams) {
+    if (seen.has(d.id)) fail(path, `two diagrams share the id "${d.id}"`);
+    seen.add(d.id);
+    if (!d.boxes) fail(path, `diagram "${d.id}" drew no boxes`);
+  }
   for (const href of await page.evaluate(() => [...document.querySelectorAll('a[href]')].map((a) => a.getAttribute('href')))) {
     if (!href.startsWith('/') || href.startsWith('//')) continue;
     const target = href.split('#')[0];
@@ -401,6 +411,32 @@ await scenario('attention', '/learn/llm/attention/', async (page) => {
   const masked = await page.locator(`${r} .attn-matrix .c.masked`).count();
   if (masked !== (n * (n - 1)) / 2) throw new Error(`expected ${(n * (n - 1)) / 2} masked (future) cells for ${n} words, got ${masked}`);
 });
+
+await scenario('diagram-steps', '/learn/git/inside-git/', async (page) => {
+  const r = '[data-diagram="git-objects-map"]';
+  const visible = () => page.locator(`${r} .d-wide .d-node:not(.d-off)`).count();
+  await page.locator(r).scrollIntoViewIfNeeded();
+  if (await visible() !== 1) throw new Error(`step 1 should show only the commit, shows ${await visible()} boxes`);
+  if (!(await page.locator(`${r} [data-prev]`).isDisabled())) throw new Error('Back is enabled on the first step');
+  await expectText(page, `${r} .d-captions li:not([hidden])`, /Start at HEAD/);
+  for (let i = 0; i < 3; i++) await page.click(`${r} [data-next]`);
+  await expectText(page, `${r} [data-count]`, /^4 of 4$/);
+  await expectText(page, `${r} .d-captions li:not([hidden])`, /parent commit/);
+  if (await visible() !== 5) throw new Error(`last step should show all 5 boxes, shows ${await visible()}`);
+  if (await page.locator(`${r} .d-captions li:not([hidden])`).count() !== 1) throw new Error('more than one caption visible while stepping');
+  if (!(await page.locator(`${r} .d-wide .d-node.d-focus[data-el="parent"]`).count())) throw new Error('the focus box of the last step is not highlighted');
+});
+
+await scenario('diagram-phone', '/learn/git/inside-git/', async (page) => {
+  // On a phone the 3-wide picture must turn to 2 across, not shrink its labels.
+  const r = '[data-diagram="git-objects-map"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  if (await page.locator(`${r} .d-wide`).isVisible()) throw new Error('the wide layout shows on a phone');
+  const box = await page.locator(`${r} .d-narrow`).boundingBox();
+  const vb = await page.locator(`${r} .d-narrow`).getAttribute('viewBox');
+  const scale = box.width / Number(vb.split(' ')[2]);
+  if (scale * 16 < 12) throw new Error(`box labels render at ${(scale * 16).toFixed(1)}px on a phone`);
+}, { width: 375 });
 
 await scenario('nn-challenge-prop', '/learn/ml/neural-networks/', async (page) => {
   // The xor lesson starts with no hidden layer and only x,y - the props must land.

@@ -31,5 +31,8 @@ export async function curriculum() {
 
 export function totals(tracks: Awaited<ReturnType<typeof curriculum>>) {
   const all = tracks.flatMap((t) => t.lessons);
-  return { lessons: all.length, ready: all.filter((l) => l.status === 'ready').length };
+  // Pages say "Nine tracks" in words. Counting here rather than writing the word
+  // into the page means adding a track cannot leave the old number behind.
+  const words = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'];
+  return { lessons: all.length, ready: all.filter((l) => l.status === 'ready').length, tracks: tracks.length, tracksWord: words[tracks.length] ?? String(tracks.length) };
 }

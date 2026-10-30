@@ -21,6 +21,31 @@ That's all git stores. A filename lives in a tree, not in the blob. So two files
 
 There's one more consequence. A commit names its tree and its parent by hash, and the parent names *its* parent, and so on. Change anything in history and every hash after it changes. That's why nobody can quietly rewrite git history: the names would stop matching.
 
+<Diagram
+  id="git-objects-map"
+  title="What one commit points at"
+  desc="A commit points at a tree and at its parent commit. The tree lists file names, each pointing at a blob of contents. Two files with identical contents point at the same blob."
+  nodes={[
+    { id: 'commit', label: 'commit', sub: 'HEAD', x: 0, y: 0, kind: 'info' },
+    { id: 'tree', label: 'tree', sub: 'the folder listing', x: 1, y: 0, kind: 'ok' },
+    { id: 'shared', label: 'blob', sub: 'stored once', x: 2, y: 0 },
+    { id: 'other', label: 'blob', sub: 'different bytes', x: 2, y: 1 },
+    { id: 'parent', label: 'parent commit', sub: 'HEAD~1', x: 0, y: 1 },
+  ]}
+  edges={[
+    { from: 'commit', to: 'tree', label: 'tree' },
+    { from: 'tree', to: 'shared', label: 'a.txt, b.txt' },
+    { from: 'tree', to: 'other', label: 'notes.txt' },
+    { from: 'commit', to: 'parent', label: 'parent', dashed: true },
+  ]}
+  steps={[
+    { caption: 'Start at HEAD: a commit. It holds an author, a time, a message - and two hashes.', show: ['commit'], focus: ['commit'] },
+    { caption: 'The first hash names a tree: the folder listing. Names live here, never in the files themselves.', show: ['tree', 'commit->tree'], focus: ['tree'] },
+    { caption: 'Each name points at a blob of bytes. Two files with identical contents point at the same blob, so it is stored once.', show: ['shared', 'other', 'tree->shared', 'tree->other'], focus: ['shared', 'tree->shared'] },
+    { caption: 'The second hash names the parent commit. Change anything older and every hash after it changes.', show: ['parent', 'commit->parent'], focus: ['parent', 'commit->parent'] },
+  ]}
+/>
+
 ## Take a commit apart
 
 This repository has three files, and two of them have identical contents. `git cat-file -p` prints any object by hash. Start at `HEAD` and work down.
