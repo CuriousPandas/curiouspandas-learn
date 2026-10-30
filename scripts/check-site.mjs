@@ -680,6 +680,100 @@ await scenario('linux-pipes', '/learn/linux/pipes/', async (page) => {
   await expectText(page, `${r} .m-debrief`, /never failed once/);
 });
 
+// ---- delivery (writer D)
+// Each widget: play its mission as a learner would, including the tempting
+// wrong move (retry until green, promote the failing canary), and check that
+// the wrong move is shown as wrong rather than counted.
+
+await scenario('pipeline-race', '/learn/delivery/pipelines/', async (page) => {
+  const r = '[data-pipeline]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-push]`);
+  await expectText(page, `${r} [data-verdict]`, /^In production after/);
+  await page.check(`${r} [data-cache]`);
+  await page.click(`${r} [data-push]`);
+  await page.click(`${r} [data-push]`);
+  await expectText(page, `${r} [data-stage="install"]`, /cache hit/);
+  // Retrying the flaky test ships the race - and the widget says so.
+  await page.check(`${r} input[value="race"]`);
+  await page.selectOption(`${r} [data-flaky]`, 'retry');
+  await page.click(`${r} [data-push]`);
+  await expectText(page, `${r} [data-verdict]`, /race condition is now in production/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 2) throw new Error('shipping the race by retrying ticked a mission step');
+  // Script-set stage states must be styled (scoped CSS never reaches them).
+  const passBg = await page.locator(`${r} [data-stage="lint"]`).evaluate((e) => getComputedStyle(e, '::before').backgroundColor);
+  if (passBg === 'rgba(0, 0, 0, 0)') throw new Error('passed stages are unstyled - widget styles are not applying');
+  await page.selectOption(`${r} [data-flaky]`, 'deterministic');
+  await page.click(`${r} [data-push]`);
+  await expectText(page, `${r} [data-verdict]`, /Stopped at test\. The race condition never left/);
+  await page.check(`${r} input[value="code"]`);
+  await page.check(`${r} [data-promote]`);
+  await page.click(`${r} [data-push]`);
+  await expectText(page, `${r} [data-verdict]`, /Production runs the artifact staging tested/);
+  await expectText(page, `${r} .m-debrief`, /bytes you tested/);
+});
+
+await scenario('iac-plan', '/learn/delivery/infrastructure-as-code/', async (page) => {
+  const r = '[data-iac]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} [data-msg]`, /Run a plan first/);
+  await page.click(`${r} [data-plan]`);
+  await expectText(page, `${r} [data-planout]`, /Plan: 3 to add, 0 to change, 0 to destroy\./);
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} [data-msg]`, /Apply complete\. 3 added/);
+  await page.selectOption(`${r} [data-size]`, 'large');
+  await page.click(`${r} [data-plan]`);
+  await expectText(page, `${r} [data-planout]`, /server\.web will be updated in-place/);
+  await page.click(`${r} [data-apply]`);
+  await page.click(`${r} [data-console="server"]`);
+  await page.click(`${r} [data-plan]`);
+  await expectText(page, `${r} [data-planout]`, /Changed outside the tool since the last apply: server\.web/);
+  await page.click(`${r} [data-apply]`);
+  await page.selectOption(`${r} [data-image]`, 'ubuntu-26.04');
+  await page.click(`${r} [data-plan]`);
+  await expectText(page, `${r} [data-planout]`, /server\.web must be replaced[\s\S]*forces replacement[\s\S]*dns_record\.www will be updated in-place/);
+  await page.click(`${r} [data-apply]`);
+  await page.uncheck(`${r} [data-bucket]`);
+  await page.click(`${r} [data-plan]`);
+  await expectText(page, `${r} [data-planout]`, /bucket\.assets will be destroyed/);
+  await page.check(`${r} [data-bucket]`);
+  await page.click(`${r} [data-plan]`);
+  await expectText(page, `${r} [data-planout]`, /No changes/);
+  await expectText(page, `${r} .m-debrief`, /reading the plan is the job/);
+});
+
+await scenario('release-canary', '/learn/delivery/release-strategies/', async (page) => {
+  const r = '[data-release]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const release = async (version, strategy) => {
+    await expectText(page, `${r} [data-status]`, /^(Pick|Promoted|Rolled back|Switched back|Finished)/, 15000);
+    await page.selectOption(`${r} [data-version]`, version);
+    await page.selectOption(`${r} [data-strategy]`, strategy);
+    await page.click(`${r} [data-go]`);
+  };
+  await release('good', 'canary');
+  await expectText(page, `${r} [data-status]`, /^Promoted/, 10000);
+  await release('bad', 'rolling');
+  await expectText(page, `${r} [data-status]`, /^Finished.*6% of requests v3 fails/, 10000);
+  // Finishing a bad rollout is red, not green - and styled at all.
+  if (!(await page.locator(`${r} [data-status].bad`).count())) throw new Error('a finished v3 rollout is not marked bad');
+  const bg = await page.locator(`${r} [data-status]`).evaluate((e) => getComputedStyle(e).backgroundColor);
+  await release('bad', 'bluegreen');
+  await page.click(`${r} [data-back]`);
+  await expectText(page, `${r} [data-status]`, /^Switched back to blue/);
+  // The tempting button: promoting a failing canary by hand must not count.
+  await release('bad', 'canary');
+  await page.click(`${r} [data-promote]`);
+  await expectText(page, `${r} [data-status]`, /^Promoted.*6% of requests v3 fails/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 3) throw new Error('promoting the bad canary by hand ticked the last step');
+  await release('bad', 'canary');
+  await expectText(page, `${r} [data-status]`, /^Rolled back/, 10000);
+  if (await page.locator(`${r} [data-ticks] li`).count() !== 3) throw new Error('bad canary should roll back after exactly 3 failed checks');
+  await expectText(page, `${r} .m-debrief`, /no person awake required/);
+  if (bg === 'rgba(0, 0, 0, 0)') throw new Error('release status is unstyled - widget styles are not applying');
+});
+
 await browser.close();
 server?.kill();
 

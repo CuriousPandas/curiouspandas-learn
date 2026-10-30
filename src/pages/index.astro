@@ -11,8 +11,10 @@ const t = totals(tracks);
 // button linked to a page that did not exist.
 const startTrack = tracks.find((t) => t.lessons.some((l) => l.status === 'ready'))!;
 const first = startTrack.lessons.find((l) => l.status === 'ready')!;
-// The hash toy is about git specifically, wherever the course happens to start.
-const gitFirst = tracks.find((t) => t.id === 'git')!.lessons[0];
+// The hash toy is about git specifically, wherever the course happens to start,
+// so it links to the first git lesson - and the build fails if that is unwritten.
+const gitFirst = tracks.find((t) => t.id === 'git')?.lessons[0];
+if (!gitFirst || gitFirst.status !== 'ready') throw new Error('The home page links to the first git lesson, and it is not ready');
 ---
 <Base title="Curious Pandas">
   <section class="hero">

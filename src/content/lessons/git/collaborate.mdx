@@ -1,0 +1,157 @@
+---
+title: Remotes, pull requests and review
+summary: Your repository is one copy of many. Learn what fetch, pull and push really move, why git refuses a push when someone got there first, and how a pull request turns "it works on my machine" into a reviewed change.
+minutes: 15
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: Pro Git, chapter 2.5 - Working with Remotes
+    url: https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes
+  - title: git-push documentation (non-fast-forward updates, --force)
+    url: https://git-scm.com/docs/git-push
+  - title: GitHub Docs - About pull requests
+    url: https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests
+  - title: GitHub Docs - About pull request reviews
+    url: https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/about-pull-request-reviews
+  - title: GitHub Docs - About protected branches
+    url: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
+---
+
+So far every commit has lived in one repository: yours. Real projects have many copies of the same history - one on each laptop, and usually one on a server everybody agrees to share, like GitHub. Git calls those other copies **remotes**. When you clone, git names the one you cloned from **origin**.
+
+Nothing syncs by itself. Three commands move commits between copies:
+
+| Command | What it moves | What it changes |
+|---|---|---|
+| `git fetch` | their new commits, into your repository | only `origin/main`, your *picture* of their branch |
+| `git pull` | the same, then merges | your current branch too |
+| `git push` | your new commits, to them | their branch - if it's safe |
+
+Pro Git is careful about fetch: it only downloads the data, and doesn't merge it with your work or change what you're working on. That makes `fetch` always safe to run. `pull` is `fetch` plus a merge - the same merge you met in [Conflicts are honesty](/learn/git/conflicts/).
+
+## When someone pushed first
+
+Pro Git describes the everyday collision: if you and someone else clone at the same time, and they push and then you push, your push will rightly be rejected. You have to fetch their work and fold it into yours before you're allowed to push.
+
+<Diagram
+  id="git-push-race"
+  title="Two pushes, one branch"
+  desc="Your teammate pushes commit X to origin first. Your push of commit Y is rejected because origin has work you do not. You fetch, which updates origin/main in your repository, merge it with your work, and push the merge, which origin accepts."
+  nodes={[
+    { id: 'mine', label: 'your main', sub: 'base, then Y', x: 0, y: 0, kind: 'info' },
+    { id: 'origin', label: 'origin', sub: 'base, then X', x: 1, y: 0 },
+    { id: 'theirs', label: 'teammate', sub: 'pushed X first', x: 2, y: 0 },
+    { id: 'tracking', label: 'origin/main', sub: 'your copy of theirs', x: 0, y: 1 },
+    { id: 'merged', label: 'merge commit', sub: 'X and Y together', x: 1, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'theirs', to: 'origin', label: 'push' },
+    { from: 'mine', to: 'origin', label: 'rejected', dashed: true },
+    { from: 'origin', to: 'tracking', label: 'fetch' },
+    { from: 'tracking', to: 'merged', label: 'merge' },
+    { from: 'merged', to: 'origin', label: 'push' },
+  ]}
+  steps={[
+    { caption: 'You and a teammate both start from the same base commit and each make one more.', show: ['mine', 'origin', 'theirs'], focus: ['mine', 'theirs'] },
+    { caption: 'They push first. Origin now has X, which you have never seen.', show: ['theirs->origin'], focus: ['theirs->origin', 'origin'] },
+    { caption: 'Your push is rejected. Accepting it would throw X away, so git refuses.', show: ['mine->origin'], focus: ['mine->origin'] },
+    { caption: 'Fetch downloads X into origin/main without touching your branch. Then merge it with your Y.', show: ['tracking', 'merged', 'origin->tracking', 'tracking->merged'], focus: ['tracking', 'merged'] },
+    { caption: 'Your branch now contains their work, so the push is a plain step forward and origin accepts it.', show: ['merged->origin'], focus: ['merged->origin', 'origin'] },
+  ]}
+/>
+
+Here is exactly what git 2.54 printed when the second push lost the race against a real remote:
+
+```text
+ ! [rejected]        main -> main (fetch first)
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally. This is usually caused by another repository pushing to
+hint: the same ref. If you want to integrate the remote changes, use
+hint: 'git pull' before pushing again.
+```
+
+After a `git fetch` but before merging, the same push is refused as `(non-fast-forward)`, with the hint that the tip of your current branch is behind. After merging `origin/main`, it goes through.
+
+<Callout kind="trap">
+`git push --force` makes the rejection go away by overwriting the remote branch with yours. The git-push docs warn that it can make the remote lose commits, and that blindly force-pushing will lose other people's work. If you ever truly need it, `--force-with-lease` refuses when the remote has moved since you last fetched.
+</Callout>
+
+## Pull requests: changes that get read
+
+Pushing straight to `main` means every change reaches everyone unreviewed. A **pull request** pushes your work to a branch instead and asks for it to be merged. GitHub's docs describe the review as a chance for people to comment on changes, suggest improvements, and approve or request changes before the code is merged.
+
+Teams make that the only way in with **protected branches**. GitHub's settings include requiring pull request reviews and requiring status checks to pass before merging. The status checks are your [pipeline](/learn/delivery/pipelines/): the same checks, on every proposed change, before it can land.
+
+<Diagram
+  id="git-pull-request"
+  title="The only door into main"
+  desc="Work happens on a feature branch. Opening a pull request proposes merging it into main. On a protected branch, the merge is allowed only when required status checks have passed and a reviewer has approved."
+  nodes={[
+    { id: 'branch', label: 'feature branch', sub: 'your commits', x: 0, y: 0, kind: 'info' },
+    { id: 'pr', label: 'pull request', sub: 'proposed merge', x: 1, y: 0, kind: 'warn' },
+    { id: 'main', label: 'main', sub: 'protected', x: 2, y: 0, kind: 'ok' },
+    { id: 'checks', label: 'status checks', sub: 'the pipeline', x: 0, y: 1 },
+    { id: 'review', label: 'review', sub: 'approve or not', x: 1, y: 1 },
+  ]}
+  edges={[
+    { from: 'branch', to: 'pr', label: 'open' },
+    { from: 'checks', to: 'pr', label: 'must pass' },
+    { from: 'review', to: 'pr', label: 'approve' },
+    { from: 'pr', to: 'main', label: 'merge' },
+  ]}
+  steps={[
+    { caption: 'You work on a branch and push it. Nothing reaches main yet.', show: ['branch'], focus: ['branch'] },
+    { caption: 'A pull request proposes the merge and shows everyone the diff.', show: ['pr', 'branch->pr'], focus: ['pr'] },
+    { caption: 'Required checks run your pipeline on the proposed change. Red blocks the merge.', show: ['checks', 'checks->pr'], focus: ['checks'] },
+    { caption: 'A reviewer approves, comments, or requests changes. With both satisfied, the merge goes in.', show: ['review', 'main', 'review->pr', 'pr->main'], focus: ['review', 'pr->main'] },
+  ]}
+/>
+
+A good review is mostly questions. Not "this is wrong", but "what happens if this list is empty?" The author knows the change best. The reviewer's job is to be the first person who didn't write it.
+
+<Quiz
+  id="git-collab-1"
+  q="You run git fetch. Which of these changes?"
+  options={["Your current branch now contains their commits", "origin/main - your local picture of the remote branch - and nothing you are working on", "The remote's branch"]}
+  answer={1}
+  explain="Fetch only downloads. It updates the remote-tracking branch, origin/main, and never touches your working branch. Pull is fetch plus a merge."
+/>
+
+<Quiz
+  id="git-collab-2"
+  q="Your push is rejected with '(fetch first)'. What is the safe fix?"
+  options={["git push --force", "Fetch their work, merge it (or rebase onto it), then push again", "Delete your clone and start over"]}
+  answer={1}
+  explain="Someone pushed commits you don't have. Bring them in, resolve any conflicts, and your push becomes a plain step forward. --force would erase their commits from the remote."
+/>
+
+<Quiz
+  id="git-collab-3"
+  q="main is protected: reviews and status checks are required. A teammate's pull request is approved, but one check is red. Can it merge?"
+  options={["Yes - the approval overrides the check", "No - both requirements must be met before merging", "Only if it was a small change"]}
+  answer={1}
+  explain="Protection rules are all-of. An approval says a person read it; a passing check says the pipeline did. Neither stands in for the other."
+/>
+
+<Callout kind="real">
+This lesson's sandbox doesn't simulate a second repository - the git playground has one repository and no network. The push race above was reproduced with the real git binary, two clones and a local bare repository, which is also the cheapest way to try it yourself (below).
+</Callout>
+
+<DoItForReal id="git-collaborate-real">
+
+No account needed: a bare repository on your own disk is a perfectly good remote.
+
+```bash
+git init --bare remote.git
+git clone remote.git alice && git clone remote.git bob
+cd alice && git commit --allow-empty -m "base" && git push origin HEAD:main && cd ..
+cd bob && git fetch && git switch main && cd ..
+cd alice && git commit --allow-empty -m "X" && git push origin HEAD:main && cd ..
+cd bob && git commit --allow-empty -m "Y" && git push origin main     # rejected (fetch first)
+git pull --no-rebase --no-edit && git push origin main               # merged, accepted
+git log --oneline --graph
+```
+
+Then open a real pull request: fork [TemplateMechanics/tilt](https://github.com/TemplateMechanics/tilt) on GitHub, fix a typo on a branch, push, and open one. Its validate workflow runs as your status checks.
+
+</DoItForReal>
