@@ -9,7 +9,7 @@ export type Tier = 'browser' | 'browser-plus' | 'machine' | 'codespace';
 export const TIERS: Record<Tier, { label: string; short: string; detail: string }> = {
   browser: { label: 'Runs in your browser', short: 'Browser', detail: 'Any laptop, Chromebook or phone. Nothing to install, nothing leaves your device.' },
   'browser-plus': { label: 'Browser, uses your GPU', short: 'Browser+', detail: 'Optional extras that need WebGPU or a bit more memory. The page checks first and tells you plainly if your device cannot.' },
-  machine: { label: 'On your machine', short: 'Your machine', detail: 'The real tools via TemplateMechanics/tilt: Docker, kind and Tilt. About 15 GB of free disk and 8 GB of RAM to spare for the full platform.' },
+  machine: { label: 'On your machine', short: 'Your machine', detail: 'The real tools on your own computer: a terminal for git and Linux, or, for the cluster labs, Docker, kind and Tilt via TemplateMechanics/tilt (about 15 GB of free disk and 8 GB of RAM).' },
   codespace: { label: 'In a free cloud dev box', short: 'Codespace', detail: 'For when your machine cannot run the platform: a dev container on your own free cloud quota. Planned, not built yet.' },
 };
 

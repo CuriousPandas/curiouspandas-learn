@@ -39,6 +39,11 @@ let base = process.env.SITE_URL;
 if (!base) {
   const port = process.env.CHECK_PORT ?? '4329';
   base = `http://127.0.0.1:${port}`;
+  // If something already answers on this port - another worktree's preview, a
+  // dev server - every check below would pass or fail against that build, not
+  // this one. Refuse instead of testing the wrong site.
+  const busy = await fetch(base).then(() => true, () => false);
+  if (busy) { console.error(`Port ${port} is already serving something. Stop it or set CHECK_PORT.`); process.exit(2); }
   server = spawn(process.execPath, ['node_modules/astro/bin/astro.mjs', 'preview', '--port', port, '--host', '127.0.0.1'], { stdio: 'pipe' });
   for (let i = 0; i < 60; i++) {
     try { if ((await fetch(base)).ok) break; } catch {}
