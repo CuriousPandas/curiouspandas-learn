@@ -88,6 +88,10 @@ for (const path of pages('dist')) {
   // here could see. axe reads structure and computed colour, which do not vary
   // by engine, so one engine's run is enough and the others skip the minutes.
   await page.setViewportSize({ width: 1280, height: 900 });
+  // Buttons fade their background over 150ms. Switching scheme and measuring at
+  // once caught them mid-fade on CI's slower runner: light text on a still-light
+  // button, 9 failures that no settled page shows. Measure the settled colours.
+  if (ENGINE === 'chromium') await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
   if (ENGINE === 'chromium') for (const scheme of ['light', 'dark']) {
     await page.emulateMedia({ colorScheme: scheme });
     const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
