@@ -1,0 +1,113 @@
+---
+import '../styles/widgets.css';
+import { budgetMinutes, SCENARIOS, POLICIES } from '../lib/sre/slo.ts';
+const budget = budgetMinutes(0.999).toFixed(1);
+---
+<div class="widget card slo-lab" data-slo-lab>
+  <div class="widget-head">
+    <strong>Error budget desk</strong>
+    <span class="pill info">SLO 99.9% over 30 days = {budget} minutes of budget</span>
+  </div>
+  <div class="controls">
+    <label>Incident
+      <select data-scenario>{Object.entries(SCENARIOS).map(([k, v]) => <option value={k}>{v.label}</option>)}</select>
+    </label>
+    <label>Alert
+      <select data-policy>{Object.entries(POLICIES).map(([k, v]) => <option value={k}>{v.label}</option>)}</select>
+    </label>
+    <button class="btn small primary" type="button" data-run>Run 6 days</button>
+  </div>
+  <p class="sl-rule muted" data-rule></p>
+  <div class="sl-grid">
+    <div class="sl-main">
+      <p class="sl-story" data-story></p>
+      <div class="eyebrow">Error budget left this month</div>
+      <svg class="sl-chart" viewBox="0 0 300 100" preserveAspectRatio="none" data-chart role="img" aria-label="Error budget remaining over six days"></svg>
+      <div class="sl-axis"><span>day 0</span><span>day 3</span><span>day 6</span></div>
+      <div class="stats">
+        <div class="stat">budget the incident spent<b data-spent>-</b></div>
+        <div class="stat">pages (someone woken)<b data-pages>-</b></div>
+        <div class="stat">tickets (next morning)<b data-tickets>-</b></div>
+      </div>
+      <p class="sl-verdict" data-verdict aria-live="polite">Pick an incident and an alert, then Run.</p>
+      <table class="sl-matrix" data-matrix>
+        <caption>What each alert did</caption>
+        <thead><tr><th scope="col">Alert</th>{Object.values(SCENARIOS).map((s) => <th scope="col">{s.label}</th>)}</tr></thead>
+        <tbody>{Object.entries(POLICIES).map(([k, v]) => <tr data-row={k}><th scope="row">{v.label}</th>{Object.keys(SCENARIOS).map((s) => <td data-cell={`${k}:${s}`}>not run</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { run, verdict, SCENARIOS, POLICIES, type Policy, type Scenario } from '../lib/sre/slo.ts';
+  import { SLO_MISSION } from '../lib/sre/missions.ts';
+  import { mountMission } from '../lib/ui.ts';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag: string, attrs: Record<string, string>) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-slo-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = SLO_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), SLO_MISSION, () => state, () => {});
+    const scenario = q<HTMLSelectElement>('[data-scenario]'), policy = q<HTMLSelectElement>('[data-policy]');
+    const describe = () => {
+      q('[data-story]').textContent = SCENARIOS[scenario.value as Scenario].story;
+      q('[data-rule]').textContent = `This alert: ${POLICIES[policy.value as Policy].rule}.`;
+    };
+    scenario.addEventListener('change', describe);
+    policy.addEventListener('change', describe);
+    describe();
+
+    q('[data-run]').addEventListener('click', () => {
+      const r = run(scenario.value as Scenario, policy.value as Policy);
+      state.runs.push(r);
+      const v = verdict(r);
+      const sc = SCENARIOS[r.scenario];
+      const total = r.remaining.length;
+      // The incident as a band, the budget as a line falling from 100%.
+      const chart = q('[data-chart]');
+      const x0 = (sc.start / 60 / total) * 300, x1 = ((sc.start + sc.minutes) / 60 / total) * 300;
+      const band = svgEl('rect', { x: String(x0), y: '0', width: String(Math.max(1.5, x1 - x0)), height: '100', class: 'sl-band' });
+      const line = svgEl('polyline', { class: 'sl-line', fill: 'none', points: r.remaining.map((f, i) => `${(i / (total - 1)) * 300},${100 - f * 100}`).join(' ') });
+      const marks = r.pages.map((p) => svgEl('line', { x1: String((p.at / 60 / total) * 300), x2: String((p.at / 60 / total) * 300), y1: '0', y2: '100', class: 'sl-page' }));
+      chart.replaceChildren(band, line, ...marks);
+      q('[data-spent]').textContent = `${(r.budgetSpent * 100).toFixed(r.budgetSpent < 0.01 ? 2 : 1)}%`;
+      q('[data-pages]').textContent = r.pages.length ? `${r.pages.length}, first ${r.firstPageAfter === 0 ? 'within a minute' : `${r.firstPageAfter} min in`}` : '0';
+      q('[data-tickets]').textContent = r.tickets.length ? `${r.tickets.length}, ${Math.round(r.firstTicketAfter! / 60)} h in` : '0';
+      const out = q('[data-verdict]');
+      out.className = `sl-verdict ${v.ok ? 'ok' : 'bad'}`;
+      out.textContent = `${v.ok ? 'Good alert' : 'Wrong call'}: it ${v.note}.`;
+      const cell = q(`[data-cell="${r.policy}:${r.scenario}"]`);
+      cell.className = v.ok ? 'ok' : 'bad';
+      cell.textContent = `${v.ok ? '✓' : '✗'} ${v.note}`;
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the chart and table cells are filled in by the script. */
+  .slo-lab .controls label { display: inline-flex; gap: 6px; align-items: center; }
+  .slo-lab .sl-rule { font-size: 0.85rem; margin: 8px 0 0; }
+  .slo-lab .sl-grid { display: grid; gap: 14px; margin-top: 10px; }
+  @media (min-width: 900px) { .slo-lab .sl-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .slo-lab .sl-main { min-width: 0; }
+  .slo-lab .sl-story { margin: 0 0 10px; font-size: 0.92rem; }
+  .slo-lab .sl-chart { width: 100%; height: 110px; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; margin-top: 4px; }
+  .slo-lab .sl-band { fill: var(--berry-soft); }
+  .slo-lab .sl-line { stroke: var(--bamboo); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .slo-lab .sl-page { stroke: var(--berry); stroke-width: 2; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+  .slo-lab .sl-axis { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
+  .slo-lab .sl-verdict { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .slo-lab .sl-verdict.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .slo-lab .sl-verdict.bad { background: var(--berry-soft); color: var(--berry); }
+  .slo-lab .sl-matrix { width: 100%; border-collapse: collapse; font-size: 0.8rem; display: block; overflow-x: auto; }
+  .slo-lab .sl-matrix caption { text-align: left; font-weight: 700; padding: 6px 0; }
+  .slo-lab .sl-matrix th, .slo-lab .sl-matrix td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; min-width: 110px; }
+  .slo-lab .sl-matrix td { color: var(--muted); }
+  .slo-lab .sl-matrix td.ok { color: var(--bamboo); }
+  .slo-lab .sl-matrix td.bad { color: var(--berry); }
+</style>

@@ -1,0 +1,115 @@
+---
+title: Logs, metrics and traces
+summary: One in twenty checkouts takes two seconds, and every dashboard average says all is well. Use each signal for the question it can answer, and follow one request across five services to the line that explains it.
+minutes: 17
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: Google SRE book, ch. 4 - Service Level Objectives (averages hide the tail)
+    url: https://sre.google/sre-book/service-level-objectives/
+  - title: OpenTelemetry docs - Traces
+    url: https://opentelemetry.io/docs/concepts/signals/traces/
+  - title: OpenTelemetry docs - Logs
+    url: https://opentelemetry.io/docs/concepts/signals/logs/
+  - title: OpenTelemetry docs - Context propagation (W3C traceparent)
+    url: https://opentelemetry.io/docs/concepts/context-propagation/
+  - title: OpenTelemetry docs - Zero-code instrumentation
+    url: https://opentelemetry.io/docs/concepts/instrumentation/zero-code/
+  - title: Prometheus docs - Metric and label naming
+    url: https://prometheus.io/docs/practices/naming/
+  - title: TemplateMechanics/tilt - hello-world deployment (traces to Tempo)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/examples/hello-world/deployment.yaml
+---
+
+[The dashboard that lies](/learn/platform/observability/) was about the watching itself breaking. This lesson is about a dashboard that works perfectly and still can't tell you what's wrong, because it's answering a different question from yours.
+
+Each of the three signals answers one kind of question well:
+
+| Signal | Answers | Cheap at | Bad at |
+|---|---|---|---|
+| **Metrics** | *Is something wrong, and how much?* | Huge volumes: a number every 15 seconds, forever | Which request, which user, why |
+| **Traces** | *Where did this request spend its time?* | Following one request through many services | Totals and trends |
+| **Logs** | *Why did this happen?* | Detail: the error message, the retry, the input | Being searched without a key to search by |
+
+## Averages hide the tail
+
+The SRE book warns that "a simple average can obscure these tail latencies, as well as changes in them." If 19 requests take 100 ms and one takes 2,000 ms, the average is 195 ms. It looks fine against a 300 ms target, and one user in twenty waits two seconds for every page. That's why latency SLOs are written in **percentiles**: the 99th percentile (p99) is the time 99 requests in 100 beat.
+
+p99 tells you *that* something's slow. It can't tell you *which* service, because when one service waits on another, both look slow.
+
+## Traces follow one request
+
+A **trace** gives "the big picture of what happens when a request is made". It's made of **spans**, where each span "represents a unit of work or operation" and carries a name, start and end times, the id of its parent span, and the trace id it belongs to. When a service calls the next one, it passes that context along in a header (W3C `traceparent`). That's **context propagation**, "the core concept that enables Distributed Tracing": spans written by five different services join up into one tree.
+
+<Diagram
+  id="sre-trace-path"
+  title="One checkout, five services, one trace id"
+  desc="A checkout request enters the gateway, which calls checkout, which calls pricing, which calls tax. Each call passes the trace context on in a traceparent header, so every span joins the same trace. The tax call is slow for 1 request in 20. A dashboard averages it into a healthy number, while the log line written inside the slow call carries the same trace id and says why."
+  nodes={[
+    { id: 'gw', label: 'gateway', sub: 'trace starts here', x: 0, y: 0 },
+    { id: 'co', label: 'checkout', sub: 'POST /checkout', x: 1, y: 0 },
+    { id: 'pr', label: 'pricing', sub: 'POST /quote', x: 2, y: 0 },
+    { id: 'tax', label: 'tax', sub: '2 s, 1 time in 20', x: 3, y: 0, kind: 'bad' },
+    { id: 'dash', label: 'dashboard', sub: 'tax avg 124 ms', x: 2, y: 1, kind: 'warn' },
+    { id: 'log', label: 'log line', sub: 'same trace_id', x: 3, y: 1, kind: 'info' },
+  ]}
+  edges={[
+    { from: 'gw', to: 'co', label: 'traceparent' },
+    { from: 'co', to: 'pr', label: 'traceparent' },
+    { from: 'pr', to: 'tax', label: 'traceparent' },
+    { from: 'tax', to: 'dash', label: 'averaged', dashed: true },
+    { from: 'tax', to: 'log', label: 'writes' },
+  ]}
+  steps={[
+    { caption: 'A checkout arrives. The gateway starts a trace and gives it an id.', show: ['gw'], focus: ['gw'] },
+    { caption: 'Every call passes the trace context on in a traceparent header, so each service\'s span joins the same trace.', show: ['co', 'pr', 'tax', 'gw->co', 'co->pr', 'pr->tax'], focus: ['gw->co', 'co->pr', 'pr->tax'] },
+    { caption: 'One call in twenty to tax takes two seconds. Every span above it is slow too - they are all waiting for it.', focus: ['tax'] },
+    { caption: 'The dashboard averages tax over every request: 124 ms, under target. The slow 5% disappears into the mean.', show: ['dash', 'tax->dash'], focus: ['dash'] },
+    { caption: 'The log line written during the slow call carries the same trace id. Search logs by it and you get the why.', show: ['log', 'tax->log'], focus: ['log', 'tax->log'] },
+  ]}
+/>
+
+## Logs that join up
+
+A log line that says `timeout` is a needle in a haystack. A **structured log** is "a log with a defined, consistent schema or typed fields", and once a log record carries the trace id and span id, OpenTelemetry can "automatically correlate your existing logs with any active trace and span". You find the slow request in the trace, copy its trace id, and get exactly the log lines it wrote.
+
+Find the slow dependency. Use the dashboard, then the trace, then the logs:
+
+<TraceLab />
+
+<Callout kind="trap">
+The service with the worst p99 is rarely the culprit. A parent span always lasts at least as long as the child it waits for, so slowness shows up all the way up the call chain. In a trace, look for the long bar with nothing nested inside it: the time that span spent on its own.
+</Callout>
+
+<Quiz
+  id="sre-signals-1"
+  q="Checkout's p99 is 2.3 seconds. Gateway, pricing and tax are all over 2 seconds at p99 too. Which signal tells you which one to fix?"
+  options={["A dashboard of p99 by service", "A trace of one slow checkout", "The error rate", "The average latency"]}
+  answer={1}
+  explain="All four p99s are the same slowness counted four times. Only a trace shows the nesting - that three of them were waiting for tax."
+/>
+
+## What a metric costs
+
+Metrics are cheap because they're aggregated: one number per time series, no matter how many requests it counts. But "every unique combination of key-value label pairs represents a new time series." A request counter labelled by method (5 values), status (6) and route (20) is 5 × 6 × 20 = **600** series. Add a `user_id` label with 50,000 users and it's **30 million** series. That's why the Prometheus docs say: "Do not use labels to store dimensions with high cardinality (many different label values), such as user IDs, email addresses". Per-user detail belongs in traces and logs, which store one record per request anyway.
+
+<Quiz
+  id="sre-signals-2"
+  q="You want to know which customer hit a slow checkout. Where should the customer id go?"
+  options={["A label on the latency metric", "A span attribute or a log field", "The metric's name", "Nowhere - it cannot be found"]}
+  answer={1}
+  explain="A span attribute or log field costs one value on one record. As a metric label it multiplies the series count by the number of customers."
+/>
+
+<Callout kind="real">
+OpenTelemetry is the vendor-neutral standard for producing all three signals: an SDK in each service, the trace context in each call, and an exporter that sends spans to a backend like Tempo or Jaeger. For .NET, Go, Java, JavaScript, PHP and Python there's zero-code instrumentation: it instruments the libraries you use (HTTP requests and responses, database calls, message queues) without changing your code. Your own code isn't covered, so the span attributes only you know matter are still yours to add.
+</Callout>
+
+<DoItForReal id="sre-signals-real" profile="observability">
+On the tilt platform the hello app exports traces straight to Tempo. Its deployment sets `PODINFO_OTEL_SERVICE_NAME=hello` and an OTLP endpoint. Send it some requests (`curl -sk https://hello.localhost/` a few times), then open Grafana's Explore ([grafana.localhost/explore](https://grafana.localhost/explore)):
+
+1. Pick the **Tempo** data source and search for service `hello`. Open a trace and read its spans.
+2. Switch to **Loki** and query `{namespace="hello"}` for the same minute.
+
+On the `minimal` profile Tempo doesn't exist and the exporter quietly drops every span. The app works fine and there's nothing to see, which is a lesson of its own.
+</DoItForReal>

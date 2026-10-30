@@ -877,6 +877,76 @@ await scenario('net-lb', '/learn/network/load-balancers/', async (page) => {
   await expectText(page, 'header [data-xp]', /^[1-9]/);
 });
 
+// ---- sre (writer S)
+// Each mission is played the way a learner would, wrong answer first: the
+// threshold alert and the 3-day average must fail, blaming the service with
+// the worst p99 must be refused, and peak capacity all day must not pass.
+
+await scenario('sre-slo', '/learn/sre/slos/', async (page) => {
+  const r = '[data-slo-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const runWith = async (scenarioKey, policy) => {
+    await page.selectOption(`${r} [data-scenario]`, scenarioKey);
+    await page.selectOption(`${r} [data-policy]`, policy);
+    await page.click(`${r} [data-run]`);
+  };
+  await runWith('blip', 'threshold');
+  await expectText(page, `${r} [data-verdict]`, /^Wrong call: it paged someone for a blip/);
+  await runWith('fast', 'average');
+  await expectText(page, `${r} [data-verdict]`, /^Wrong call: it never paged/);
+  // Script-drawn chart lines must be styled (scoped CSS never reaches them).
+  const stroke = await page.locator(`${r} .sl-line`).evaluate((e) => getComputedStyle(e).stroke);
+  if (!stroke || stroke === 'none') throw new Error('budget line is unstyled - widget styles are not applying');
+  for (const sc of ['blip', 'fast', 'slow']) await runWith(sc, 'burn');
+  await expectText(page, `${r} [data-cell="burn:fast"]`, /^✓ paged \d+ minutes in/);
+  await expectText(page, `${r} [data-cell="burn:slow"]`, /^✓ opened a ticket/);
+  await expectText(page, `${r} .m-debrief`, /burn rate asks a different question/i);
+});
+
+await scenario('sre-trace', '/learn/sre/three-signals/', async (page) => {
+  const r = '[data-trace-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  if (await page.locator(`${r} [data-dash] tr.over`).count() !== 0) throw new Error('averages should all be under target');
+  await page.click(`${r} [data-stat="p99"]`);
+  const over = await page.locator(`${r} [data-dash] tr.over`).count();
+  if (over !== 4) throw new Error(`p99 should flag 4 services, flagged ${over}`);
+  await page.locator(`${r} [data-list] .btn.slow`).first().click();
+  await expectText(page, `${r} [data-fall]`, /tax/);
+  await page.selectOption(`${r} [data-blame]`, 'checkout');
+  await page.click(`${r} [data-blame-go]`);
+  await expectText(page, `${r} [data-verdict]`, /checkout is slow only while it waits/);
+  await page.selectOption(`${r} [data-blame]`, 'tax');
+  await page.click(`${r} [data-blame-go]`);
+  await expectText(page, `${r} [data-verdict]`, /^Yes - tax spent \d+ ms on its own/);
+  await page.click(`${r} [data-logs]`);
+  await expectText(page, `${r} [data-loglines]`, /timed out after 1000ms/);
+  await expectText(page, `${r} .m-debrief`, /traces tell you where/);
+});
+
+await scenario('sre-scale', '/learn/sre/autoscaling/', async (page) => {
+  const r = '[data-scale-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-verdict]`, /% of requests failed while new pods were still starting/);
+  await page.selectOption(`${r} [data-min]`, '10');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-verdict]`, /^Nothing dropped - but you paid for/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 1) throw new Error('peak capacity all day must not pass the second step');
+  await page.selectOption(`${r} [data-min]`, '2');
+  await page.selectOption(`${r} [data-startup]`, '15');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-verdict]`, /^Under 1% dropped on/);
+  await page.selectOption(`${r} [data-workload]`, 'queue');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-verdict]`, /Their CPU never moved/);
+  await page.selectOption(`${r} [data-metric]`, 'queue');
+  // The target list must follow the metric: CPU percentages make no sense for a queue.
+  await expectText(page, `${r} [data-target]`, /messages waiting per pod/);
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-verdict]`, /and drained\.$/);
+  await expectText(page, `${r} .m-debrief`, /scale on what the work actually is/);
+});
+
 await browser.close();
 server?.kill();
 

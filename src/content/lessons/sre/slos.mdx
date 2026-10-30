@@ -1,0 +1,116 @@
+---
+title: SLOs and the error budget
+summary: How reliable is reliable enough? Turn "never go down" into a number you can spend, then build the alert that wakes someone for a real fire and sleeps through a blip.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: Google SRE book, ch. 4 - Service Level Objectives
+    url: https://sre.google/sre-book/service-level-objectives/
+  - title: Google SRE book, ch. 3 - Embracing Risk
+    url: https://sre.google/sre-book/embracing-risk/
+  - title: Google SRE Workbook, ch. 5 - Alerting on SLOs
+    url: https://sre.google/workbook/alerting-on-slos/
+  - title: Istio docs - Standard metrics (istio_requests_total)
+    url: https://istio.io/latest/docs/reference/config/metrics/
+  - title: Pyrra - SLOs with Prometheus
+    url: https://pyrra.dev/
+  - title: Sloth - Prometheus SLO generator
+    url: https://sloth.dev/
+---
+
+"Never go down" sounds like the right goal. It's the wrong one. The SRE book says it plainly: "100% is probably never the right reliability target." Nobody can reach it, users can't tell 99.99% from 100% through their own flaky Wi-Fi, and every step closer costs more and slows every change.
+
+So reliability work starts by choosing a number, and the number gets three names.
+
+- An **SLI** (service level *indicator*) is "a carefully defined quantitative measure of some aspect of the level of service". For example: the share of checkout requests that succeed in under 500 ms.
+- An **SLO** (service level *objective*) is "a target value or range of values for a service level that is measured by an SLI". For example: 99.9% of them, measured over 30 days.
+- An **SLA** (service level *agreement*) is a contract with users "that includes consequences of meeting (or missing) the SLOs". Miss it and someone pays. That's why an SLA is usually looser than the SLO the team works to.
+
+## The budget
+
+If the target is 99.9%, then 0.1% failure is allowed. That allowance is the **error budget**. Thirty days is 30 × 24 × 60 = 43,200 minutes, and 0.1% of that is **43.2 minutes**. That's the budget for total outage in a month, or the same failure spread thinner: 86 minutes of half the requests failing spends it just as surely.
+
+The budget turns an argument into arithmetic. Budget left: ship, experiment, take risks. Budget spent: the SRE book's answer is that "releases are temporarily halted" until reliability recovers. Nobody has to win a debate about whether the product is "stable enough".
+
+<Diagram
+  id="sre-slo-terms"
+  title="From a measurement to a budget"
+  desc="An SLI is a measurement, such as the share of requests that succeed. An SLO sets a target for it, such as 99.9% over 30 days. One minus the SLO is the error budget, 43.2 minutes a month at 99.9%. An SLA promises a looser target to customers, with consequences. A burn-rate alert watches how fast the budget is being spent."
+  nodes={[
+    { id: 'sli', label: 'SLI', sub: 'good / valid requests', x: 0, y: 0, kind: 'info' },
+    { id: 'slo', label: 'SLO', sub: '99.9% over 30 days', x: 1, y: 0, kind: 'ok' },
+    { id: 'budget', label: 'error budget', sub: '43.2 min a month', x: 2, y: 0, kind: 'warn' },
+    { id: 'sla', label: 'SLA', sub: 'looser, with penalty', x: 1, y: 1 },
+    { id: 'alert', label: 'burn-rate alert', sub: 'how fast it goes', x: 2, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'sli', to: 'slo', label: 'target for' },
+    { from: 'slo', to: 'budget', label: '1 - SLO' },
+    { from: 'slo', to: 'sla', label: 'promised as' },
+    { from: 'budget', to: 'alert', label: 'guarded by' },
+  ]}
+  steps={[
+    { caption: 'Start with what users feel, measured: of the requests that should have worked, how many did?', show: ['sli'], focus: ['sli'] },
+    { caption: 'The SLO is the target for that measurement - here 99.9% over a rolling 30 days.', show: ['slo', 'sli->slo'], focus: ['slo'] },
+    { caption: 'Whatever the target does not demand is the error budget: 0.1% of 43,200 minutes is 43.2 minutes to spend.', show: ['budget', 'slo->budget'], focus: ['budget'] },
+    { caption: 'The SLA is the promise to customers, set looser than the SLO, so the team notices long before a penalty is due.', show: ['sla', 'slo->sla'], focus: ['sla'] },
+    { caption: 'And the alert does not watch errors. It watches how fast the budget is going.', show: ['alert', 'budget->alert'], focus: ['alert', 'budget->alert'] },
+  ]}
+/>
+
+<Quiz
+  id="sre-slo-1"
+  q="Your SLO is 99.9% over 30 days. Last week a bad deploy failed every request for 30 minutes. How much of the month's budget is left?"
+  options={["None - any outage breaks a 99.9% SLO", "About 13 minutes of the 43.2", "About 30% of it - the outage spent 30 minutes of 43.2", "It depends on the SLA"]}
+  answer={1}
+  explain="43.2 - 30 = 13.2 minutes. An SLO is a budget, not a promise of zero failures. The team can still ship, carefully - and if the next incident spends the rest, releases stop until the window rolls past."
+/>
+
+## The alert is the hard part
+
+A budget that nobody watches is a number in a slide deck. The obvious alert is "page when the error rate goes above 0.1%". The SRE Workbook uses exactly that as its first example, and explains why it fails: it "fires on any event that threatens the SLO", which is good, but its "precision is low: The alert fires on many events that do not threaten the SLO." Their example: "A 0.1% error rate for 10 minutes would alert, while consuming only 0.02% of the monthly error budget."
+
+The opposite mistake is to average over a long window so blips vanish. Now a real fire takes so long to move the average that the budget is half gone before anyone is told.
+
+The workbook's answer is the **burn rate**: "how fast, relative to the SLO, the service consumes the error budget." A burn rate of 1 spends the budget in exactly 30 days. A burn rate of 14.4 spends 2% of it in a single hour. Its recommended policy for a 99.9% SLO:
+
+| Burn rate | Long window | Short window | Budget spent | Action |
+|---|---|---|---|---|
+| 14.4 | 1 hour | 5 minutes | 2% | page |
+| 6 | 6 hours | 30 minutes | 5% | page |
+| 1 | 3 days | 6 hours | 10% | ticket |
+
+The **long window** proves the burn is real, not a blip. The **short window** proves it is still happening, so the alert stops firing soon after the fire is out: "ceasing to fire five minutes later, rather than one hour later."
+
+Try all three alerts against all three incidents. Only one gets every call right.
+
+<SloLab />
+
+<Callout kind="trap">
+A page is a person woken at 3 a.m. An alert that pages on every blip teaches people to silence alerts, and then the real one is silenced too. The slow leak needs fixing this week, not tonight. That is what a ticket is for.
+</Callout>
+
+<Quiz
+  id="sre-slo-2"
+  q="Why does the burn-rate page need a short window as well as a long one?"
+  options={["To catch smaller incidents", "So the alert stops soon after the problem is fixed, instead of firing for the rest of the hour", "Because Prometheus cannot query long windows", "To make the alert fire sooner"]}
+  answer={1}
+  explain="The 1-hour window stays high for up to an hour after a fix. Requiring the last 5 minutes to be burning too means the page resolves as soon as the fire is out - the workbook's 'reset time'."
+/>
+
+<Callout kind="real">
+Real SLOs start from what users notice: availability and latency on the path that matters (checkout, login, search), measured as close to the user as you can. Generators such as [Pyrra](https://pyrra.dev/) (which writes multi-window burn-rate alerts) and [Sloth](https://sloth.dev/) turn a short SLO definition into Prometheus rules, but no tool can choose the SLI. That part is a conversation with the people who use the service.
+</Callout>
+
+<DoItForReal id="sre-slo-real" profile="observability">
+On the tilt platform, Prometheus scrapes Istio's request metrics (`istio_requests_total`), the same series lab 06's canary analysis reads. Send some traffic to hello, then in Grafana's Explore ([grafana.localhost/explore](https://grafana.localhost/explore)) try an availability SLI over the last hour:
+
+```promql
+sum(rate(istio_requests_total{destination_service_name="hello", response_code!~"5.."}[1h]))
+/
+sum(rate(istio_requests_total{destination_service_name="hello"}[1h]))
+```
+
+Divide `1 -` that by `0.001` and you have the 1-hour burn rate for a 99.9% SLO. If the query returns nothing, check the label names first with `istio_requests_total{destination_service_name=~"hello.*"}`: labels differ between gateway and sidecar proxies, and an empty result is a missing match, not a perfect service.
+</DoItForReal>

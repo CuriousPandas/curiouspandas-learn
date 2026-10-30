@@ -1,0 +1,138 @@
+---
+import '../styles/widgets.css';
+import { DEFAULTS, TARGETS } from '../lib/sre/hpa.ts';
+---
+<div class="widget card scale-lab" data-scale-lab>
+  <div class="widget-head">
+    <strong>Autoscaler</strong>
+    <span class="pill info">checks every 15 s · scales down after 300 s</span>
+  </div>
+  <div class="controls">
+    <label>Workload
+      <select data-workload><option value="web">web shop (CPU-bound)</option><option value="queue">queue worker (waits on an API)</option></select>
+    </label>
+    <label>Scale on
+      <select data-metric><option value="cpu">CPU</option><option value="queue">queue depth</option></select>
+    </label>
+    <label>Target
+      <select data-target>{TARGETS.cpu.map((t) => <option value={t} selected={t === DEFAULTS.target}>{t}% of CPU request</option>)}</select>
+    </label>
+    <label>Pod startup
+      <select data-startup><option value="60">60 s (big image, slow start)</option><option value="15">15 s (small image, fast start)</option></select>
+    </label>
+    <label>Min pods
+      <select data-min><option value="2">2</option><option value="4">4</option><option value="10">10</option></select>
+    </label>
+    <label>Max pods
+      <select data-max><option value="12">12</option><option value="24">24</option></select>
+    </label>
+    <button class="btn small primary" type="button" data-run>Run 40 minutes</button>
+  </div>
+  <div class="sc2-grid">
+    <div class="sc2-main">
+      <div class="eyebrow" data-chart-title>Traffic (grey) against capacity (green)</div>
+      <svg class="sc2-chart" viewBox="0 0 300 100" preserveAspectRatio="none" data-load role="img" aria-label="Demand against capacity over 40 minutes"></svg>
+      <div class="eyebrow">Pods: Ready (green), starting (dashed)</div>
+      <svg class="sc2-chart small" viewBox="0 0 300 60" preserveAspectRatio="none" data-pods role="img" aria-label="Pod count over 40 minutes"></svg>
+      <div class="sc2-axis"><span>0 min</span><span>spike 10-18 min</span><span>40 min</span></div>
+      <div class="stats">
+        <div class="stat">requests dropped<b data-dropped>-</b></div>
+        <div class="stat">pods on average<b data-avg>-</b></div>
+        <div class="stat">backlog at the end<b data-backlog>-</b></div>
+      </div>
+      <p class="sc2-verdict" data-verdict aria-live="polite">Run it once as it is.</p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { simulate, TARGETS, type Config, type Metric, type Workload } from '../lib/sre/hpa.ts';
+  import { SCALE_MISSION } from '../lib/sre/missions.ts';
+  import { mountMission } from '../lib/ui.ts';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag: string, attrs: Record<string, string>) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+  const poly = (pts: number[], max: number, h: number, cls: string) => svgEl('polyline', { class: cls, fill: 'none', points: pts.map((v, i) => `${(i / (pts.length - 1)) * 300},${h - (v / max) * (h - 4)}`).join(' ') });
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-scale-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = SCALE_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), SCALE_MISSION, () => state, () => {});
+    const metric = q<HTMLSelectElement>('[data-metric]'), target = q<HTMLSelectElement>('[data-target]');
+
+    // Targets mean different things per metric, so the list follows the metric.
+    metric.addEventListener('change', () => {
+      const m = metric.value as Metric;
+      target.replaceChildren(...TARGETS[m].map((t, i) => {
+        const o = document.createElement('option');
+        o.value = String(t);
+        o.textContent = m === 'cpu' ? `${t}% of CPU request` : `${t} messages waiting per pod`;
+        o.selected = i === 0;
+        return o;
+      }));
+    });
+
+    q('[data-run]').addEventListener('click', () => {
+      const cfg: Config = {
+        workload: q<HTMLSelectElement>('[data-workload]').value as Workload,
+        metric: metric.value as Metric,
+        target: Number(target.value),
+        startupS: Number(q<HTMLSelectElement>('[data-startup]').value),
+        minReplicas: Number(q<HTMLSelectElement>('[data-min]').value),
+        maxReplicas: Number(q<HTMLSelectElement>('[data-max]').value),
+      };
+      const r = simulate(cfg);
+      state.runs.push({ cfg, r });
+      const web = cfg.workload === 'web';
+      q('[data-chart-title]').textContent = web ? 'Traffic (grey) against capacity (green)' : 'Messages waiting in the queue';
+      const loadSvg = q('[data-load]');
+      if (web) {
+        const demand = r.ticks.map((k) => k.demand), cap = r.ticks.map((k) => k.ready * 50);
+        const max = Math.max(...demand, ...cap);
+        loadSvg.replaceChildren(poly(demand, max, 100, 'sc2-demand'), poly(cap, max, 100, 'sc2-cap'));
+      } else {
+        const b = r.ticks.map((k) => k.backlog);
+        loadSvg.replaceChildren(poly(b, Math.max(1, ...b), 100, 'sc2-backlog'));
+      }
+      const ready = r.ticks.map((k) => k.ready), total = r.ticks.map((k) => k.ready + k.starting);
+      const pmax = Math.max(cfg.maxReplicas, ...total);
+      q('[data-pods]').replaceChildren(poly(total, pmax, 60, 'sc2-starting'), poly(ready, pmax, 60, 'sc2-ready'));
+      q('[data-dropped]').textContent = web ? `${r.droppedPct.toFixed(2)}%` : 'none (it queues)';
+      q('[data-avg]').textContent = r.avgPods.toFixed(1);
+      q('[data-backlog]').textContent = web ? '-' : `${r.finalBacklog.toLocaleString('en')} messages`;
+      const out = q('[data-verdict]');
+      let ok: boolean, msg: string;
+      if (web) {
+        ok = r.droppedPct < 1 && r.avgPods <= 8;
+        msg = r.droppedPct >= 1 ? `${r.droppedPct.toFixed(1)}% of requests failed while new pods were still starting.`
+          : r.avgPods > 8 ? `Nothing dropped - but you paid for ${r.avgPods.toFixed(1)} pods on average to get there.`
+          : `Under 1% dropped on ${r.avgPods.toFixed(1)} pods on average.`;
+      } else {
+        ok = r.finalBacklog === 0;
+        msg = ok ? `The backlog peaked at ${r.peakBacklog.toLocaleString('en')} and drained.` : `The workers sat at ${r.peakPods} pods while ${r.finalBacklog.toLocaleString('en')} messages waited. Their CPU never moved.`;
+      }
+      out.className = `sc2-verdict ${ok ? 'ok' : 'bad'}`;
+      out.textContent = msg;
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: chart lines and options are created by the script. */
+  .scale-lab .controls label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .scale-lab .sc2-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .scale-lab .sc2-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .scale-lab .sc2-main { min-width: 0; }
+  .scale-lab .sc2-chart { width: 100%; height: 110px; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; margin: 4px 0 8px; }
+  .scale-lab .sc2-chart.small { height: 70px; }
+  .scale-lab .sc2-demand { stroke: var(--muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .scale-lab .sc2-cap, .scale-lab .sc2-ready { stroke: var(--bamboo); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .scale-lab .sc2-starting { stroke: var(--sky); stroke-width: 2; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+  .scale-lab .sc2-backlog { stroke: var(--berry); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .scale-lab .sc2-axis { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); }
+  .scale-lab .sc2-verdict { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .scale-lab .sc2-verdict.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .scale-lab .sc2-verdict.bad { background: var(--berry-soft); color: var(--berry); }
+</style>

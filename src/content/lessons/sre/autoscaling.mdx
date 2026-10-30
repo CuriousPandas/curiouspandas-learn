@@ -1,0 +1,108 @@
+---
+title: Scaling before it hurts
+summary: An autoscaler reacts to the past, and new pods take time to arrive. Watch a spike drop requests while help is still starting up, fix it without paying for the peak all day, then find out why a queue worker never scales at all.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+tiltLab: 05-scale-it
+sources:
+  - title: Kubernetes docs - Horizontal Pod Autoscaling
+    url: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/
+  - title: TemplateMechanics/tilt lab 05 - Scale it
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/05-scale-it
+  - title: KEDA - Kubernetes Event-driven Autoscaling
+    url: https://keda.sh/
+---
+
+A Kubernetes **HorizontalPodAutoscaler** (HPA) keeps changing how many copies of a pod run, to hold a metric near a target. Its arithmetic fits on one line, from the Kubernetes docs:
+
+> desiredReplicas = ceil( currentReplicas × currentMetricValue ÷ desiredMetricValue )
+
+Four pods averaging 100% CPU against a 50% target: 4 × 100 ÷ 50 = 8 pods. Four pods at 25%: 2 pods. The rest of the docs is about the ways that simple line is slowed down on purpose:
+
+- It runs **every 15 seconds** by default, not continuously.
+- Inside a **tolerance** of 10% it does nothing, so it doesn't twitch at noise.
+- CPU utilization is measured **against the pod's CPU request**, not its limit or the node.
+- A pod that isn't **Ready** yet is set aside. When the result would be a scale-up, the controller "conservatively assumes that the not-yet-ready pods are consuming 0% of the desired metric". Slow-starting pods hold back the next scale-up as well as the first.
+- Scaling **down** waits: it takes "the highest recommendation from within" a **5-minute** window, so a brief dip doesn't throw pods away that the next minute needs.
+
+<Diagram
+  id="sre-hpa-loop"
+  title="The autoscaler's loop"
+  desc="Every 15 seconds the HPA reads the metric, such as CPU as a percentage of each pod's request, and computes the desired count: current replicas times current value over target, rounded up. It sets the Deployment's replica count, which creates new pods - but they serve nothing until they are Ready. Scaling down waits for the highest recommendation of the last five minutes."
+  nodes={[
+    { id: 'metric', label: 'Metrics API', sub: 'CPU vs request', x: 0, y: 0, kind: 'info' },
+    { id: 'hpa', label: 'HPA', sub: 'every 15 s', x: 1, y: 0, kind: 'ok' },
+    { id: 'deploy', label: 'Deployment', sub: 'replicas: N', x: 2, y: 0 },
+    { id: 'pods', label: 'new pods', sub: 'useless until Ready', x: 3, y: 0, kind: 'warn' },
+    { id: 'calc', label: 'desired count', sub: 'ceil(N x now/target)', x: 1, y: 1 },
+    { id: 'down', label: 'scale-down wait', sub: '5 min, highest rec.', x: 2, y: 1 },
+  ]}
+  edges={[
+    { from: 'metric', to: 'hpa', label: 'utilization' },
+    { from: 'hpa', to: 'calc', label: 'computes' },
+    { from: 'hpa', to: 'deploy', label: 'sets count' },
+    { from: 'deploy', to: 'pods', label: 'creates' },
+    { from: 'hpa', to: 'down', label: 'going down?', dashed: true },
+  ]}
+  steps={[
+    { caption: 'The Metrics API reports each pod\'s CPU as a share of what it requested.', show: ['metric'], focus: ['metric'] },
+    { caption: 'Every 15 seconds the HPA reads it and works out the count: current pods times current value over target, rounded up.', show: ['hpa', 'calc', 'metric->hpa', 'hpa->calc'], focus: ['hpa', 'calc'] },
+    { caption: 'It writes that count into the Deployment, which creates pods. They serve nothing until they are Ready - and until then they count as 0% towards the next decision.', show: ['deploy', 'pods', 'hpa->deploy', 'deploy->pods'], focus: ['pods'] },
+    { caption: 'Going down is deliberately slow: the highest recommendation of the last five minutes wins, so a brief lull does not undo the work.', show: ['down', 'hpa->down'], focus: ['down'] },
+  ]}
+/>
+
+## The gap that drops requests
+
+Add up the delays: up to 15 seconds before the HPA looks, then however long a new pod takes to pull its image, start, and pass its readiness probe. During that gap, the pods you already have take all of the spike. If the target is 90%, there's almost no headroom to absorb it, and the overflow is dropped.
+
+Three settings decide how big that gap is. Try them against a spike that quadruples traffic in two minutes:
+
+<ScaleLab />
+
+<Callout kind="trap">
+"Set the minimum to the peak" makes every chart green and pays for the peak around the clock: in the simulation that's about twice the pods, idle whenever traffic is normal. Raising the *maximum* does nothing at all if the autoscaler never asks for more than it already has. Headroom (a lower target) and pods that start fast are what close the gap.
+</Callout>
+
+<Quiz
+  id="sre-scale-1"
+  q="Four pods are at 90% of their CPU request; the HPA target is 60%. How many pods will it ask for?"
+  options={["5", "6", "7", "It waits for the 5-minute window first"]}
+  answer={1}
+  explain="ceil(4 × 90 / 60) = ceil(6) = 6. The 5-minute window only applies to scaling down; scaling up happens at the next 15-second check."
+/>
+
+## Scaling on the wrong thing
+
+CPU is a good signal only when CPU is the work. A worker that spends its time waiting on a slow API, a database or a disk barely uses any CPU, so an HPA on CPU sees an idle service while its queue grows by the minute. Raising the limits doesn't help, because the metric never asks for more pods. Scale on what the work actually is: queue depth, requests in flight, or consumer lag. On Kubernetes that's usually [KEDA](https://keda.sh/), which can "drive the scaling of any container in Kubernetes based on the number of events needing to be processed" and works alongside the HPA rather than replacing it.
+
+<Quiz
+  id="sre-scale-2"
+  q="A worker's queue is growing, its pods sit at 15% CPU, and the HPA (target 50% CPU) has not scaled. What is the fix?"
+  options={["Raise maxReplicas", "Lower the CPU target to 10%", "Scale on the queue's length instead of CPU", "Give each pod more CPU"]}
+  answer={2}
+  explain="CPU is not what limits this worker, so no CPU target describes its load. A 10% target would scale it - all the time, busy or not. Queue length is the work itself."
+/>
+
+<Callout kind="real">
+Kubernetes stops containers with SIGTERM and a grace period, then SIGKILL (see [processes and signals](/learn/linux/processes-and-signals/)), so scaling down also needs pods that finish their in-flight work when asked. And whoever owns `replicas` must be the only one setting it. If a GitOps sync re-applies `replicas: 1` while the HPA has scaled to four, three pods vanish at peak.
+</Callout>
+
+<DoItForReal id="sre-scale-real" lab="05-scale-it" profile="observability">
+Lab 05 puts an HPA (min 1, max 4, 50% CPU, a 30-second scale-down window) on the hello app. First check it can see anything at all:
+
+```bash
+kubectl apply -f labs/05-scale-it/hpa.yaml
+kubectl -n hello get hpa hello
+```
+
+`<unknown>/50%` under TARGETS means no metrics, and the HPA will sit there forever without complaint. metrics-server comes with the observability profile. Then load it and watch:
+
+```bash
+./labs/05-scale-it/load.sh 90
+kubectl -n hello get hpa,pods -w
+```
+
+When you're done, follow the lab's clean-up. Deleting the HPA doesn't undo its last decision: the Deployment keeps whatever count it was left at.
+</DoItForReal>
