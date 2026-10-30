@@ -4,3 +4,5 @@ dist/
 .site-check/
 *.log
 .DS_Store
+# Parallel writers work in git worktrees here; each is a full copy of the repo.
+.claude/worktrees/

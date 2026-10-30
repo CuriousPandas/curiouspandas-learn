@@ -58,6 +58,9 @@ async function visit(path, { dark = false, width = 1280 } = {}) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('requestfailed', (r) => failed.push(`${r.url()} ${r.failure()?.errorText}`));
+  // The site promises no third-party requests. A font, script or beacon from
+  // another host would load fine and pass every other check here.
+  page.on('request', (r) => { const u = new URL(r.url()); if (/^https?:$/.test(u.protocol) && u.origin !== new URL(base).origin) failed.push(`third-party request: ${r.url()}`); });
   page.on('response', (r) => { if (r.status() >= 400 && !r.url().endsWith('/404.html') && !(path === '/404.html')) failed.push(`${r.status()} ${r.url()}`); });
   await page.goto(base + path, { waitUntil: 'networkidle' });
   return { ctx, page, errors, failed };
