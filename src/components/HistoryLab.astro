@@ -1,0 +1,132 @@
+---
+import '../styles/widgets.css';
+import { SCENARIOS, SQUASH_TITLES } from '../lib/gitflow/history.ts';
+---
+<div class="widget card historylab" data-historylab>
+  <div class="widget-head">
+    <strong>Integrate the search branch</strong>
+    <span class="pill info">a model of git; checked against real git in the tests</span>
+  </div>
+  <div class="controls">
+    <label>Situation
+      <select data-scenario>{Object.entries(SCENARIOS).map(([id, s]) => <option value={id}>{s.label}</option>)}</select>
+    </label>
+    <label>Method
+      <select data-method>
+        <option value="merge">merge commit</option>
+        <option value="rebase">rebase, then fast-forward</option>
+        <option value="squash">squash merge</option>
+      </select>
+    </label>
+    <label data-title-wrap hidden>Pull request title
+      <select data-title>{SQUASH_TITLES.map((t) => <option value={t}>{t}</option>)}</select>
+    </label>
+    <button class="btn small primary" type="button" data-go>Integrate</button>
+  </div>
+  <p class="hl-detail" data-detail></p>
+  <div class="hl-grid">
+    <div class="hl-graphbox">
+      <span class="eyebrow">The commit graph</span>
+      <svg class="hl-graph" data-graph role="img" aria-label="Commit graph"></svg>
+      <div class="legend"><span><i class="lg-main"></i>on main</span><span><i class="lg-feature"></i>your branch</span><span><i class="lg-sam"></i>Sam's work</span></div>
+    </div>
+    <div class="hl-side">
+      <div><span class="eyebrow">main, newest first</span><ol class="hl-log" data-main></ol></div>
+      <div><span class="eyebrow">release-please reads</span><ul class="hl-log" data-release></ul></div>
+      <ul class="hl-notes" data-notes aria-live="polite"></ul>
+    </div>
+  </div>
+  <div data-mission-panel></div>
+</div>
+
+<script>
+  import { integrate, layout, releasable, SCENARIOS, type Method, type Outcome, type Scenario } from '../lib/gitflow/history.ts';
+  import { HISTORY_MISSION } from '../lib/gitflow/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag: string, attrs: Record<string, string | number>, text?: string) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const LANE_X = { main: 40, feature: 140, sam: 240 } as const;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-historylab]')) {
+    const state = HISTORY_MISSION.setup();
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q<HTMLElement>('[data-mission-panel]'), HISTORY_MISSION, () => state, () => {});
+    const scenario = q<HTMLSelectElement>('[data-scenario]');
+    const method = q<HTMLSelectElement>('[data-method]');
+    const title = q<HTMLSelectElement>('[data-title]');
+
+    const draw = (o: Outcome) => {
+      const L = layout(o);
+      const rowH = 34, h = L.rows * rowH + 16;
+      const y = (row: number) => h - 20 - row * rowH;
+      const svg = q<SVGSVGElement>('[data-graph]');
+      svg.setAttribute('viewBox', `0 0 300 ${h}`);
+      svg.setAttribute('aria-label', `Commit graph after a ${o.method}. Main reads, newest first: ${o.main.join(', ')}.`);
+      const by = new Map(L.nodes.map((n) => [n.id, n]));
+      const parts: Element[] = [];
+      for (const e of L.edges) {
+        const a = by.get(e.from)!, b = by.get(e.to)!;
+        parts.push(svgEl('line', { x1: LANE_X[a.lane], y1: y(a.row), x2: LANE_X[b.lane], y2: y(b.row), class: 'hl-edge' }));
+      }
+      for (const n of L.nodes) {
+        const g = svgEl('g', { class: `hl-node ${n.lane}${n.onMain ? ' onmain' : ''}${n.abandoned ? ' abandoned' : ''}` });
+        g.append(svgEl('title', {}, n.msg), svgEl('circle', { cx: LANE_X[n.lane], cy: y(n.row), r: 11 }), svgEl('text', { x: LANE_X[n.lane] + 17, y: y(n.row) + 4 }, n.id));
+        parts.push(g);
+      }
+      svg.replaceChildren(...parts);
+      q('[data-main]').replaceChildren(...o.main.map((id) => { const c = by.get(id)!; return el('li', {}, el('b', {}, id), ' ', el('code', {}, c.msg)); }));
+      const types = releasable(o);
+      q('[data-release]').replaceChildren(...o.releaseSees.map((m) => el('li', {}, el('code', {}, m))), el('li', { class: types.length ? 'ok' : 'bad' }, types.length ? `counts: ${types.join(', ')}` : 'nothing releasable'));
+      const notes = o.notes.map((t) => el('li', {}, t));
+      if (o.samDuplicates.length) notes.push(el('li', { class: 'bad' }, `Sam sees twice: ${o.samDuplicates.join(' / ')}`));
+      if (o.samRelists.length) notes.push(el('li', { class: 'bad' }, `Sam's next pull request re-offers: ${o.samRelists.join(' / ')}`));
+      q('[data-notes]').replaceChildren(...notes);
+    };
+
+    const showDetail = () => {
+      q('[data-detail]').textContent = SCENARIOS[scenario.value as Scenario].detail;
+      q<HTMLElement>('[data-title-wrap]').hidden = method.value !== 'squash';
+    };
+    scenario.addEventListener('change', showDetail);
+    method.addEventListener('change', showDetail);
+    q('[data-go]').addEventListener('click', () => {
+      const o = integrate(scenario.value as Scenario, method.value as Method, title.value);
+      state.outcomes.push(o);
+      draw(o);
+      refresh();
+    });
+    showDetail();
+    draw(integrate(scenario.value as Scenario, 'merge'));
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the graph, logs and notes are created by the script. */
+  .historylab .hl-detail { margin: 8px 0 0; font-size: 0.92rem; color: var(--ink-2); }
+  .historylab .hl-grid { display: grid; gap: 14px; margin: 12px 0; }
+  @media (min-width: 900px) { .historylab .hl-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); } }
+  .historylab .hl-graphbox, .historylab .hl-side { min-width: 0; display: grid; gap: 8px; align-content: start; }
+  .historylab .hl-graph { width: 100%; max-width: 320px; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+  .historylab .hl-edge { stroke: var(--muted); stroke-width: 2; }
+  .historylab .hl-node circle { fill: var(--panel); stroke-width: 3; }
+  .historylab .hl-node.main circle, .historylab .hl-node.onmain circle { stroke: var(--bamboo); }
+  .historylab .hl-node.feature:not(.onmain) circle { stroke: var(--sky); }
+  .historylab .hl-node.sam circle { stroke: var(--sun); }
+  .historylab .hl-node.abandoned circle { stroke-dasharray: 4 3; stroke: var(--muted); }
+  .historylab .hl-node text { font: 600 13px var(--mono); fill: var(--ink); }
+  .historylab .legend i.lg-main { background: var(--bamboo); }
+  .historylab .legend i.lg-feature { background: var(--sky); }
+  .historylab .legend i.lg-sam { background: var(--sun); }
+  .historylab .hl-log, .historylab .hl-notes { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 0.86rem; }
+  .historylab .hl-log li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 4px 8px; border-radius: 8px; background: var(--bg-2); }
+  .historylab .hl-log code { overflow-wrap: anywhere; }
+  .historylab .hl-log li.ok { background: var(--bamboo-soft); color: var(--bamboo); font-weight: 600; }
+  .historylab .hl-log li.bad, .historylab .hl-notes li.bad { background: var(--berry-soft); color: var(--berry); font-weight: 600; }
+  .historylab .hl-notes li { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); }
+</style>

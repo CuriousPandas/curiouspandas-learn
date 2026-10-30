@@ -1403,6 +1403,59 @@ await scenario('db-replica', '/learn/databases/replication/', async (page) => {
   await expectText(page, `${r} .m-debrief`, /copies your mistakes/);
 });
 
+// ---- git strategies (writer GS) --------------------------------------------
+// Each mission tries the tempting move first: the two-week branch, daily merges
+// without a flag, rebasing and squashing the branch Sam built on, a vague title.
+
+await scenario('git-cadence', '/learn/git/branching-strategies/', async (page) => {
+  const r = '[data-branchlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const run = async (every, flag) => {
+    await page.selectOption(`${r} [data-cadence]`, String(every));
+    await page.setChecked(`${r} [data-flag]`, flag);
+    await page.click(`${r} [data-run]`);
+  };
+  await run(10, true);
+  await expectText(page, `${r} [data-largest]`, /^8 files$/);
+  await expectText(page, `${r} [data-exposed]`, /^0$/);
+  await run(1, false);
+  await expectText(page, `${r} [data-largest]`, /^1 file$/);
+  await expectText(page, `${r} [data-exposed]`, /^9$/);
+  if (await doneSteps(page, r) !== 2) throw new Error('daily merges without a flag finished the mission');
+  await run(3, true);
+  if (await doneSteps(page, r) !== 2) throw new Error('three-day merges passed the one-file step');
+  await run(1, true);
+  await expectText(page, `${r} .m-debrief`, /switched off until it was done/);
+});
+
+await scenario('git-integrate', '/learn/git/merge-rebase-squash/', async (page) => {
+  const r = '[data-historylab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const go = async (scenario, method, title) => {
+    await page.selectOption(`${r} [data-scenario]`, scenario);
+    await page.selectOption(`${r} [data-method]`, method);
+    if (title) await page.selectOption(`${r} [data-title]`, title);
+    await page.click(`${r} [data-go]`);
+  };
+  await go('solo', 'rebase');
+  await expectText(page, `${r} [data-main]`, /F2'[\s\S]*F1'[\s\S]*C/);
+  await go('shared', 'rebase');
+  await expectText(page, `${r} [data-notes]`, /Sam sees twice/);
+  await go('shared', 'squash');
+  await expectText(page, `${r} [data-notes]`, /re-offers/);
+  if (await doneSteps(page, r) !== 1) throw new Error('rebasing or squashing the shared branch passed');
+  await go('shared', 'merge');
+  if (await page.locator(`${r} [data-notes] li.bad`).count()) throw new Error('a merge commit still reported harm to Sam');
+  await go('solo', 'squash', 'Update search');
+  await expectText(page, `${r} [data-release]`, /nothing releasable/);
+  if (await doneSteps(page, r) !== 2) throw new Error('a vague squash title passed the release-please step');
+  await go('solo', 'squash', 'feat(search): filter results by price');
+  await expectText(page, `${r} [data-release]`, /counts: feat/);
+  await expectText(page, `${r} .m-debrief`, /title is the commit release-please reads/);
+  // The graph is drawn with real nodes, not left empty.
+  if (await page.locator(`${r} .hl-node`).count() < 5) throw new Error('commit graph did not draw');
+});
+
 await browser.close();
 server?.kill();
 

@@ -1,0 +1,97 @@
+---
+import '../styles/widgets.css';
+import { CADENCE_LABEL } from '../lib/gitflow/divergence.ts';
+---
+<div class="widget card branchlab" data-branchlab>
+  <div class="widget-head">
+    <strong>Two weeks of a feature</strong>
+    <span class="pill info">a model: files both sides changed</span>
+  </div>
+  <p class="bl-intro">You are building search filters over ten working days while the rest of the team keeps merging to trunk. Choose how often you integrate, then run the two weeks.</p>
+  <div class="controls">
+    <label>Merge to trunk
+      <select data-cadence>
+        {([10, 3, 1] as const).map((c) => <option value={c}>{CADENCE_LABEL[c]}</option>)}
+      </select>
+    </label>
+    <label class="bl-flag"><input type="checkbox" data-flag /> <span>Hide the feature behind a flag until it is done</span></label>
+    <button class="btn small primary" type="button" data-run>Run the two weeks</button>
+  </div>
+  <div class="bl-grid">
+    <div class="bl-main">
+      <ol class="bl-days" data-days aria-label="Ten working days"></ol>
+      <div class="stats">
+        <div class="stat">largest single merge<b data-largest>-</b></div>
+        <div class="stat">files reconciled in total<b data-total>-</b></div>
+        <div class="stat">days users could reach it<b data-exposed>-</b></div>
+      </div>
+      <p class="bl-verdict" data-verdict aria-live="polite">Nothing run yet.</p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { simulate, type Cadence } from '../lib/gitflow/divergence.ts';
+  import { BRANCH_MISSION } from '../lib/gitflow/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-branchlab]')) {
+    const state = BRANCH_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), BRANCH_MISSION, () => state, () => {});
+    const cadence = q<HTMLSelectElement>('[data-cadence]');
+    const flag = q<HTMLInputElement>('[data-flag]');
+
+    q('[data-run]').addEventListener('click', () => {
+      const run = simulate({ mergeEvery: Number(cadence.value) as Cadence, flag: flag.checked });
+      state.runs.push(run);
+      const byDay = new Map(run.merges.map((m) => [m.day, m]));
+      q('[data-days]').replaceChildren(...Array.from({ length: 10 }, (_, i) => {
+        const d = i + 1, m = byDay.get(d);
+        const li = el('li', { class: `bl-day${m ? ' merge' : ''}${run.exposedDays.includes(d) ? ' exposed' : ''}` }, el('span', { class: 'bl-dnum' }, `Day ${d}`));
+        if (m) {
+          li.append(el('span', { class: `bl-chip ${m.conflicts.length > 1 ? 'bad' : m.conflicts.length ? 'warn' : 'ok'}` }, m.conflicts.length === 1 ? 'merge: 1 file' : `merge: ${m.conflicts.length} files`));
+          if (m.conflicts.length) li.append(el('span', { class: 'bl-files' }, m.conflicts.join(', ')));
+        }
+        if (run.exposedDays.includes(d)) li.append(el('span', { class: 'bl-chip bad' }, 'half-built search is live'));
+        return li;
+      }));
+      q('[data-largest]').textContent = run.largest === 1 ? '1 file' : `${run.largest} files`;
+      q('[data-total]').textContent = String(run.total);
+      q('[data-exposed]').textContent = String(run.exposedDays.length);
+      q('[data-verdict]').textContent = run.plan.mergeEvery === 10
+        ? `One merge at the end, and ${run.largest} files that both you and the team changed over two weeks - reconciled at once, long after you wrote your half.`
+        : run.exposedDays.length
+          ? `Small merges, but each one put unfinished search in front of users - from day ${run.exposedDays[0]} until it was done.`
+          : run.largest <= 1
+            ? 'Every merge was small and fresh, and the flag kept the unfinished feature switched off until day 10.'
+            : `Better, but a merge still had ${run.largest} files to reconcile: changes piled up for three days on each side.`;
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the day cells are created by the script. */
+  .branchlab .bl-intro { margin: 4px 0 10px; font-size: 0.93rem; color: var(--ink-2); }
+  /* The shared .controls rule lets labels wrap; on a phone that put the box on
+     one line and its words on the next. Keep the box beside its text. */
+  .branchlab .bl-flag { max-width: 100%; flex-wrap: nowrap !important; align-items: flex-start !important; }
+  .branchlab .bl-flag input { margin-top: 4px; flex: none; }
+  .branchlab .bl-flag span { min-width: 0; }
+  .branchlab .bl-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .branchlab .bl-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); } }
+  .branchlab .bl-main { min-width: 0; }
+  .branchlab .bl-days { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .branchlab .bl-day { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 0.85rem; min-height: 54px; }
+  .branchlab .bl-day.merge { border-color: var(--line-2); background: var(--panel); }
+  .branchlab .bl-day.exposed { border-color: var(--berry); }
+  .branchlab .bl-dnum { font-weight: 650; }
+  .branchlab .bl-chip { align-self: flex-start; font: 600 0.74rem var(--sans); padding: 1px 8px; border-radius: 99px; }
+  .branchlab .bl-chip.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .branchlab .bl-chip.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .branchlab .bl-chip.bad { background: var(--berry-soft); color: var(--berry); }
+  .branchlab .bl-files { font: 0.74rem var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+  .branchlab .bl-verdict { margin: 8px 0 0; font-size: 0.93rem; }
+</style>

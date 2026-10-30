@@ -1,0 +1,133 @@
+---
+title: Merge, rebase or squash
+summary: Three ways a pull request lands on main, and what each does to history. Learn the one rule that keeps rebase safe, why squash makes the PR title matter, and integrate a branch a teammate built on without hurting them.
+minutes: 15
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: Pro Git, chapter 3.6 - Rebasing
+    url: https://git-scm.com/book/en/v2/Git-Branching-Rebasing
+  - title: GitHub Docs - About merge methods on GitHub
+    url: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github
+  - title: GitHub Docs - Configuring commit squashing for pull requests
+    url: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/configuring-commit-squashing-for-pull-requests
+  - title: Vincent Driessen - A successful Git branching model (on --no-ff)
+    url: https://nvie.com/posts/a-successful-git-branching-model/
+---
+
+Your branch is reviewed and green. Now it has to land on `main`, and GitHub offers three buttons that end with the same files but different histories:
+
+- **Create a merge commit**: "all commits from the feature branch are added to the base branch in a merge commit", using `--no-ff`.
+- **Squash and merge**: "the pull request's commits are squashed into a single commit".
+- **Rebase and merge**: "all commits from the topic branch (or head branch) are added onto the base branch individually without a merge commit" - and GitHub "creates new commit SHAs" to do it.
+
+## Merge: keep everything, join the lines
+
+A merge commit has two parents: the tip of `main` and the tip of your branch. Every commit you made keeps its id, and the history shows that a branch existed. That is why git-flow's author recommends `--no-ff`: it "avoids losing information about the historical existence of a feature branch". The cost is a history with forks and joins in it - the same merge you met in [Conflicts are honesty](/learn/git/conflicts/).
+
+## Rebase: replay your work on top
+
+Rebase takes your commits and replays them, one by one, on top of the new `main`. Pro Git is precise about what that means: "you're abandoning existing commits and creating new ones that are similar but different". Same changes, new commits, new ids. Afterwards `main` can fast-forward and history is one straight line. Pro Git also points out that the final snapshot "is the same snapshot - it's only the history that is different".
+
+Abandoning commits is harmless when nobody else has them. It is not harmless when they do.
+
+<Diagram
+  id="git-rebase-shared"
+  title="Rebasing a branch someone built on"
+  desc="You push F1 and F2. Sam fetches them and builds G on top. You rebase, which makes new copies F1' and F2', and force-push them over the originals. When Sam pulls, git merges his old F1 and F2 with your new copies, and his history shows each of your commits twice."
+  nodes={[
+    { id: 'push', label: 'you push F1, F2', sub: 'to origin', x: 0, y: 0, kind: 'info' },
+    { id: 'origin', label: 'origin', sub: 'has F1, F2', x: 1, y: 0 },
+    { id: 'sam', label: 'Sam builds G', sub: 'on top of F2', x: 2, y: 0, kind: 'warn' },
+    { id: 'rebase', label: 'you rebase', sub: "new F1', F2'", x: 0, y: 1, kind: 'info' },
+    { id: 'force', label: 'force-push', sub: 'old ids replaced', x: 1, y: 1, kind: 'bad' },
+    { id: 'pull', label: 'Sam pulls', sub: 'old + new copies', x: 2, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'push', to: 'origin', label: 'push' },
+    { from: 'origin', to: 'sam', label: 'fetch' },
+    { from: 'push', to: 'rebase', label: 'rewrite' },
+    { from: 'rebase', to: 'force', label: 'push -f' },
+    { from: 'force', to: 'pull', label: 'pull' },
+  ]}
+  steps={[
+    { caption: 'You push your branch. Now it exists outside your repository.', show: ['push', 'origin', 'push->origin'], focus: ['push->origin'] },
+    { caption: 'Sam fetches it and builds G on top of your F2. His work depends on your commit ids.', show: ['sam', 'origin->sam'], focus: ['sam'] },
+    { caption: "You rebase onto the new main. F1 and F2 become F1' and F2': similar, but different commits.", show: ['rebase', 'push->rebase'], focus: ['rebase'] },
+    { caption: 'A normal push is refused, so you force-push. Origin now has the new copies; the old ids are gone from it.', show: ['force', 'rebase->force'], focus: ['force'] },
+    { caption: "Sam pulls. Git merges his old F1 and F2 with your new copies - and his log shows each of your commits twice.", show: ['pull', 'force->pull'], focus: ['pull'] },
+  ]}
+/>
+
+Pro Git's rule, in bold in the original:
+
+> **Do not rebase commits that exist outside your repository and that people may have based work on.**
+
+And the practical version: "rebase local changes before pushing to clean up your work, but never rebase anything that you've pushed somewhere." This site's tests replay exactly the story above with the real git binary: after the force-push and Sam's pull, `git log` shows both copies of each commit.
+
+## Squash: one commit, and the title is the message
+
+Squash turns the whole pull request into one new commit on `main`. Your individual commits never reach `main` at all - which keeps `main` tidy, and has two consequences.
+
+First, the commit message. GitHub's default for a squash is "the commit title and message" when the pull request has one commit, and "the pull request title and list of commits" when it has two or more. With more than one commit, **the pull request title becomes the commit title on main**. If your team uses [Conventional Commits and release-please](/learn/delivery/release-automation/), that title is what decides the next version - `feat(search): filter results by price` makes a minor release; `Update search` makes nothing.
+
+Second, teammates. Anyone who built on your branch still has your original commits. `main` only has the squashed copy, so git sees those commits as not yet on `main`, and their next pull request offers them all over again.
+
+## Try it
+
+Two situations. On your own unpushed branch, anything goes. On a branch Sam has built on, see which method leaves him nothing to untangle.
+
+<HistoryLab />
+
+| Method | What main gets | Rewrites commits? | Safe on a branch others built on? |
+|---|---|---|---|
+| Merge commit | your commits + one merge commit | no | yes |
+| Rebase and merge | new copies of your commits, in a line | yes | no - duplicates for them |
+| Squash and merge | one new commit (title = PR title, for 2+ commits) | effectively: the originals never reach main | no - their branch re-offers your commits |
+
+<Callout kind="tip">
+A common, safe combination: rebase or squash freely *before* anyone else has your branch, then merge. Many teams squash-merge every pull request and simply never build on someone else's open branch - which keeps the rule without thinking about it.
+</Callout>
+
+<Quiz
+  id="git-mrs-1"
+  q="You rebase your branch onto the latest main. What happens to your original commits?"
+  options={["They move on top of main, keeping their ids", "They are abandoned; rebase creates new commits with the same changes and new ids", "They are deleted from every clone"]}
+  answer={1}
+  explain="Rebase creates new commits that are similar but different. Your old ones still exist in any clone that had them - which is exactly why rebasing pushed work causes trouble."
+/>
+
+<Quiz
+  id="git-mrs-2"
+  q="A teammate has built on your pushed branch. Which integration leaves them nothing to untangle?"
+  options={["Rebase and merge", "Squash and merge", "A merge commit"]}
+  answer={2}
+  explain="Only a merge commit keeps your commits' ids, so their work still sits on commits main contains. Rebase gives them duplicates; squash leaves them holding commits main never received."
+/>
+
+<Quiz
+  id="git-mrs-3"
+  q="Your team squash-merges and uses release-please. A pull request with three commits is titled 'Update search'. What does release-please see?"
+  options={["The three original commit messages", "Nothing releasable - the squash commit is titled 'Update search'", "A minor release, because one of the commits was a feat"]}
+  answer={1}
+  explain="With two or more commits, GitHub's default squash message uses the pull request title as the commit title. 'Update search' has no conventional type, so release-please counts nothing."
+/>
+
+<DoItForReal id="git-mrs-real" needs="terminal">
+
+Reproduce the rebase story on your own disk - no account needed, a bare repository is a fine remote:
+
+```bash
+git init --bare -b main origin.git && git clone -q origin.git you && cd you
+git switch -c main && git commit --allow-empty -qm "base" && git push -q origin main
+git switch -c feature && git commit --allow-empty -qm "F1" && git commit --allow-empty -qm "F2"
+git push -q origin feature && cd ..
+git clone -q -b feature origin.git sam && cd sam && git commit --allow-empty -qm "G" && cd ..
+cd you && git switch main && git commit --allow-empty -qm "C" && git push -q origin main
+git switch feature && git rebase -q main && git push -q --force origin feature && cd ..
+cd sam && git pull -q --no-rebase --no-edit origin feature && git log --oneline
+```
+
+Sam's log shows `F1` and `F2` twice. Then do it again with `git merge --no-ff feature` on main instead of the rebase, and compare.
+
+</DoItForReal>
