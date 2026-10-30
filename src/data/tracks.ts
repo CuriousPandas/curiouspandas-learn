@@ -33,7 +33,7 @@ export const TRACKS: Track[] = [
       { slug: 'branches', title: 'Branches are just names', status: 'ready' },
       { slug: 'conflicts', title: 'Conflicts are honesty', status: 'ready' },
       { slug: 'inside-git', title: 'Look inside .git', status: 'ready' },
-      { slug: 'collaborate', title: 'Remotes, pull requests and review', status: 'soon' },
+      { slug: 'collaborate', title: 'Remotes, pull requests and review', status: 'ready' },
     ],
   },
   {
@@ -74,9 +74,9 @@ export const TRACKS: Track[] = [
   {
     id: 'delivery', title: 'Delivery: CI/CD & IaC', tagline: 'From a pushed commit to running in production - and back out again safely.', icon: 'send', hue: 300,
     lessons: [
-      { slug: 'pipelines', title: 'A pipeline on every push', status: 'soon' },
-      { slug: 'infrastructure-as-code', title: 'Plan, apply, drift', status: 'soon' },
-      { slug: 'release-strategies', title: 'Canary, blue-green and the rollback', status: 'soon' },
+      { slug: 'pipelines', title: 'A pipeline on every push', status: 'ready' },
+      { slug: 'infrastructure-as-code', title: 'Plan, apply, drift', status: 'ready' },
+      { slug: 'release-strategies', title: 'Canary, blue-green and the rollback', status: 'ready' },
     ],
   },
   {

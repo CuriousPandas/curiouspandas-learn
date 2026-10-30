@@ -1,0 +1,111 @@
+---
+import '../styles/widgets.css';
+import { CANARY, VERSION_LABEL } from '../lib/delivery/release.ts';
+---
+<div class="widget card release" data-release>
+  <div class="widget-head">
+    <strong>Release desk</strong>
+    <span class="pill info">canary: step {CANARY.stepWeight}%, max {CANARY.maxWeight}%, floor {CANARY.minSuccess}%, {CANARY.threshold} strikes</span>
+  </div>
+  <div class="controls rl-controls">
+    <label>Version
+      <select data-version>{Object.entries(VERSION_LABEL).map(([v, l]) => <option value={v}>{l}</option>)}</select>
+    </label>
+    <label>Strategy
+      <select data-strategy>
+        <option value="canary">canary with analysis</option>
+        <option value="rolling">rolling update</option>
+        <option value="bluegreen">blue-green switch</option>
+      </select>
+    </label>
+    <button class="btn small primary" type="button" data-go>Release</button>
+    <button class="btn small" type="button" data-promote hidden>Promote now</button>
+    <button class="btn small" type="button" data-back hidden>Switch back</button>
+  </div>
+  <div class="rl-grid">
+    <div class="rl-main">
+      <div class="rl-status" data-status aria-live="polite">Pick a version and a strategy, then Release. Each step is one 15-second analysis interval, 400 requests.</div>
+      <div class="stats">
+        <div class="stat">users' requests that failed<b data-failed>0</b></div>
+        <div class="stat">requests served by the new version<b data-served>0</b></div>
+        <div class="stat">traffic on the new version<b data-share>0%</b></div>
+      </div>
+      <ol class="rl-ticks" data-ticks aria-label="Release timeline"></ol>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { Release, type Strategy, type Version } from '../lib/delivery/release.ts';
+  import { RELEASE_MISSION } from '../lib/delivery/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const VERDICT: Record<string, string> = {
+    promoted: 'Promoted: the new version now serves everyone.',
+    'rolled-back': 'Rolled back: everyone is on the old version again.',
+    'switched-back': 'Switched back to blue: the old version serves everyone again.',
+    done: 'Finished: the new version serves everyone.',
+  };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-release]')) {
+    const state = RELEASE_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), RELEASE_MISSION, () => state, () => {});
+    let rel: Release | undefined;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const draw = () => {
+      if (!rel) return;
+      q('[data-failed]').textContent = String(rel.failedRequests);
+      q('[data-served]').textContent = String(rel.servedByNew);
+      q('[data-share]').textContent = `${Math.round(rel.newShare * 100)}%`;
+      q('[data-ticks]').replaceChildren(...rel.ticks.map((t) => {
+        const bar = el('span', { class: 'rl-bar' }, el('i'));
+        (bar.firstChild as HTMLElement).style.width = `${t.newShare * 100}%`;
+        return el('li', { class: t.failed ? 'bad' : '' }, el('b', {}, `${t.t * 15}s`), bar, el('span', { class: 'rl-note' }, `${t.note}${t.failed ? ` · ${t.failed} failed` : ''}`));
+      }));
+      const s = q('[data-status]');
+      // Finishing is not success: v3 at 100% is red whichever strategy got it there.
+      s.className = `rl-status ${rel.status}${rel.version === 'bad' && (rel.status === 'promoted' || rel.status === 'done') ? ' bad' : ''}`;
+      s.textContent = rel.finished ? `${VERDICT[rel.status]}${rel.version === 'bad' && (rel.status === 'promoted' || rel.status === 'done') ? ' That includes the 6% of requests v3 fails.' : ''}` : `Releasing ${rel.version === 'good' ? 'v2' : 'v3'}...`;
+      q('[data-promote]').hidden = !(rel.strategy === 'canary' && !rel.finished);
+      q('[data-back]').hidden = !(rel.strategy !== 'canary' && rel.status !== 'rolled-back' && rel.status !== 'switched-back');
+      q('[data-back]').textContent = rel.strategy === 'bluegreen' ? 'Switch back to blue' : 'Roll back';
+      q<HTMLButtonElement>('[data-go]').disabled = !rel.finished;
+      refresh();
+    };
+    const stop = () => { clearInterval(timer); timer = undefined; };
+
+    q('[data-go]').addEventListener('click', () => {
+      stop();
+      rel = new Release(q<HTMLSelectElement>('[data-strategy]').value as Strategy, q<HTMLSelectElement>('[data-version]').value as Version);
+      state.releases.push(rel);
+      draw();
+      // Runs only after Release is pressed, and stops itself when the release ends.
+      timer = setInterval(() => { rel!.step(); draw(); if (rel!.finished) stop(); }, 650);
+    });
+    q('[data-promote]').addEventListener('click', () => { stop(); rel?.promoteNow(); draw(); });
+    q('[data-back]').addEventListener('click', () => { stop(); rel?.rollback(); draw(); });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the timeline rows are created by the script. */
+  .release .rl-controls label { display: inline-flex; gap: 6px; align-items: center; }
+  .release .rl-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .release .rl-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); } }
+  .release .rl-main { min-width: 0; }
+  .release .rl-status { padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .release .rl-status.promoted, .release .rl-status.done { background: var(--bamboo-soft); color: var(--bamboo); }
+  .release .rl-status.rolled-back, .release .rl-status.switched-back { background: var(--sun-soft); color: var(--sun-text); }
+  .release .rl-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .release .rl-ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .release .rl-ticks li { display: grid; grid-template-columns: 38px 70px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 0.82rem; padding: 4px 6px; border-radius: 8px; }
+  .release .rl-ticks li.bad { background: var(--berry-soft); }
+  .release .rl-ticks b { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .release .rl-bar { height: 10px; border-radius: 99px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
+  .release .rl-bar i { display: block; height: 100%; background: var(--sky); }
+  .release .rl-ticks li.bad .rl-bar i { background: var(--berry); }
+  .release .rl-note { color: var(--ink-2); overflow-wrap: anywhere; }
+</style>

@@ -1,0 +1,137 @@
+---
+import '../styles/widgets.css';
+import { CHANGES, STAGES } from '../lib/delivery/pipeline.ts';
+---
+<div class="widget card pipe" data-pipeline>
+  <div class="widget-head">
+    <strong>Every push, the same road</strong>
+    <span class="pill info">toy pipeline, real failure shapes</span>
+  </div>
+  <div class="pp-grid">
+    <div class="pp-left">
+      <fieldset class="pp-box">
+        <legend class="eyebrow">What you push</legend>
+        {Object.entries(CHANGES).map(([id, c], n) => (
+          <label><input type="radio" name="pipe-change" value={id} checked={n === 0} /> <span><b>{c.label}</b><span class="muted">{c.detail}</span></span></label>
+        ))}
+      </fieldset>
+      <fieldset class="pp-box">
+        <legend class="eyebrow">How the pipeline is set up</legend>
+        <label><input type="checkbox" data-cache /> <span><b>Cache dependencies</b><span class="muted">keyed on the lockfile's hash</span></span></label>
+        <label class="pp-select">When "cart total" fails
+          <select data-flaky>
+            <option value="block">stop the pipeline</option>
+            <option value="retry">re-run it, up to 3 times</option>
+            <option value="skip">skip that test</option>
+            <option value="deterministic">fix the test: fake clock, one request at a time</option>
+          </select>
+        </label>
+        <label><input type="checkbox" data-promote /> <span><b>Promote the staged artifact</b><span class="muted">instead of rebuilding for production</span></span></label>
+      </fieldset>
+      <div class="controls"><button class="btn small primary" type="button" data-push>Push</button></div>
+    </div>
+    <div class="pp-right">
+      <ol class="pp-stages" data-stages aria-label="Pipeline stages">
+        {STAGES.map((s) => <li data-stage={s.id}><b>{s.label}</b><span class="pp-note">waiting</span></li>)}
+      </ol>
+      <div class="pp-verdict" data-verdict aria-live="polite">Pick a change and press Push.</div>
+      <table class="pp-runs" data-runs hidden>
+        <caption>Recent runs</caption>
+        <thead><tr><th>#</th><th>push</th><th>result</th><th>staging ran</th><th>production runs</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div data-mission-panel></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { totalSeconds, type Change, type FlakyPolicy, type Run } from '../lib/delivery/pipeline.ts';
+  import { PIPELINE_MISSION } from '../lib/delivery/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const mmss = (s: number) => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-pipeline]')) {
+    const state = PIPELINE_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), PIPELINE_MISSION, () => state, () => {});
+
+    const show = (r: Run) => {
+      for (const s of r.stages) {
+        const li = q(`[data-stage="${s.id}"]`);
+        li.className = s.status;
+        li.querySelector('.pp-note')!.textContent = s.status === 'skipped' ? 'not reached' : `${s.note} · ${s.seconds}s`;
+      }
+      const v = q('[data-verdict]');
+      if (r.outcome === 'stopped') {
+        v.className = 'pp-verdict stopped';
+        v.textContent = r.change === 'race'
+          ? 'Stopped at test. The race condition never left the building.'
+          : `Stopped at ${r.stoppedAt}, after ${mmss(totalSeconds(r))} - and nothing in this push was broken. That is the flake.`;
+      } else if (r.shippedRace) {
+        v.className = 'pp-verdict shipped-bad';
+        v.textContent = `Green - and the race condition is now in production. ${r.policy.flaky === 'retry' ? `"cart total" failed, then passed on attempt ${r.attempts}.` : '"cart total" never ran.'}`;
+      } else {
+        v.className = 'pp-verdict shipped';
+        v.textContent = `In production after ${mmss(totalSeconds(r))}. ${r.prodArtifact === r.stagingArtifact ? 'Production runs the artifact staging tested.' : 'But production was rebuilt: it runs an artifact that never ran in staging.'}`;
+      }
+      const t = q<HTMLTableElement>('[data-runs]');
+      t.hidden = false;
+      t.tBodies[0].replaceChildren(...state.pipe.runs.slice(-5).reverse().map((x) => el('tr', { class: x.outcome === 'stopped' ? 'stopped' : x.shippedRace ? 'shipped-bad' : 'shipped' },
+        el('td', {}, String(x.n)),
+        // Short names: with the full labels the production column - the one this
+        // table exists to compare with staging - scrolled out of view.
+        el('td', {}, { code: 'code', lockfile: 'dep bump', race: 'race' }[x.change]),
+        el('td', {}, x.outcome === 'stopped' ? `stopped at ${x.stoppedAt}` : x.shippedRace ? 'shipped the race' : 'shipped'),
+        el('td', {}, el('code', {}, x.stagingArtifact ?? '-')),
+        el('td', { class: x.prodArtifact && x.prodArtifact !== x.stagingArtifact ? 'mismatch' : '' }, el('code', {}, x.prodArtifact ?? '-')))));
+    };
+
+    q('[data-push]').addEventListener('click', () => {
+      const change = root.querySelector<HTMLInputElement>('input[name="pipe-change"]:checked')!.value as Change;
+      const r = state.pipe.push(change, {
+        cache: q<HTMLInputElement>('[data-cache]').checked,
+        flaky: q<HTMLSelectElement>('[data-flaky]').value as FlakyPolicy,
+        promote: q<HTMLInputElement>('[data-promote]').checked,
+      });
+      show(r);
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: stage states and run rows are set by the script, and
+     scoped styles never reach elements Astro did not render. */
+  .pipe .pp-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .pipe .pp-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); } }
+  .pipe .pp-left, .pipe .pp-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .pipe .pp-box { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; min-width: 0; }
+  .pipe .pp-box > label { display: flex; gap: 8px; align-items: flex-start; font-size: 0.9rem; cursor: pointer; }
+  .pipe .pp-box > label > input { margin-top: 4px; flex: none; }
+  .pipe .pp-box > label > span { display: flex; flex-direction: column; }
+  .pipe .pp-box .muted { font-size: 0.8rem; }
+  .pipe .pp-select { flex-direction: column; gap: 4px !important; }
+  .pipe .pp-select select { font: inherit; font-size: 0.86rem; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; }
+  .pipe .pp-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; counter-reset: st; }
+  .pipe .pp-stages li { counter-increment: st; display: grid; grid-template-columns: 26px 92px minmax(0, 1fr); align-items: baseline; gap: 6px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.86rem; background: var(--bg); }
+  .pipe .pp-stages li::before { content: counter(st); width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font: 700 0.72rem var(--sans); background: var(--bg-2); color: var(--muted); align-self: center; }
+  .pipe .pp-stages li.pass { border-color: color-mix(in srgb, var(--bamboo) 45%, transparent); }
+  .pipe .pp-stages li.pass::before { content: "✓"; background: var(--bamboo); color: var(--bamboo-ink); }
+  .pipe .pp-stages li.fail { border-color: var(--berry); background: var(--berry-soft); }
+  .pipe .pp-stages li.fail::before { content: "✗"; background: var(--berry); color: var(--chip-ink); }
+  .pipe .pp-stages li.skipped { border-style: dashed; }
+  .pipe .pp-note { color: var(--ink-2); overflow-wrap: anywhere; }
+  .pipe .pp-verdict { padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .pipe .pp-verdict.shipped { background: var(--bamboo-soft); color: var(--bamboo); }
+  .pipe .pp-verdict.stopped { background: var(--sun-soft); color: var(--sun-text); }
+  .pipe .pp-verdict.shipped-bad { background: var(--berry-soft); color: var(--berry); }
+  .pipe .pp-runs { border-collapse: collapse; font-size: 0.82rem; width: 100%; display: block; overflow-x: auto; }
+  .pipe .pp-runs caption { text-align: left; font-weight: 700; padding-bottom: 4px; }
+  .pipe .pp-runs th, .pipe .pp-runs td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .pipe .pp-runs code { font-size: 0.78rem; }
+  .pipe .pp-runs tr.shipped-bad td:nth-child(3) { color: var(--berry); font-weight: 700; }
+  .pipe .pp-runs tr.stopped td:nth-child(3) { color: var(--sun-text); font-weight: 650; }
+  .pipe .pp-runs td.mismatch code { color: var(--berry); font-weight: 700; }
+</style>

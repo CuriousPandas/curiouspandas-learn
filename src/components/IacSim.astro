@@ -1,0 +1,139 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card iac" data-iac>
+  <div class="widget-head">
+    <strong>A toy cloud, a plan, and a console</strong>
+    <span class="pill info">toy engine, real plan shapes</span>
+  </div>
+  <div class="ic-grid">
+    <div class="ic-left">
+      <fieldset class="ic-box">
+        <legend class="eyebrow">Your code</legend>
+        <label><input type="checkbox" data-bucket checked /> keep the <code>assets</code> bucket</label>
+        <label class="ic-row">bucket versioning
+          <select data-versioning><option value="off">off</option><option value="on">on</option></select>
+        </label>
+        <label class="ic-row">server size
+          <select data-size><option value="small">small</option><option value="large">large</option></select>
+        </label>
+        <label class="ic-row">server image
+          <select data-image><option value="ubuntu-24.04">ubuntu-24.04</option><option value="ubuntu-26.04">ubuntu-26.04</option></select>
+        </label>
+      </fieldset>
+      <pre class="ic-code" data-code aria-label="The configuration as code"></pre>
+      <div class="controls">
+        <button class="btn small" type="button" data-plan>Plan</button>
+        <button class="btn small primary" type="button" data-apply>Apply</button>
+      </div>
+      <fieldset class="ic-box ic-console">
+        <legend class="eyebrow">The cloud console - changes made by hand</legend>
+        <button class="btn small" type="button" data-console="server">Resize the server by hand</button>
+        <button class="btn small" type="button" data-console="bucket">Turn on versioning by hand</button>
+      </fieldset>
+    </div>
+    <div class="ic-right">
+      <div class="ic-msg" data-msg aria-live="polite">Plan first. A plan is free; it changes nothing.</div>
+      <pre class="ic-plan" data-planout aria-label="Plan output"></pre>
+      <table class="ic-table" data-table>
+        <caption>What the tool believes vs what is really there</caption>
+        <thead><tr><th>resource</th><th>state file</th><th>the cloud</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div data-mission-panel></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { ADDRESS, render, type Kind } from '../lib/delivery/iac.ts';
+  import { IAC_MISSION } from '../lib/delivery/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-iac]')) {
+    const state = IAC_MISSION.setup();
+    const eng = state.eng;
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), IAC_MISSION, () => state, () => {});
+    const val = (s: string) => q<HTMLSelectElement>(s).value;
+
+    const code = () => {
+      const d = eng.desired;
+      const block = (head: string, attrs?: Record<string, string>) => attrs ? `${head} {\n${Object.entries(attrs).map(([k, v]) => `  ${k.padEnd(10)} = ${v.startsWith('${') ? v.slice(2, -1) : `"${v}"`}`).join('\n')}\n}` : `# ${head} - removed from the code`;
+      q('[data-code]').textContent = [block('bucket "assets"', d.bucket), block('server "web"', d.server), block('dns_record "www"', d.dns)].join('\n\n');
+    };
+    const table = () => {
+      const fmt = (o?: { id: string; attrs: Record<string, string> }) => o ? `${o.id} · ${Object.values(o.attrs).join(' · ')}` : '(none)';
+      q<HTMLTableElement>('[data-table]').tBodies[0].replaceChildren(...(Object.keys(ADDRESS) as Kind[]).map((k) => {
+        const s = eng.state.get(k), c = eng.cloud.objects.get(k);
+        const differ = JSON.stringify(s) !== JSON.stringify(c);
+        return el('tr', { class: differ ? 'differ' : '' }, el('td', {}, el('code', {}, ADDRESS[k])), el('td', {}, fmt(s)), el('td', {}, fmt(c)));
+      }));
+    };
+    const msg = (text: string, kind = '') => { const m = q('[data-msg]'); m.className = `ic-msg ${kind}`; m.textContent = text; };
+    const sync = () => { code(); table(); refresh(); };
+
+    const edit = () => {
+      const bucketOn = q<HTMLInputElement>('[data-bucket]').checked;
+      q<HTMLSelectElement>('[data-versioning]').disabled = !bucketOn;
+      if (JSON.stringify(eng.desired.bucket ? { ...eng.desired.bucket } : undefined) !== JSON.stringify(bucketOn ? { name: 'panda-assets', versioning: val('[data-versioning]') } : undefined))
+        eng.edit('bucket', bucketOn ? { name: 'panda-assets', versioning: val('[data-versioning]') } : undefined);
+      const server = { size: val('[data-size]'), image: val('[data-image]') };
+      if (JSON.stringify(eng.desired.server) !== JSON.stringify(server)) eng.edit('server', server);
+      q('[data-planout]').replaceChildren();
+      msg('The code changed. Plan to see what that means for the cloud.');
+      sync();
+    };
+    for (const s of root.querySelectorAll('[data-bucket], [data-versioning], [data-size], [data-image]')) s.addEventListener('change', edit);
+
+    q('[data-plan]').addEventListener('click', () => {
+      const p = eng.plan();
+      q('[data-planout]').replaceChildren(...render(p).map((l) => el('div', { class: `pl-${l.kind}` }, l.text || ' ')));
+      const destroys = p.changes.filter((c) => c.action === 'destroy' || c.action === 'replace').length;
+      msg(p.changes.length ? `Read it before you apply it.${destroys ? ` ${destroys} thing${destroys > 1 ? 's' : ''} would be destroyed.` : ''}` : 'Nothing to do.', destroys ? 'warn' : '');
+      sync();
+    });
+    q('[data-apply]').addEventListener('click', () => {
+      const r = eng.apply();
+      msg(r.message, r.ok ? 'ok' : 'warn');
+      if (r.ok) q('[data-planout]').replaceChildren();
+      sync();
+    });
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-console]')) b.addEventListener('click', () => {
+      const kind = b.dataset.console as Kind;
+      const ok = kind === 'server' ? eng.console('server', 'size', 'xlarge') : eng.console('bucket', 'versioning', 'on');
+      msg(ok ? 'Changed by hand in the console. The tool was not told - its state file still says the old value.' : 'Nothing there to change yet: apply first.', ok ? 'warn' : '');
+      sync();
+    });
+    sync();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: plan lines and table rows are created by the script. */
+  .iac .ic-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .iac .ic-grid { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); } }
+  .iac .ic-left, .iac .ic-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .iac .ic-box { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; min-width: 0; font-size: 0.9rem; }
+  .iac .ic-box > label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .iac .ic-row { justify-content: space-between; }
+  .iac .ic-box select { font: inherit; font-size: 0.86rem; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .iac .ic-console { grid-template-columns: 1fr; }
+  .iac .ic-code, .iac .ic-plan { margin: 0; font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .iac .ic-plan:empty { display: none; }
+  .iac .ic-plan .pl-add { color: var(--term-ok); }
+  .iac .ic-plan .pl-change, .iac .ic-plan .pl-note { color: var(--term-hint); }
+  .iac .ic-plan .pl-replace, .iac .ic-plan .pl-destroy { color: var(--term-err); }
+  .iac .ic-msg { padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.9rem; }
+  .iac .ic-msg.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .iac .ic-msg.warn { background: var(--sun-soft); color: var(--sun-text); }
+  /* Fixed layout, wrapping cells: as a scrolling block the cloud column - the one
+     that shows drift - sat off the right edge of a phone. */
+  .iac .ic-table { border-collapse: collapse; font-size: 0.8rem; width: 100%; table-layout: fixed; }
+  .iac .ic-table td, .iac .ic-table th, .iac .ic-table code { overflow-wrap: anywhere; }
+  .iac .ic-table th:first-child { width: 34%; }
+  .iac .ic-table caption { text-align: left; font-weight: 700; padding-bottom: 4px; }
+  .iac .ic-table th, .iac .ic-table td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .iac .ic-table tr.differ td { background: var(--sun-soft); }
+  .iac .ic-table tr.differ td:last-child { color: var(--sun-text); font-weight: 650; }
+</style>

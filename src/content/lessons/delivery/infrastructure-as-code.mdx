@@ -1,0 +1,128 @@
+---
+title: Plan, apply, drift
+summary: Infrastructure as code keeps three things apart - what you wrote, what the tool last did, and what really exists. Read plans that update, replace and destroy, catch a hand change in the console, and stop a deletion before it happens.
+minutes: 17
+xp: 45
+tiers: [browser, machine]
+tiltLab: 01-deploy-a-service
+sources:
+  - title: OpenTofu docs - tofu plan (reads current state, compares, proposes)
+    url: https://opentofu.org/docs/cli/commands/plan/
+  - title: Terraform docs - Resource behavior (in-place updates, destroy and re-create)
+    url: https://developer.hashicorp.com/terraform/language/resources/behavior
+  - title: Terraform tutorial - Manage resource drift
+    url: https://developer.hashicorp.com/terraform/tutorials/state/resource-drift
+  - title: Kubernetes docs - kubectl diff (exit status 1 when differences are found)
+    url: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_diff/
+---
+
+Clicking through a cloud console works once. The second time, nobody remembers which boxes were ticked, and the third environment is a little different from the first two. **Infrastructure as code** writes the infrastructure down in files instead, and a tool - Terraform, OpenTofu, Pulumi, Crossplane - makes reality match them.
+
+The tool keeps three things apart, and every surprise in this lesson lives in the gaps between them:
+
+- **The configuration** - what you wrote.
+- **The state** - what the tool remembers creating, as of its last apply.
+- **The cloud** - what actually exists right now.
+
+<Diagram
+  id="delivery-iac-three"
+  title="Three versions of the truth"
+  desc="Your code and the tool's state both feed the plan. The plan, once applied, changes the cloud. A change made by hand in the console changes the cloud without touching the code or the state - that gap is drift, and the next plan finds it."
+  nodes={[
+    { id: 'code', label: 'your code', sub: 'what you wrote', x: 0, y: 0, kind: 'info' },
+    { id: 'state', label: 'state file', sub: 'what it last did', x: 0, y: 1 },
+    { id: 'plan', label: 'plan', sub: 'the proposed diff', x: 1, y: 0, kind: 'warn' },
+    { id: 'cloud', label: 'the cloud', sub: 'what is real', x: 2, y: 0, kind: 'ok' },
+    { id: 'console', label: 'console click', sub: 'a hand change', x: 2, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'code', to: 'plan', label: 'desired' },
+    { from: 'state', to: 'plan', label: 'last apply' },
+    { from: 'plan', to: 'cloud', label: 'apply' },
+    { from: 'console', to: 'cloud', label: 'drift', dashed: true },
+  ]}
+  steps={[
+    { caption: 'You change the code. Nothing happens to the cloud yet.', show: ['code'], focus: ['code'] },
+    { caption: 'Plan reads the real objects, compares them with your code and its state, and proposes actions. It changes nothing.', show: ['state', 'plan', 'code->plan', 'state->plan'], focus: ['plan'] },
+    { caption: 'Apply carries out the plan you read. Now the cloud, the code and the state agree.', show: ['cloud', 'plan->cloud'], focus: ['plan->cloud'] },
+    { caption: 'Someone fixes something by hand in the console. The cloud moved; the code and state did not. That gap is drift.', show: ['console', 'console->cloud'], focus: ['console', 'console->cloud'] },
+  ]}
+/>
+
+## Reading a plan
+
+The OpenTofu docs describe what a plan does in three steps: it reads the current state of the real objects, compares the configuration with what it knows, and proposes the changes that would make them match. A plan is safe to run as often as you like. It's the review.
+
+Each proposed change carries a symbol, and the symbols are the whole skill:
+
+| Symbol | Meaning | Ask yourself |
+|---|---|---|
+| `+` | create | is this new thing meant to exist? |
+| `~` | update in-place | the object stays; one setting changes |
+| `-/+` | replace: destroy, then create | what was on the old one, and what points at it? |
+| `-` | destroy | is anything in there you need? |
+
+A **replace** is the one people miss. Some settings can't be changed on a live object - HashiCorp's docs put it as arguments that cannot be updated in-place due to remote API limitations - so the tool destroys the object and creates a new one. A new server gets a new address, and everything pointing at the old one has to change in the same plan.
+
+## Try it
+
+<IacSim />
+
+<Callout kind="trap">
+Drift doesn't always announce itself. Edit a file managed by Terraform's `local_file` resource by hand, and the next plan (checked with Terraform 1.16.3) doesn't report a change made outside Terraform. It reports the resource as simply **will be created**, because that provider treats a changed file as gone. How drift shows up depends on the provider, so read every plan line, not just the summary.
+</Callout>
+
+## Drift is a symptom
+
+HashiCorp's drift tutorial says it directly: you should not make manual changes to resources a tool controls, because the state drifts from the real infrastructure. The next plan will quietly put your code back - undoing a 3am console fix that was holding something up. When you must change things by hand, write the change into the code straight afterwards. Then the plan agrees with you.
+
+This is the same idea as [Git as the source of truth](/learn/platform/gitops/), where a controller re-applies the repository on a timer instead of waiting for someone to run a plan.
+
+<Quiz
+  id="delivery-iac-1"
+  q="A plan line reads: -/+ server.web must be replaced, with image marked '# forces replacement'. What happens on apply?"
+  options={["The image is swapped on the running server", "The old server is destroyed and a new one created - new id, new address", "Nothing until the next reboot"]}
+  answer={1}
+  explain="-/+ is destroy-then-create. Anything stored on the old server, or anything pointing at its address, is affected - which is why the same plan updated the DNS record."
+/>
+
+<Quiz
+  id="delivery-iac-2"
+  q="Someone resized a server in the console last night. You change an unrelated tag in the code and run plan. What does the plan propose for the size?"
+  options={["Nothing - you did not touch the size", "To change it back to what the code says, because the code is the desired state", "It deletes the server"]}
+  answer={1}
+  explain="The plan compares reality with your code, not with your intentions. The hand change is drift, and the plan proposes undoing it. If the resize was needed, put it in the code."
+/>
+
+<Quiz
+  id="delivery-iac-3"
+  q="You removed a bucket from the code by accident. Where is the cheapest place to catch it?"
+  options={["In the plan: a '-' line for the bucket", "After apply, from the monitoring alert", "In next month's bill"]}
+  answer={0}
+  explain="The plan shows the destroy before anything happens. That's why teams post plans on pull requests and refuse to apply what nobody has read."
+/>
+
+<Callout kind="real">
+These are real lines from a Terraform 1.16.3 plan after changing a field that can't be updated in place - here the content of a `local_file`, a resource that only writes a file on your disk, so no cloud account is needed:
+
+```text
+Resource actions are indicated with the following symbols:
+-/+ destroy and then create replacement
+  # local_file.greeting must be replaced
+      ~ content              = <<-EOT # forces replacement
+Plan: 1 to add, 0 to change, 1 to destroy.
+```
+</Callout>
+
+<DoItForReal id="delivery-iac-real" lab="01-deploy-a-service">
+
+Kubernetes manifests are infrastructure as code too, and `kubectl diff` is their plan: it exits 0 when nothing differs and 1 when something does. On the running platform, after lab 01:
+
+```bash
+kubectl diff -k examples/hello-world; echo "exit $?"     # 0: live matches the files
+kubectl -n hello scale deploy/hello --replicas=3        # the console click
+kubectl diff -k examples/hello-world; echo "exit $?"     # 1: replicas 3 -> 1, drift found
+kubectl apply -k examples/hello-world                   # apply: the files win
+```
+
+</DoItForReal>

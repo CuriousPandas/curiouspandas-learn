@@ -1,0 +1,116 @@
+---
+title: Canary, blue-green and the rollback
+summary: Every release strategy eventually puts the new version in front of users - the difference is how many, and who notices first. Ship a broken build three ways and count the failed requests.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+tiltLab: 06-canary
+sources:
+  - title: Flagger docs - Deployment strategies (canary stages, failed-checks threshold, rollback)
+    url: https://docs.flagger.app/usage/deployment-strategies
+  - title: Google SRE Workbook - Canarying releases
+    url: https://sre.google/workbook/canarying-releases/
+  - title: Martin Fowler - BlueGreenDeployment
+    url: https://martinfowler.com/bliki/BlueGreenDeployment.html
+  - title: TemplateMechanics/tilt lab 06 - Canary release (Flagger on the Gateway API)
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/06-canary
+---
+
+Tests catch the bugs you thought of. Some only show up under real traffic: a slow query on production data, a config value that only exists in one region, a build that answers 6% of requests with an error. A **release strategy** decides how much of your traffic finds out first.
+
+Three are worth knowing:
+
+- **Rolling update.** Replace pods a few at a time. Each new pod waits only for its readiness probe. You met this in [A typo is not an outage](/learn/kubernetes/rollouts/).
+- **Blue-green.** Run the new version (green) beside the old one (blue), test it off to the side, then flip the router. Martin Fowler's description: you switch the router so all requests go to green, and if anything goes wrong you switch it back to blue.
+- **Canary.** Send a small slice of real traffic to the new version, measure it, and only widen the slice while the numbers hold. The Google SRE Workbook calls the part that gets the change "the canary" and the rest "the control".
+
+<Diagram
+  id="delivery-canary-loop"
+  title="A canary watches itself"
+  desc="Users reach a gateway that splits traffic by weight: most goes to the primary, the stable version, and a slice goes to the canary. The canary's success rate feeds the analysis, which either raises the canary's weight or, after enough failed checks, sends all traffic back to the primary."
+  nodes={[
+    { id: 'users', label: 'users', sub: 'real requests', x: 0, y: 0 },
+    { id: 'gw', label: 'gateway', sub: 'weighted route', x: 1, y: 0, kind: 'info' },
+    { id: 'primary', label: 'primary', sub: 'stable: 75%', x: 2, y: 0, kind: 'ok' },
+    { id: 'canary', label: 'canary', sub: 'new version: 25%', x: 2, y: 1, kind: 'warn' },
+    { id: 'analysis', label: 'analysis', sub: 'success >= 99%?', x: 1, y: 1 },
+  ]}
+  edges={[
+    { from: 'users', to: 'gw' },
+    { from: 'gw', to: 'primary', label: '75%' },
+    { from: 'gw', to: 'canary', label: '25%' },
+    { from: 'canary', to: 'analysis', label: 'metrics' },
+    { from: 'analysis', to: 'gw', label: 'set weight' },
+  ]}
+  steps={[
+    { caption: 'Users reach a gateway that can split traffic by weight. Before the release, all of it goes to the primary.', show: ['users', 'gw', 'primary', 'users->gw', 'gw->primary'], focus: ['gw'] },
+    { caption: 'The new version starts as the canary and gets one step of traffic: 25% in tilt lab 06.', show: ['canary', 'gw->canary'], focus: ['canary', 'gw->canary'] },
+    { caption: 'Every interval the analysis reads the canary\'s success rate. Below 99% it halts and counts a failed check.', show: ['analysis', 'canary->analysis'], focus: ['analysis'] },
+    { caption: 'Healthy: raise the weight, up to 50%, then promote. Three failed checks: all traffic back to the primary.', show: ['analysis->gw'], focus: ['analysis->gw', 'primary'] },
+  ]}
+/>
+
+## How Flagger decides
+
+The Flagger docs list the canary's loop step by step. Each interval it checks the canary's request success rate and latency, and **halts advancement** if a metric is under its threshold, incrementing a failed-checks counter. When that counter reaches the threshold, it routes all traffic to the primary, scales the canary to zero and marks it failed. While the checks pass, it raises the weight by one step until it reaches the maximum, then promotes.
+
+The tilt platform's lab 06 configures exactly that: a step of 25%, a maximum of 50%, a success-rate floor of 99%, and a threshold of 3 failed checks. The widget below uses the same numbers.
+
+## Try it
+
+<ReleaseSim />
+
+<Callout kind="trap">
+The broken build's pods start, and they pass their readiness probe. Readiness only says "I can take traffic", not "I answer it correctly". That's why the rolling update sailed through to 100%: it was waiting for a signal that was never going to come.
+</Callout>
+
+## What each one cost
+
+With the same broken build, the rolling update fails more and more requests as each batch of pods turns over, until everyone is on v3. Blue-green fails everything at once, and recovers as fast as someone flips the switch back - which makes it great when a person is watching and painful at 3am. The canary showed v3 to a quarter of traffic for three intervals, then backed out on its own.
+
+None of them prevented the bad version from meeting users. They decide how many users, and whether a human has to be awake.
+
+<Quiz
+  id="delivery-release-1"
+  q="A new version's pods pass their readiness probes but return errors on 6% of requests. Which strategy notices on its own?"
+  options={["A rolling update - it waits for readiness", "A canary with metric analysis - it measures the requests themselves", "Blue-green - green was tested before the switch"]}
+  answer={1}
+  explain="Readiness says the pod can take traffic, not that it answers correctly. Only a strategy that measures real request outcomes - the canary's success rate - sees the 6%."
+/>
+
+<Quiz
+  id="delivery-release-2"
+  q="In tilt lab 06 the canary's success rate reads 94% three intervals in a row. What does Flagger do?"
+  options={["Promotes it - the pods are healthy", "Halts at 25%, counts three failed checks, then routes all traffic back to the primary", "Keeps raising the weight to collect more data"]}
+  answer={1}
+  explain="Each check under the 99% floor halts advancement and increments the failed-checks counter. At the threshold of 3, Flagger routes all traffic back to the primary and marks the canary failed."
+/>
+
+<Quiz
+  id="delivery-release-3"
+  q="What is blue-green's main advantage over a rolling update when things go wrong?"
+  options={["Fewer users ever see the new version", "Rollback is a router switch back to blue, which is nearly instant", "It needs no extra capacity"]}
+  answer={1}
+  explain="Fowler's description: if anything goes wrong you switch the router back to blue. The cost is that everyone sees green at once, and you run two full environments during the switch."
+/>
+
+<Callout kind="real">
+A canary nobody calls has no success rate to judge. Tilt's lab 06 runs a load tester for exactly that reason, and notes that without it the analysis fails and every release rolls back - which looks like a bad version and is really missing tooling. The first analysis round can also log `no values found for custom metric` while the rate builds up; that's normal, and only a problem if it never stops.
+</Callout>
+
+<DoItForReal id="delivery-release-real" lab="06-canary" profile="gitops">
+
+Follow the lab's setup (waypoint, metric template, load tester, Canary), then ship a good version and a bad one:
+
+```bash
+kubectl -n hello set env deploy/hello PODINFO_UI_MESSAGE="canary v2"
+kubectl -n hello get canary hello -w          # WEIGHT 25 -> 50, then Promoting, Succeeded
+kubectl -n hello set image deploy/hello podinfo=ghcr.io/stefanprodan/podinfo:does-not-exist
+kubectl -n hello get canary hello -w          # never Ready: Failed, primary unchanged
+kubectl -n hello describe canary hello | tail -15
+./scripts/platform.sh lab 06
+```
+
+Read the lab's "Leaving the lab" section before you move on: deleting the Canary alone leaves the route pointing at services that no longer exist.
+
+</DoItForReal>

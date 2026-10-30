@@ -6,7 +6,11 @@ import { curriculum, totals } from '../lib/curriculum.ts';
 import { TIERS } from '../data/tracks.ts';
 const tracks = await curriculum();
 const t = totals(tracks);
-const first = tracks[0].lessons[0];
+// "Start with Git" and the hash toy both mean the first git lesson. This was
+// tracks[0], which silently became Linux - an unwritten lesson - when that
+// track was added in front. Look it up by id, and fail the build if it is not ready.
+const first = tracks.find((t) => t.id === 'git')?.lessons[0];
+if (!first || first.status !== 'ready') throw new Error('The home page links to the first git lesson, and it is not ready');
 ---
 <Base title="Curious Pandas">
   <section class="hero">

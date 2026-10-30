@@ -1,0 +1,117 @@
+---
+title: A pipeline on every push
+summary: A pipeline turns every push into the same checks, in the same order, ending in a verdict you can ship on. Make it fast, find out what a flaky test really costs, and ship the exact bytes you tested.
+minutes: 17
+xp: 45
+tiers: [browser, machine]
+sources:
+  - title: GitHub Docs - Caching dependencies to speed up workflows (cache keys, exact-match hits)
+    url: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/caching-dependencies-to-speed-up-workflows
+  - title: Google Testing Blog - Flaky Tests at Google and How We Mitigate Them (2016)
+    url: https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html
+  - title: Continuous Delivery - Patterns ("Only build packages once")
+    url: https://continuousdelivery.com/implementing/patterns/
+  - title: TemplateMechanics/tilt - .github/workflows/validate.yaml
+    url: https://github.com/TemplateMechanics/tilt/blob/main/.github/workflows/validate.yaml
+---
+
+Every team has the same question a dozen times a day: *is this change safe to ship?* A **pipeline** answers it the same way every time. A push triggers it; it lints, installs, tests, builds, publishes an artifact, deploys to a staging environment, and finally to production. Anything that fails stops the line.
+
+That's the whole mechanism, and it's worth exactly as much as its verdict. A pipeline that's slow gets skipped. A pipeline that goes red for no reason gets ignored. A pipeline that ships something other than what it tested is lying to you. This lesson is those three ways to waste one.
+
+<Diagram
+  id="delivery-pipeline-road"
+  title="One road from push to production"
+  desc="A push triggers checks: lint and test. If they pass, the code is built once into an artifact with a fixed digest. That same artifact is deployed to staging and then promoted to production, so production runs exactly what staging ran."
+  nodes={[
+    { id: 'push', label: 'git push', sub: 'every change', x: 0, y: 0, kind: 'info' },
+    { id: 'checks', label: 'checks', sub: 'lint, test', x: 1, y: 0 },
+    { id: 'build', label: 'build', sub: 'exactly once', x: 2, y: 0 },
+    { id: 'artifact', label: 'artifact', sub: 'one digest', x: 3, y: 0, kind: 'warn' },
+    { id: 'staging', label: 'staging', sub: 'runs the artifact', x: 3, y: 1 },
+    { id: 'prod', label: 'production', sub: 'the same artifact', x: 2, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'push', to: 'checks', label: 'triggers' },
+    { from: 'checks', to: 'build', label: 'all green' },
+    { from: 'build', to: 'artifact', label: 'publish' },
+    { from: 'artifact', to: 'staging', label: 'deploy' },
+    { from: 'staging', to: 'prod', label: 'promote' },
+  ]}
+  steps={[
+    { caption: 'Every push starts the same road. Nobody decides which checks to run today.', show: ['push'], focus: ['push'] },
+    { caption: 'Checks run first because they are cheapest. Any red stops everything after it.', show: ['checks', 'push->checks'], focus: ['checks'] },
+    { caption: 'Green code is built once into an artifact - an image or package with a fixed digest.', show: ['build', 'artifact', 'checks->build', 'build->artifact'], focus: ['artifact'] },
+    { caption: 'Staging runs that artifact. Production gets the same one, promoted - not rebuilt.', show: ['staging', 'prod', 'artifact->staging', 'staging->prod'], focus: ['prod', 'staging->prod'] },
+  ]}
+/>
+
+## Fast enough that nobody skips it
+
+Most of a slow pipeline is downloading the same dependencies again. A **cache** saves them between runs under a **key**, and the usual key is a hash of the lockfile. GitHub's docs describe the rule: if there is an exact match for the key, that's a cache hit. Change the lockfile and the key changes with it, so you get a fresh download exactly when the dependencies really changed, and never otherwise.
+
+## Try it
+
+<PipelineSim />
+
+<Callout kind="trap">
+"Re-run it, up to 3 times" makes the red go away, and that's the problem. A race condition doesn't fail every time either. It fails *more often* - here, two attempts in three instead of one - and three tries almost always find a green one. Retrying a flaky test turns "fails sometimes" into green, which is exactly what a race looks like.
+</Callout>
+
+## A flaky test is a broken alarm
+
+A **flaky** test passes and fails on the same code. Google measured this across its whole test corpus in 2016: about **1.5% of all test runs** reported a flaky result, and almost **16% of tests** had some flakiness. Their write-up names the real cost plainly: it is common to ignore legitimate failures in flaky tests because of all the false alarms, and developers sometimes dismiss a failure as flaky, only to find later that it was real.
+
+Google does re-run failing tests as one of its mitigations, so retries aren't wrong in themselves. The trap is treating the retry as the fix. The fix is removing the source of the flakiness - usually time, ordering or shared state - so that a failure means something again. In the widget, faking the clock and serialising the requests made "cart total" pass every time without the race and fail every time with it.
+
+## Build once, promote the artifact
+
+The Continuous Delivery patterns page puts it as a rule: **only build packages once**. The reason, in its words: you want to be sure the thing you're deploying is the same thing you've tested throughout the pipeline.
+
+Rebuilding for production quietly breaks that. A floating dependency like `^1.4` resolves to whatever is newest *at build time*, so a rebuild an hour later can pull a release nobody tested. Promote the artifact by its digest instead - the same idea as pinning images by digest in [Tags and digests](/learn/containers/tags-and-digests/).
+
+<Quiz
+  id="delivery-pipe-1"
+  q="Your pipeline caches dependencies under a key built from the lockfile's hash. You change one line of application code. What happens to the install step?"
+  options={["Cache miss: any change to the repo invalidates the cache", "Cache hit: the lockfile did not change, so neither did the key", "It depends on whether the tests passed last time"]}
+  answer={1}
+  explain="The key is the lockfile's hash, so only a dependency change produces a new key. Code changes reuse the saved dependencies - which is the whole point of keying on the lockfile."
+/>
+
+<Quiz
+  id="delivery-pipe-2"
+  q="A test fails about once in three runs, and the team sets the pipeline to retry it until it passes. What is the risk?"
+  options={["None - a flaky test is noise by definition", "A real bug that also fails only sometimes, like a race condition, now passes too", "The pipeline gets slower, nothing else"]}
+  answer={1}
+  explain="Retries can't tell flakiness from a bug that is itself intermittent. Google's write-up describes developers dismissing real failures as flaky. Make the test deterministic so red means red."
+/>
+
+<Quiz
+  id="delivery-pipe-3"
+  q="Staging passed. The pipeline rebuilds the image for production from the same commit. Why is that a problem?"
+  options={["It is not: same commit, same image", "A rebuild re-resolves dependencies and can produce an artifact staging never ran", "Production builds are always slower"]}
+  answer={1}
+  explain="Same source does not mean same bytes when versions float. Build once, then promote that artifact by digest so production runs exactly what you tested."
+/>
+
+<Callout kind="real">
+The tilt platform's own pipeline is short and pointed. Its validate workflow opens with a comment that every check in it exists because the matching failure actually happened during a migration and was caught by hand - "which is the expensive way to find them". That's how good pipelines grow: one real failure at a time.
+</Callout>
+
+<DoItForReal id="delivery-pipelines-real">
+
+Run the platform's own pipeline checks from the root of your tilt clone - the same commands its CI runs:
+
+```bash
+cat .github/workflows/validate.yaml            # read the pipeline first
+pip install pyyaml
+python scripts/ci/check-chart-pins.py          # every Helm chart pinned to a version
+python scripts/ci/check-route-hostnames.py     # every routed hostname has a certificate SAN
+for k in $(find . -name kustomization.yaml -not -path "*/node_modules/*" -not -path "*/skeleton/*"); do
+  kubectl kustomize "$(dirname "$k")" > /dev/null || echo "broken: $k"
+done
+```
+
+Then break one on purpose: set one HelmRelease's chart `version` to `"*"` and run `check-chart-pins.py` again. It fails and names the file (a range like `>=1.0` only warns - the script's docstring explains why). `git checkout -- .` puts it back.
+
+</DoItForReal>
