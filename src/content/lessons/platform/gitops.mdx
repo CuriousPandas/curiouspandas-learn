@@ -62,12 +62,12 @@ Pick a reconciler, scale the Deployment by hand, and watch what happens to your 
 <GitOpsSim mission="gitops-drift" />
 
 <Callout kind="real">
-The tilt platform installs about 35 charts as Flux HelmReleases and sets `driftDetection` on none of them. A `kubectl edit` to something a chart deployed stays until the next upgrade of that release. Helm 3's three-way merge then compares the old manifest, the live state and the new manifest, and puts the chart's own fields back. Knowing which reconciler owns an object tells you whether your hotfix lasts an interval or a release.
+The tilt platform installs about 35 charts as Flux HelmReleases and sets `driftDetection` on none of them. A `kubectl edit` to something a chart deployed stays until the next upgrade of that release. At that upgrade Helm applies the chart again and puts the chart's own fields back. With Helm 3 that is a three-way merge of the old manifest, the live state and the new manifest. Since Flux 2.8 moved to Helm 4, new releases use server-side apply by default. Knowing which reconciler owns an object tells you whether your hotfix lasts an interval or a release.
 </Callout>
 
 ## Pin your versions
 
-One more habit from the tilt repo, in a comment on every HelmRelease:
+One more habit from the tilt repo: every chart version is pinned, and a CI check (`scripts/ci/check-chart-pins.py`) fails on an unbounded one. The comment on the Kyverno HelmRelease says why:
 
 > Pinned, not "*": Flux re-resolves an unbounded version on every reconcile, so the platform rebuilt later is not the one built today.
 
@@ -84,7 +84,7 @@ GitOps promises you can rebuild from the repo. With a floating version, you can 
 <Quiz
   id="platform-gitops-2"
   q="You remove a ConfigMap's file from git. The Kustomization has prune: false. What happens to the ConfigMap in the cluster?"
-  options={["It's deleted on the next reconcile", "It keeps running, owned by nothing, until someone deletes it by hand", "Flux reports an error"]}
+  options={["It's deleted on the next reconcile", "It stays in the cluster, managed by nothing, until someone deletes it by hand", "Flux reports an error"]}
   answer={1}
   explain="Without prune, Flux only applies what's in git; it doesn't garbage-collect what used to be there. Orphans like this are how clusters fill up with things nobody remembers."
 />
@@ -108,5 +108,7 @@ kubectl get helmrelease -A -o custom-columns='NAME:.metadata.name,VERSION:.spec.
 ```
 
 The `gitops` profile (`PROFILE=gitops ./scripts/platform.sh up`) adds Crossplane, Flagger, External Secrets and CloudNativePG, all reconciled the same way.
+
+One difference from a git-backed setup: on tilt, Tilt applies these HelmRelease objects from your local checkout. There is no Flux GitRepository or Kustomization, so the Kustomization behaviour above is what you'd see with Flux pulling from git, not something to try here.
 
 </DoItForReal>

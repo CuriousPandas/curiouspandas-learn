@@ -1,13 +1,19 @@
 ---
 import '../styles/widgets.css';
+import { trainBPE } from '../lib/tokens/bpe.ts';
+import { CORPUS } from '../data/corpus.ts';
 interface Props { text?: string }
 const { text = 'Curious pandas tokenize unbelievably quickly: 12345 bamboo_shoots!' } = Astro.props;
+// The story runs out of pairs that occur twice after about 340 merges. A
+// slider that went on to 400 kept saying "400 merges learned" while nothing
+// changed, so its end is however many merges training actually found.
+const maxMerges = trainBPE(CORPUS, 400).length;
 ---
 <div class="widget card tok" data-tokenlab>
   <div class="widget-head"><strong>Tokenizer lab</strong><span class="spacer"></span><span class="pill info">trained live on this page</span></div>
   <label class="tok-in"><span class="eyebrow">Your text</span><textarea rows="3" data-text>{text}</textarea></label>
   <div class="controls">
-    <label>Merges learned <input type="range" min="0" max="400" step="10" value="120" data-merges /> <b data-mcount>120</b></label>
+    <label>Merges learned <input type="range" min="0" max={maxMerges} step="1" value="120" data-merges /> <b data-mcount>120</b></label>
   </div>
   <div class="stats">
     <div class="stat">characters<b data-chars>-</b></div>
@@ -20,13 +26,17 @@ const { text = 'Curious pandas tokenize unbelievably quickly: 12345 bamboo_shoot
 </div>
 
 <script>
-  import { trainBPE, encode, vocabulary } from '../lib/tokens/bpe.ts';
+  import { trainBPE, encode, vocabulary, tokenId } from '../lib/tokens/bpe.ts';
   import { CORPUS } from '../data/corpus.ts';
 
   // Training once at the maximum and slicing the list is exact, not an
   // approximation: BPE merges are learned greedily in order, so the first k
   // merges of a 400-merge run are the whole of a k-merge run.
   const ALL = trainBPE(CORPUS, 400);
+  // Ids come from the story alone, never the learner's text, so they hold
+  // still while they type. The same prefix property keeps them still as the
+  // slider moves.
+  const IDS = vocabulary(CORPUS, ALL);
 
   for (const root of document.querySelectorAll<HTMLElement>('[data-tokenlab]')) {
     const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
@@ -35,7 +45,7 @@ const { text = 'Curious pandas tokenize unbelievably quickly: 12345 bamboo_shoot
       const merges = ALL.slice(0, k);
       const text = q<HTMLTextAreaElement>('[data-text]').value;
       const toks = encode(text, merges);
-      const vocab = vocabulary(CORPUS + text, merges);
+      const vocab = vocabulary(CORPUS, merges);
       q('[data-mcount]').textContent = String(k);
       q('[data-chars]').textContent = String(text.length);
       q('[data-toks]').textContent = String(toks.length);
@@ -46,7 +56,7 @@ const { text = 'Curious pandas tokenize unbelievably quickly: 12345 bamboo_shoot
         s.className = 'chip';
         s.style.setProperty('--h', String((i * 47) % 360));
         s.textContent = t.replace(/ /g, '·').replace(/\n/g, '↵');
-        s.title = `token id ${vocab.get(t) ?? '?'}  "${t}"`;
+        s.title = IDS.has(t) ? `token id ${IDS.get(t)}  "${t}"` : `token id ${tokenId(IDS, t)}  "${t}" - a character the story never used`;
         return s;
       }));
       q('[data-mlist]').replaceChildren(...merges.slice(0, 40).map(([a, b]) => {

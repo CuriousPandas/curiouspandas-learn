@@ -69,6 +69,18 @@ export function vocabulary(text: string, merges: Merge[]): Map<string, number> {
   return v;
 }
 
+/**
+ * The id for a token, including a character the training text never used.
+ * Real tokenizers start from all 256 bytes, so nothing is ever unknown. This toy
+ * starts from the story's characters, so an unseen one is numbered past the end
+ * of the vocabulary by its code point. Building the vocabulary from the
+ * learner's text instead made every id shift as they typed: one "1" moved every
+ * letter's id up by one, which no real vocabulary does.
+ */
+export function tokenId(vocab: Map<string, number>, token: string): number {
+  return vocab.get(token) ?? vocab.size + token.codePointAt(0)!;
+}
+
 // ---- next-token prediction ----------------------------------------------
 
 /**

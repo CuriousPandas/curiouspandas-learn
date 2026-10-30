@@ -27,7 +27,7 @@ That's the whole idea. The rest of Kubernetes is that loop applied to more kinds
 
 <Diagram
   id="kube-chain-of-command"
-  title="One promise, five loops"
+  title="One promise, four loops"
   desc="You store a Deployment once, wanting three copies. It creates a ReplicaSet, which keeps comparing want with have and creates a pod with a new name to close any gap. The scheduler assigns the new pod a node, and the kubelet on that node starts its containers."
   nodes={[
     { id: 'you', label: 'you, once', sub: 'kubectl create', x: 0, y: 0 },
@@ -97,6 +97,6 @@ kubectl get pods -w        # leave running in one terminal
 kubectl delete pod <one of them>   # in another
 ```
 
-Then do lab 01: it adds the Service and route that turn running pods into a URL, and its `check.sh` grades you.
+Then do lab 01. It doesn't touch `hello2`: it walks through the `hello` app the platform already deployed, and the Deployment, Service and route that turn its pods into a URL. Its `check.sh` grades you, and it includes a real-browser check that needs Node.js, npm and Google Chrome (see [Run the real platform](/learn/platform/bring-it-home/)).
 
 </DoItForReal>

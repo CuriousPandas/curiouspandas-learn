@@ -52,7 +52,7 @@ The tilt lab has one more lesson worth knowing about. A **LimitRange** in the na
   q="Six pods are running. You lower the namespace's pod quota to 3. What happens?"
   options={["Three pods are evicted", "Nothing: quotas apply at admission and never remove existing objects", "The Deployment scales itself to 3"]}
   answer={1}
-  explain="Quota changes don't affect already-created resources. The namespace sits over quota until pods go away on their own, and only then are new ones refused."
+  explain="Quota changes don't affect already-created resources. The namespace sits over quota, and every new pod, including a replacement for one that dies, is refused until usage falls below the new limit."
 />
 
 <Callout kind="real">

@@ -166,9 +166,9 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
       { text: 'Describe the starved pod: find its exit code and reason', hint: 'kubectl describe pod <starved-...>', done: (s) => s.seen.has('describe:starved') },
       { text: 'Describe the impatient pod: same exit code - what do its Events say?', hint: 'kubectl describe pod <impatient-...>', done: (s) => s.seen.has('describe:impatient') },
       { text: 'Fix starved the way its reason asks', hint: 'kubectl set resources deployment starved --limits=memory=256Mi', done: (s) => { const d = s.cluster.deployments.get('starved'); return !!d && d.template.limits.mem >= 200 && (readyOf(s.cluster, 'starved')?.ready ?? 0) >= 1; } },
-      { text: 'Fix impatient the way its events ask - a startup probe, not more memory', hint: `kubectl patch deployment impatient -p '{"spec":{"template":{"spec":{"containers":[{"name":"app","startupProbe":{"httpGet":{"path":"/","port":8080}}}]}}}}'`, done: (s) => { const d = s.cluster.deployments.get('impatient'); return !!d && d.template.startupProbe && (readyOf(s.cluster, 'impatient')?.ready ?? 0) >= 1; } },
+      { text: 'Fix impatient the way its events ask - a startup probe, not more memory', hint: `kubectl patch deployment impatient -p '{"spec":{"template":{"spec":{"containers":[{"name":"app","startupProbe":{"httpGet":{"path":"/","port":8080},"periodSeconds":5,"failureThreshold":24}}]}}}}'`, done: (s) => { const d = s.cluster.deployments.get('impatient'); return !!d && d.template.startupProbe && (readyOf(s.cluster, 'impatient')?.ready ?? 0) >= 1; } },
     ],
-    debrief: '137 is 128 + 9: SIGKILL. It says something killed the process, never what. OOMKilled means the kernel did it for memory; a Liveness event means the kubelet did it because a probe gave up. Same number, opposite fixes - and the wrong fix (more memory for impatient) never helps.',
+    debrief: '137 is 128 + 9: SIGKILL. It says something killed the process, never what. OOMKilled means the kernel did it for memory; a Liveness event means the kubelet did it because a probe gave up. Same number, opposite fixes - and the wrong fix (more memory for impatient) never helps. The startup probe needs a budget, too: 5 s x 24 gives it two minutes, where the defaults (10 s x 3) would have killed it at 30.',
   },
   'kube-quota': {
     id: 'kube-quota', title: 'The pods that were never born', xp: 70,
@@ -190,7 +190,7 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
       { text: 'Ask the rollout how it is going', hint: 'kubectl rollout status deployment/hello', done: (s) => s.seen.has('typo') && ran(s.history, /rollout status/) },
       { text: 'Fix the tag and finish the rollout', hint: 'kubectl set image deployment/hello app=panda/hello:2.0', done: (s) => { const st = readyOf(s.cluster, 'hello'); return s.seen.has('typo') && !!st && st.ready === 3 && st.current === 3 && [...s.cluster.pods.values()].every((p) => p.template.image === 'panda/hello:2.0'); } },
     ],
-    debrief: 'A rolling update only removes an old pod once a new one is Ready. A new pod that never becomes Ready stalls the rollout - with the old version still answering. That is the whole reason the strategy exists.',
+    debrief: 'Beyond the maxUnavailable allowance (25% rounded down: zero at 3 replicas), a rolling update removes an old pod only once a new one is Ready. A new pod that never becomes Ready stalls the rollout - with the old version still answering. That is the whole reason the strategy exists.',
   },
 };
 

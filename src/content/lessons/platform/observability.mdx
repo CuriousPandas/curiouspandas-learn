@@ -31,11 +31,11 @@ This happened three times on the tilt platform:
 - Loki's monitor selected the label `app: loki`, but the chart had moved to `app.kubernetes.io/name`.
 - cert-manager had no monitor at all.
 
-Each time, Kubernetes was content, Prometheus reported nothing wrong, and eighteen panels read as a calm, healthy system.
+Each time, Kubernetes was content, Prometheus reported nothing wrong, and every panel read as a calm, healthy system (eighteen of them on the Argo CD dashboard alone).
 
 ## How a scrape is wired
 
-With the Prometheus Operator, you don't edit Prometheus's config. You create a **ServiceMonitor**, which says "scrape the **Services** with *this label*, on the port with *this name*". Both are matched exactly. Get either wrong and the operator generates no scrape target, and it doesn't consider that an error. Nothing failed, so nothing alerts.
+With the Prometheus Operator, you don't edit Prometheus's config. You create a **ServiceMonitor**, which says "scrape the **Services** with *this label*, on the port with *this name*". Both are matched exactly. (A separate `targetPort` field can match a container port by number instead, but `port:`, the usual one, is a name.) Get either wrong and the operator generates no scrape target, and it doesn't consider that an error. Nothing failed, so nothing alerts.
 
 <Diagram
   id="obs-scrape-wiring"
@@ -95,7 +95,7 @@ Look at what the lab's grader checks. It asserts four separate facts on purpose,
   q="A ServiceMonitor says port: metrics. The Service's port is named http and is number 9898. What happens?"
   options={["Prometheus scrapes 9898 anyway", "No target is generated: ports are matched by name, and nothing reports an error", "The ServiceMonitor is rejected when you apply it"]}
   answer={1}
-  explain="ServiceMonitors name ports, not numbers. A mismatch is accepted, generates nothing, and stays silent. That's exactly the Argo CD story."
+  explain="A ServiceMonitor's port: field names a Service port; it is never a number. A mismatch is accepted, generates nothing, and stays silent. That's exactly the Argo CD story."
 />
 
 <Quiz
@@ -107,17 +107,17 @@ Look at what the lab's grader checks. It asserts four separate facts on purpose,
 />
 
 <Callout kind="real">
-Prometheus also reloads its configuration on a timer, so a fixed ServiceMonitor can take up to a minute to show up. Testing straight away and concluding "my fix did nothing" is its own trap. Wait, then look at `/targets` again.
+A fixed ServiceMonitor also isn't picked up instantly. The operator writes the new configuration into a Secret, the kubelet refreshes the mounted copy on its own schedule, and only then does a sidecar tell Prometheus to reload. It can take a minute or more to show up. Testing straight away and concluding "my fix did nothing" is its own trap. Wait, then look at `/targets` again.
 </Callout>
 
 <DoItForReal id="platform-obs-real" lab="08-empty-dashboard" profile="observability">
 
 ```bash
-PROFILE=observability ./scripts/platform.sh up
+PROFILE=observability ./scripts/platform.sh up   # stays running; use a second terminal for the rest
 kubectl apply -f labs/08-empty-dashboard/servicemonitor.yaml
 ./scripts/platform.sh lab 08          # 4/4
 ./labs/08-empty-dashboard/break.sh
-# open https://prometheus.localhost/targets and search for hello
+# open https://prometheus.localhost/targets (login admin / admin) and search for hello
 ./labs/08-empty-dashboard/fix.sh && ./scripts/platform.sh lab 08
 ```
 

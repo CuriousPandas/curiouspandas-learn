@@ -18,15 +18,25 @@ sources:
     url: https://docs.npmjs.com/cli/v10/commands/npm-ci
   - title: npm docs - npm audit (audit signatures)
     url: https://docs.npmjs.com/cli/v10/commands/npm-audit
-  - title: SLSA v1.0 - Security levels
-    url: https://slsa.dev/spec/v1.0/levels
+  - title: SLSA v1.2 - Build track basics (levels)
+    url: https://slsa.dev/spec/v1.2/build-track-basics
   - title: Sigstore - Overview
     url: https://docs.sigstore.dev/about/overview/
   - title: TemplateMechanics/tilt - apps/harbor.yaml
     url: https://github.com/TemplateMechanics/tilt/blob/main/apps/harbor.yaml
 ---
 
-This site asks for **8 packages** by name in its `package.json`. Installing them puts **346 packages** on disk. You chose eight; strangers chose the other 338, and their dependencies chose some of those. Every one runs with your permissions when you build.
+import pkg from '../../../../package.json';
+import lock from '../../../../package-lock.json';
+
+export const chosen = Object.keys(pkg.dependencies ?? {}).length + Object.keys(pkg.devDependencies ?? {}).length;
+// Counted from the real files at build time. The typed-in "8 and 346" went
+// stale the day sql.js was added. The lockfile's "" entry is this project
+// itself, not a dependency. There is deliberately no "on disk" figure: dozens
+// of entries are OS- or CPU-specific, so what installs differs per machine.
+export const locked = Object.keys(lock.packages).filter((k) => k !== '').length;
+
+This site asks for **{chosen} packages** by name in its `package.json`. Its lockfile pins **{locked}**. You chose {chosen}; strangers chose the other {locked - chosen}, and their dependencies chose some of those. Any of them can run code with your permissions when you install or build.
 
 That's what "supply chain" means here: everything between a stranger's keyboard and your running code, and every place along that path where the code can quietly become something else.
 
@@ -82,7 +92,7 @@ Pinning also has a cost you saw in the widget: a lockfile turns "the attacker's 
 
 **Dependency review.** A person, or a tool such as a dependency-review check on pull requests, looks at every package name that's new in the diff. It's the only control here that notices *you asked for the wrong thing*. It's blind to bytes changing under a name you already approved.
 
-**Provenance and signatures.** [SLSA](https://slsa.dev/spec/v1.0/levels) defines provenance as a record of "what entity built the artifact, what process they used, and what the inputs were". Its levels climb from "package has provenance" (easy to forge) to builds where forging it means exploiting a vulnerability. Sigstore makes signing practical without key management: a short-lived certificate is issued for the signer's OIDC identity, the private key is discarded after one signature, and the record goes into a public append-only log, Rekor. Verifying then means checking that the identity in the certificate is the one you expected - for example, the project's own release workflow.
+**Provenance and signatures.** In [SLSA](https://slsa.dev/spec/v1.2/build-track-basics), provenance is a record of which entity built the package, what build process it used, and what the top-level inputs to the build were. Its levels climb from "package has provenance" (easy to forge) to builds where forging it means exploiting a vulnerability. Sigstore makes signing practical without key management: a short-lived certificate is issued for the signer's OIDC identity, the private key is discarded after one signature, and the record goes into a public append-only log, Rekor. Verifying then means checking that the identity in the certificate is the one you expected - for example, the project's own release workflow.
 
 Provenance only covers packages that publish it, and most of a real tree doesn't yet. And it proves *where* something came from, not that it's *good*: a typosquat can have flawless provenance from the attacker's own repository.
 
@@ -124,6 +134,8 @@ Two checks you can run today. First, any Node project with a lockfile, including
 npm ci                  # refuses to "fix" a lockfile that disagrees with package.json
 npm audit signatures    # verifies registry signatures and provenance attestations
 ```
+
+`audit signatures` checks the attestations that exist. A package with none is not an error, and neither is a new release that suddenly lacks the provenance every earlier one had: on this site's own tree most packages have no attestation, and the command still passes. Refusing those, the way the simulator's provenance control does, takes a policy you set up yourself. This command alone won't do it.
 
 Then, on the tilt platform, see how many images your cluster runs by a movable tag versus a fixed digest:
 

@@ -14,11 +14,11 @@ Imagine a student who memorises the answers to last year's exam, word for word. 
 
 Models do exactly this. It's called **overfitting**: the model fits its training examples, including their noise and accidents, so closely that it stops working on anything new. The defence is just as simple as the problem. **Hold some examples back.** Never train on them, and judge the model only on how it does with those.
 
-That's what the dots with a white ring have been all along: the **test set**. "Test accuracy" in these widgets is always measured on them, never on the training dots.
+That's what the smaller, ringed dots have been all along: the **test set**. "Test accuracy" in these widgets is always measured on them, never on the training dots.
 
 ## Make it overfit, on purpose
 
-Set this up exactly, then train for about twenty seconds and keep your eye on two numbers:
+Set this up exactly, then train for a minute or so (watch the **epoch** counter pass a few thousand) and keep your eye on two numbers:
 
 1. Drag **Noise** up to **0.5**. The two classes now overlap, so some dots sit on the "wrong" side purely by chance.
 2. The network is already big: two hidden layers of 12, with every input ticked (265 knobs).
@@ -38,7 +38,7 @@ A falling training loss is not progress if the test score is falling at the same
 - **Stop early.** Watch the test accuracy and keep the knobs from its best moment, before memorisation set in.
 - **More, cleaner data.** Noise is what gets memorised. More examples make each accident matter less.
 
-Now earn it. Keep the noise at **0.3 or more** and get **85% on the held-back dots**. Big networks tend to lose this one; small ones tend to win.
+Now earn it. Keep the noise at **0.3 or more** and get **85% on the held-back dots**. Then keep training and watch the score: a big network gets there too, but its test accuracy slides as it starts memorising, while a small one holds steady.
 
 <NeuralPlayground challenge="nn-noisy-ring" dataset="circle" hidden="4" title="Generalise, don't memorise" />
 

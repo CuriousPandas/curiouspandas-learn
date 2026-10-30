@@ -67,7 +67,30 @@ test('learning-rate lesson: 0.03 crawls, 3 is fast here, 10 overshoots', () => {
   assert.ok(wild > fast * 5, `10 should end far worse than 3: ${wild} vs ${fast}`);
 });
 
+test('learning-rate lesson: 0.03 creeps at first but does learn the ring within seconds', () => {
+  // The widget runs 8 steps a frame, roughly 400-480 a second. An earlier draft
+  // said 0.03 "barely changes in the time you'd wait"; measured, it was past
+  // 85% test accuracy within about 2,000 steps. The lesson now says it creeps
+  // for the first few seconds - this pins both halves of that.
+  const data = split(dataset('circle', 360, 0.1));
+  const net = new MLP(['x', 'y'], [4], 'tanh', 3);
+  for (let e = 0; e < 1000; e++) net.train(data.train, 0.03);
+  assert.ok(net.loss(data.train) > 0.6, `still creeping after ~2 s: ${net.loss(data.train)}`);
+  for (let e = 0; e < 4000; e++) net.train(data.train, 0.03);
+  assert.ok(net.accuracy(data.test) >= 0.9, `learned within ~10 s: ${net.accuracy(data.test)}`);
+});
+
 test('nn-noisy-ring: 85% on held-out points with noise at 0.3', () => {
   const r = play('circle', 0.3, ['x', 'y'], [4], 0.3, 1500);
+  assert.ok(r.best >= 0.85, `best ${r.best}`);
+});
+
+test('nn-noisy-ring is won by the big 265-knob network too, within a few hundred steps', () => {
+  // ml/overfitting once said big networks "tend to lose this one". Measured,
+  // they cross 85% within about 20 steps (x² and y² make the ring a straight
+  // split) - the award fires before any memorising starts. What a big network
+  // does is slide afterwards, which is what the lesson now says.
+  const r = play('circle', 0.3, ['x', 'y', 'x²', 'y²', 'xy', 'sin x', 'sin y'], [12, 12], 0.3, 300);
+  assert.equal(r.knobs, 265);
   assert.ok(r.best >= 0.85, `best ${r.best}`);
 });

@@ -42,7 +42,7 @@ test('prune deletes what git dropped; without prune it is orphaned', () => {
   const off = new GitOps({ mode: 'kustomize', interval: 3, prune: false });
   off.commit({ banner: false }, 'drop banner');
   off.step(9);
-  assert.equal(off.live.banner, true, 'still running, owned by nobody');
+  assert.equal(off.live.banner, true, 'still in the cluster, managed by nobody');
 });
 
 test('a ServiceMonitor naming the wrong port finds no target, and Kubernetes is content', () => {

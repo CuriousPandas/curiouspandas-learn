@@ -11,6 +11,8 @@ sources:
     url: https://istio.io/latest/docs/ambient/usage/add-workloads/
   - title: Istio docs - Ambient mode overview
     url: https://istio.io/latest/docs/ambient/overview/
+  - title: Istio docs - Ztunnel traffic redirection (already-running pods)
+    url: https://istio.io/latest/docs/ambient/architecture/traffic-redirection/
   - title: TemplateMechanics/tilt lab 03 - Join the mesh
     url: https://github.com/TemplateMechanics/tilt/tree/main/labs/03-join-the-mesh
 ---
@@ -41,7 +43,7 @@ kubectl -n hello get pod -l app.kubernetes.io/name=hello \
 ```
 
 <Callout kind="trap" title="Two sources disagree - check, don't trust">
-Istio's documentation says ambient mode adds pods to the mesh "with no need to restart applications". Tilt lab 03 restarts the pod after labelling the namespace and says capture is decided when the pod starts. We haven't settled which holds on every setup. What both agree on is the check above: after labelling, read the annotation, and restart the pod if it doesn't say `enabled`.
+Istio's documentation says "there is no need to restart applications to add them to the mesh". Its traffic-redirection page adds that the CNI agent also enrolls a pod that is "already running". Tilt lab 03 restarts the pod after labelling the namespace anyway, and says capture is decided when the pod starts. We haven't measured which holds on the platform. The check above settles it on your cluster: after labelling, read the annotation, and restart the pod only if it doesn't say `enabled`.
 </Callout>
 
 <Quiz
@@ -74,9 +76,11 @@ Istio's documentation says ambient mode adds pods to the mesh "with no need to r
 # Kiali: https://kiali.localhost -> Overview, note "Data planes (N)"
 kubectl label ns hello istio.io/dataplane-mode-          # leave the mesh
 kubectl -n hello rollout restart deploy/hello
+kubectl -n hello rollout status deploy/hello            # else items[0] may be the old, terminating pod
 kubectl -n hello get pod -l app.kubernetes.io/name=hello -o jsonpath='{.items[0].metadata.annotations.ambient\.istio\.io/redirection}'
 kubectl label ns hello istio.io/dataplane-mode=ambient --overwrite
 kubectl -n hello rollout restart deploy/hello
+kubectl -n hello rollout status deploy/hello
 ./scripts/platform.sh lab 03
 ```
 

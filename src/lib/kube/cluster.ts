@@ -16,7 +16,10 @@ export type Template = {
   requests: { cpu: number; mem: number };
   limits: { mem: number };
   env: Record<string, string>;
-  startupProbe: boolean;
+  // The budget a startup probe gets is initialDelay + period x failures, not
+  // "as long as it needs". Kept as numbers so a bare probe gets the real
+  // defaults (10 s x 3 = 30 s) and fails a 60 s start exactly as a cluster would.
+  startupProbe: false | { initialDelaySeconds: number; periodSeconds: number; failureThreshold: number };
   liveness: boolean;
 };
 
@@ -40,7 +43,10 @@ export const IMAGES: Record<string, { startTicks: number; memUse: number; needsE
   'panda/needs-config:1.0': { startTicks: 1, memUse: 30, needsEnv: 'DATABASE_URL', log: ['starting'] },
 };
 
-const LIVENESS_DELAY = 3; // ticks: a 15 s initialDelay, as in lab 09
+// Lab 09's liveness probe: initialDelaySeconds 5, periodSeconds 5,
+// failureThreshold 2 - first check at 5 s, second failure at 10 s.
+export const LIVENESS = { initialDelaySeconds: 5, periodSeconds: 5, failureThreshold: 2 };
+const LIVENESS_KILL = (LIVENESS.initialDelaySeconds + LIVENESS.periodSeconds * (LIVENESS.failureThreshold - 1)) / SECONDS_PER_TICK;
 const QUOTA_BACKOFF = [2, 4, 8, 16];
 
 export function defaultTemplate(image: string): Template {
@@ -183,7 +189,10 @@ export class Cluster {
       }
       const newReady = this.live(cur.name).filter((p) => p.ready).length;
       if (!old.some((r) => r.replicas > 0)) { cur.replicas = d.replicas; continue; }
-      // RollingUpdate with maxSurge 1 / maxUnavailable 0: old pods leave only
+      // RollingUpdate with maxSurge 1 / maxUnavailable 0, which is what the
+      // 25% defaults round to at the 3 replicas the missions use (unavailable
+      // rounds down, surge up). At 4+ replicas a real cluster may drop up to
+      // 25% of old pods before any new one is Ready. Here old pods leave only
       // as new ones become Ready, so a broken image stalls the rollout with the
       // old version still serving - the reason a typo in an image tag is a
       // stuck rollout and not an outage.
@@ -237,7 +246,10 @@ export class Cluster {
         const cpu = this.nodes.filter((n) => this.used(n.name).cpu + p.template.requests.cpu > n.cpu).length;
         const mem = this.nodes.filter((n) => this.used(n.name).mem + p.template.requests.mem > n.mem).length;
         const why = [cpu && `${cpu} Insufficient cpu`, mem && `${mem} Insufficient memory`].filter(Boolean).join(', ');
-        this.event('Warning', 'FailedScheduling', `pod/${p.name}`, `0/${this.nodes.length} nodes are available: ${why}.`);
+        // The preemption clause is what a real scheduler appends when no
+        // lower-priority pod could be evicted to make room - every pod here
+        // has the same priority, so it always applies.
+        this.event('Warning', 'FailedScheduling', `pod/${p.name}`, `0/${this.nodes.length} nodes are available: ${why}. preemption: 0/${this.nodes.length} nodes are available: ${this.nodes.length} No preemption victims found for incoming pod.`);
         continue;
       }
       const best = fits.sort((a, b) => this.used(a.name).cpu / a.cpu - this.used(b.name).cpu / b.cpu)[0];
@@ -303,7 +315,15 @@ export class Cluster {
       return this.terminate(p, 137, 'OOMKilled');
     }
     const started = age >= img.startTicks;
-    if (!started && p.template.liveness && !p.template.startupProbe && age >= LIVENESS_DELAY) {
+    const sp = p.template.startupProbe;
+    if (!started && sp && age * SECONDS_PER_TICK >= sp.initialDelaySeconds + sp.periodSeconds * sp.failureThreshold) {
+      // A startup probe that is too short kills a healthy slow starter just as
+      // liveness did; the fix is sizing it, not merely adding one.
+      this.event('Warning', 'Unhealthy', `pod/${p.name}`, `Startup probe failed: Get "http://10.244.1.7:8080/": connection refused`);
+      this.event('Normal', 'Killing', `pod/${p.name}`, 'Container app failed startup probe, will be restarted');
+      return this.terminate(p, 137, 'Error');
+    }
+    if (!started && p.template.liveness && !sp && age >= LIVENESS_KILL) {
       // Liveness kills a process that is healthy but slow. Same 137 as the OOM
       // kill above; only the reason and these two events tell them apart.
       this.event('Warning', 'Unhealthy', `pod/${p.name}`, `Liveness probe failed: Get "http://10.244.1.7:8080/": connection refused`);

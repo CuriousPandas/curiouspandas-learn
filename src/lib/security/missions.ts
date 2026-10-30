@@ -44,7 +44,7 @@ export const RBAC_MISSION: Mission<RbacState> = {
     { text: 'Narrow it to the one ConfigMap it reads - nothing else in shop', hint: 'kubectl create role settings-reader --verb=get --resource=configmaps --resource-name=shop-settings -n shop  then  kubectl create rolebinding reporter-settings --role=settings-reader --serviceaccount=shop:reporter -n shop', done: (s) => Object.values(checks(s)).every(Boolean) },
     { text: 'Prove it: ask whether the app can read Secrets in shop', hint: 'kubectl auth can-i get secrets -n shop --as=system:serviceaccount:shop:reporter', done: (s) => asked(s.history, /\bsecrets?\b/) },
   ],
-  debrief: 'cluster-admin made the error disappear and handed a stolen token from that pod the whole cluster. The grant that ships is one verb, one resource, one name, in one namespace - the same shape as the Role tilt\'s own config server runs with.',
+  debrief: 'cluster-admin made the error disappear and handed a stolen token from that pod the whole cluster. The grant that ships is only the verbs the app uses, on one resource, one name, in one namespace - the same shape as the Role tilt\'s own config server runs with.',
 };
 
 // ---- identity / JWT ----------------------------------------------------------

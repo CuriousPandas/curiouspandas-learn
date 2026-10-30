@@ -32,13 +32,15 @@ The platform ships twelve Kyverno policies adapted from Kyverno's Pod Security S
 
 > Every one is in `audit` mode, so none of them blocks anything.
 
-In **audit** mode a violating pod is admitted, a `PolicyReport` is written, and the pod runs. In **enforce** mode it's refused at admission, like the quota in the Kubernetes track. Audit is deliberate here: the mesh's ztunnel and the log collectors genuinely need privileged access and host paths, so enforcing everything would break the platform itself.
+In **audit** mode a violating pod is admitted, a `PolicyReport` is written, and the pod runs. In **enforce** mode it's refused at admission, like the quota in the Kubernetes track. Audit is deliberate here. The mesh's ztunnel and istio-cni need extra Linux capabilities and host paths, kind's mesh node-prep DaemonSet runs privileged, and the log collectors mount host paths, so enforcing everything would break the platform itself.
 
 The lesson isn't that audit is wrong. It's that **a policy that reports and never refuses looks exactly like a policy that protects you**, unless you check which one you have:
 
 ```bash
 kubectl get clusterpolicy -o custom-columns='NAME:.metadata.name,ACTION:.spec.validationFailureAction'
 ```
+
+The platform's policies set that spec-level field. Kyverno has deprecated it since 1.13 in favour of a per-rule `.spec.rules[*].validate.failureAction`, and its docs now mark ClusterPolicy itself deprecated in favour of ValidatingPolicy. On a cluster written the newer way, this column prints `<none>`. That doesn't mean "no action", so read the per-rule field there.
 
 <Quiz
   id="platform-sec-1"
@@ -65,12 +67,14 @@ kubectl get clusterpolicy -o custom-columns='NAME:.metadata.name,ACTION:.spec.va
 />
 
 <Callout kind="real">
-Turning on a single policy is the useful experiment. The platform's README suggests enforcing just `disallow-privileged-containers` and restarting ztunnel: the refusal names the policy and the rule. Then put it back to `Audit` before the mesh notices.
+Turning on a single policy is the useful experiment. Enforce just `disallow-privileged-containers` (`kubectl patch clusterpolicy disallow-privileged-containers --type merge -p '{"spec":{"validationFailureAction":"Enforce"}}'`), then restart something that really is privileged: `kubectl -n istio-system rollout restart daemonset/istio-ambient-node-prep`. Either the restart is refused, or its new pods are and `kubectl -n istio-system get events --field-selector reason=FailedCreate` shows it. Both messages name the policy and the rule. Then put it back to `Audit` straight away.
+
+The platform's README suggests restarting ztunnel instead. That proves nothing: ztunnel runs with `privileged: false` plus added capabilities, so this policy lets it straight through.
 </Callout>
 
 <DoItForReal id="platform-sec-real">
 
-All three are off by default. Turn them on in `tilt-config.json`, under `flux_apps`, with Tilt running. It notices the file change and deploys them:
+All three are off by default, and only the `full` profile reads the toggles. Under any other profile, enabling them changes nothing, silently. Bring the platform up with `PROFILE=full ./scripts/platform.sh up`, then turn them on in `tilt-config.json` under `flux_apps`. Tilt notices the file change and deploys them:
 
 ```json
 "kyverno": { "enabled": true },

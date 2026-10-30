@@ -19,14 +19,13 @@ import '../styles/widgets.css';
   <p class="muted small">Keys and values, for every layer and every KV head: 2 × layers × heads × head size × bytes. Weights are extra - an 8B model in fp16 is about 16 GB before the cache.</p>
 </div>
 <script>
-  import { kvBytesPerToken } from '../lib/kv/sim.ts';
+  import { kvBytesPerToken, formatBytes as fmt } from '../lib/kv/sim.ts';
   for (const root of document.querySelectorAll<HTMLElement>('[data-kvcalc]')) {
     const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
     const calc = () => {
       const [l, h, d] = q<HTMLSelectElement>('[data-preset]').value.split(',').map(Number);
       const per = kvBytesPerToken(l, h, d, Number(q<HTMLSelectElement>('[data-bytes]').value));
       const total = per * Number(q<HTMLInputElement>('[data-ctx]').value) * Number(q<HTMLInputElement>('[data-users]').value);
-      const fmt = (b: number) => b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)} GiB` : `${(b / 2 ** 20).toFixed(1)} MiB`;
       q('[data-out]').innerHTML = `<b>${fmt(per)}</b> per token → <b>${fmt(total)}</b> of KV cache for everyone at once.`;
     };
     root.addEventListener('input', calc);

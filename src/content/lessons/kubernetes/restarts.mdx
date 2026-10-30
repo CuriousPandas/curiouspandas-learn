@@ -33,12 +33,14 @@ This isn't made up. The tilt platform hit both for real. Keycloak was **OOMKille
 <KubeSim mission="kube-two-crashes" title="starved and impatient" />
 
 <Callout kind="trap">
-"Give it more memory" is the reflex, and for **impatient** it changes nothing. That process is healthy, just slow. Its liveness probe starts checking after 15 seconds and kills it before it finishes starting. Raising memory leaves it crash-looping forever. Try it.
+"Give it more memory" is the reflex, and for **impatient** it changes nothing. That process is healthy, just slow. Its liveness probe starts checking after 5 seconds and gives up on the second failure, long before it finishes starting. Raising memory leaves it crash-looping forever. Try it.
 </Callout>
 
 ## Why a startup probe, not a longer delay
 
-The right fix for a slow start is a **startupProbe**. The Kubernetes docs say that while a startup probe is configured, liveness and readiness checks don't run until it succeeds. Startup gets as long as it needs, and then liveness takes over with its normal tight interval.
+The right fix for a slow start is a **startupProbe**. The Kubernetes docs say that while a startup probe is configured, liveness and readiness checks don't run until it succeeds. Startup gets `failureThreshold × periodSeconds` to succeed, and then liveness takes over with its normal tight interval.
+
+Size that budget for the slowest start you expect. Leave both fields out and the defaults (3 × 10 s = 30 s) are too short for a 60-second start: the startup probe kills it instead, and the crash loop carries on with a new event. Lab 09's fix uses 24 × 5 s, two minutes.
 
 The tempting alternative is a big `initialDelaySeconds` on the liveness probe. It works on day one, but then a real hang takes minutes longer to notice, forever.
 
@@ -47,7 +49,7 @@ The tempting alternative is a big `initialDelaySeconds` on the liveness probe. I
   q="A pod's last termination shows exit code 137. What do you know for certain?"
   options={["It ran out of memory", "Something sent it SIGKILL (128 + 9). The reason field and the events say who and why", "The image is broken"]}
   answer={1}
-  explain="137 only means killed by signal 9. OOMKilled is one cause and a liveness kill is another. Read the termination reason and the events before choosing a fix."
+  explain="137 only means killed by signal 9. OOMKilled is one cause and a liveness kill is another. Read the termination reason and the events before choosing a fix. (A liveness kill starts with SIGTERM. You see 137 only when the process ignores it, as impatient does, until the kubelet sends SIGKILL; an app that exits on SIGTERM shows 143 or 0.)"
 />
 
 <Quiz

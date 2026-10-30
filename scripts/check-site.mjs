@@ -226,7 +226,10 @@ await scenario('kube-self-heal', '/learn/kubernetes/desired-state/', async (page
   if (!(await page.evaluate(() => document.activeElement?.classList.contains('pod')))) throw new Error('keyboard focus fell off a pod when the cluster ticked');
   await type(page, r, `kubectl delete pod ${name}`);
   await expectText(page, `${r} .m-debrief`, /That loop/, 20000);
-  await page.locator(`${r} .pod`).first().click();
+  // A Ready pod, not just the first one: right after the delete, the first pod
+  // can be the one being removed, and a click on an element that vanishes at
+  // the next tick does nothing. That failed once in CI's WebKit (2026-10-30).
+  await page.locator(`${r} .pod.ok`).first().click();
   await expectText(page, `${r} .term-out`, /Events:/);
 });
 
@@ -240,6 +243,10 @@ await scenario('vllm-race', '/learn/llm/serving-vllm/', async (page) => {
   await page.waitForTimeout(800);
   await expectText(page, `${r} [data-running]`, /^[1-9]/);
   await expectText(page, `${r} .kvc-out, [data-kvcalc] [data-out]`, /128\.0 KiB|0\.1 MiB|MiB per token|KiB/);
+  // Both precisions once printed "0.1 MiB per token"; halving the bytes must show.
+  await expectText(page, '[data-kvcalc] [data-out]', /128 KiB/);
+  await page.selectOption('[data-kvcalc] [data-bytes]', '1');
+  await expectText(page, '[data-kvcalc] [data-out]', /64 KiB/);
 });
 
 await scenario('neural-train', '/playground/', async (page) => {
@@ -260,6 +267,17 @@ await scenario('tokens', '/playground/', async (page) => {
   await page.locator(`${r} [data-merges]`).fill('0');
   const chars = Number(await page.locator(`${r} [data-toks]`).innerText());
   if (!(chars > many)) throw new Error(`0 merges gave ${chars} tokens, 120 gave ${many}`);
+  // The slider used to run to 400 although the story yields about 340 merges,
+  // and ids shifted as the learner typed: a real vocabulary is fixed.
+  const max = Number(await page.locator(`${r} [data-merges]`).getAttribute('max'));
+  if (!(max > 300 && max < 400)) throw new Error(`merge slider ends at ${max}, not where the story runs out of merges`);
+  await page.locator(`${r} [data-merges]`).fill('120');
+  await page.locator(`${r} [data-text]`).fill('the panda eats');
+  const idOf = () => page.locator(`${r} [data-chips] .chip`).evaluateAll((cs) => cs.map((c) => c.getAttribute('title')).find((t) => /" panda"/.test(t ?? '')));
+  const before = await idOf();
+  await page.locator(`${r} [data-text]`).fill('the panda eats 12345 #');
+  const after = await idOf();
+  if (!before || before !== after) throw new Error(`" panda" id changed after typing new characters: ${before} -> ${after}`);
 });
 
 await scenario('home-hash', '/', async (page) => {
@@ -586,7 +604,7 @@ await scenario('rbac-least', '/learn/security/cluster-access/', async (page) => 
   await type(page, r, 'kubectl create rolebinding reporter-settings --role=settings-reader --serviceaccount=shop:reporter -n shop');
   if (await page.locator(`${r} [data-audit] li.bad`).count()) throw new Error('least-privilege grant still fails an audit check');
   await type(page, r, 'kubectl auth can-i get secrets -n shop --as=system:serviceaccount:shop:reporter');
-  await expectText(page, `${r} .m-debrief`, /one verb, one resource, one name/);
+  await expectText(page, `${r} .m-debrief`, /only the verbs the app uses, on one resource, one name/);
 });
 
 await scenario('jwt-forge', '/learn/security/identity/', async (page) => {

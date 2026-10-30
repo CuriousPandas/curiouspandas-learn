@@ -12,7 +12,7 @@
 //               corrects drift; with prune on it also deletes what git dropped.
 //
 // Sources: fluxcd.io/flux/components/kustomize/kustomizations and
-// fluxcd.io/flux/components/helm/helmreleases. tests/gitops.test.ts pins each.
+// fluxcd.io/flux/components/helm/helmreleases. tests/platform.test.ts pins each.
 
 export type Mode = 'manual' | 'helm' | 'kustomize';
 export type State = { replicas: number; image: string; banner: boolean };

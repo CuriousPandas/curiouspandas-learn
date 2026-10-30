@@ -44,7 +44,7 @@ A **trace** gives "the big picture of what happens when a request is made". It's
 
 <Diagram
   id="sre-trace-path"
-  title="One checkout, five services, one trace id"
+  title="One checkout, four services, one trace id"
   desc="A checkout request enters the gateway, which calls checkout, which calls pricing, which calls tax. Each call passes the trace context on in a traceparent header, so every span joins the same trace. The tax call is slow for 1 request in 20. A dashboard averages it into a healthy number, while the log line written inside the slow call carries the same trace id and says why."
   nodes={[
     { id: 'gw', label: 'gateway', sub: 'trace starts here', x: 0, y: 0 },

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { disaster, cheapestCost, lastBackupBefore, WEDNESDAY_H, hm, clock } from '../src/lib/resilience/rpo.ts';
-import { Office } from '../src/lib/resilience/backups.ts';
+import { Office, COPIES, type Copy } from '../src/lib/resilience/backups.ts';
 import { drill, cheapestPatternFor, PATTERNS, fmtMin } from '../src/lib/resilience/dr.ts';
 import { trueMtd, tabletop, IDS, recoveryOrder, type BiaState } from '../src/lib/resilience/bia.ts';
 import { staffing, postmortem, sevOk, FACTORS } from '../src/lib/resilience/incident.ts';
@@ -99,6 +99,21 @@ test('the broken cloud job: looks fine, fails late-delete until a drill finds an
   assert.equal(lines.find((l) => l.copy === 'cloud')!.ok, false);
   o.fix();
   assert.equal(o.hit('late-delete').from, 'cloud');
+});
+
+test('each restore drill line says how old that copy really is', () => {
+  // Every working copy used to report "restored a file from last night",
+  // including the offline drive that is swapped weekly - the same drive hit()
+  // says loses up to a week of work.
+  const o = new Office();
+  for (const c of Object.keys(COPIES) as Copy[]) o.toggle(c, true);
+  o.drill(); o.fix();
+  const note = (c: Copy) => o.drill().find((l) => l.copy === c)!.note;
+  assert.match(note('offline'), /last Friday/);
+  assert.doesNotMatch(note('offline'), /last night/);
+  assert.match(note('sync'), /right now/);
+  for (const c of ['same-disk', 'usb', 'cloud'] as const) assert.match(note(c), /last night/);
+  assert.ok(o.drill().every((l) => l.ok), 'all copies work once the cloud job is fixed');
 });
 
 test('backup mission in order, and more connected copies never pass the ransomware step', () => {

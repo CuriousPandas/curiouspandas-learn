@@ -26,6 +26,17 @@ export const EVENTS: Record<Event, string> = {
   'late-delete': 'A folder deleted ten days ago turns out to matter',
 };
 
+// What a successful restore from each copy actually gets back. One shared
+// "from last night" note told the drill the weekly offline drive was a day old,
+// contradicting the week of loss hit() reports for the same drive.
+export const DRILL_OK: Record<Copy, string> = {
+  'same-disk': 'restored a file from last night\'s copy; it matches',
+  'usb': 'restored a file from last night\'s copy; it matches',
+  'sync': 'restored a file from the sync folder; it matches the file as it is right now - mistakes included',
+  'cloud': 'restored a file from last night\'s version; it matches',
+  'offline': 'restored a file from the drive swapped out last Friday; it matches that day\'s version, and nothing newer is on it',
+};
+
 export type Result = { event: Event; survived: boolean; from?: Copy; why: string };
 export type DrillLine = { copy: Copy; ok: boolean; note: string };
 
@@ -75,7 +86,7 @@ export class Office {
   drill(): DrillLine[] {
     this.drilled = true;
     const lines = [...this.copies].map((c): DrillLine => this.working(c)
-      ? { copy: c, ok: true, note: 'restored a file from last night; it matches' }
+      ? { copy: c, ok: true, note: DRILL_OK[c] }
       : { copy: c, ok: false, note: 'newest restorable file is from 14 March. The job has failed every night since the saved password changed - and no alert was set' });
     this.drills.push(lines);
     return lines;

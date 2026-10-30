@@ -22,7 +22,7 @@ Ask any organisation whether it has backups and the answer is yes. Ask when it l
 
 ## 3-2-1
 
-The best-known rule comes from a 2012 US-CERT paper, *Data Backup Options*:
+The best-known rule is photographer Peter Krogh's 3-2-1, from *The DAM Book*. A 2012 US-CERT paper, *Data Backup Options*, credits him and states it like this:
 
 - **3** - "Keep 3 copies of any important file: 1 primary and 2 backups."
 - **2** - "Keep the files on 2 different media types to protect against different types of hazards."
@@ -55,9 +55,9 @@ Each number answers a different disaster. Three copies survive one failing. Two 
 
 ## Ransomware goes looking for backups
 
-The 2012 rule predates modern ransomware, which doesn't just encrypt the files in front of it. The CISA and MS-ISAC *#StopRansomware Guide* warns that many ransomware variants try to find and delete or encrypt any backups they can reach. Its advice: "Maintain offline, encrypted backups of critical data", because "it is important that backups are maintained offline."
+The rule predates modern ransomware, which doesn't just encrypt the files in front of it. The CISA and MS-ISAC *#StopRansomware Guide* warns that many ransomware variants try to find and delete or encrypt any backups they can reach. Its advice: "Maintain offline, encrypted backups of critical data", because "it is important that backups are maintained offline."
 
-The guide also mentions **immutable storage**, which some cloud vendors offer and which can't be changed or deleted for a set period, and adds a caution: "Use immutable storage with caution as it does not meet compliance criteria for certain regulations."
+The guide also mentions **immutable storage**, which some cloud vendors offer and which can't be changed or deleted for a set period, and adds a caution: "Use immutable storage with caution as it does not meet compliance criteria for certain regulations and misconfiguration can impose significant cost."
 
 A USB drive that's always plugged in is reachable. So is a cloud backup whose admin password sits on the infected network. Distance doesn't make a copy safe; reachability is what decides it.
 
@@ -108,6 +108,14 @@ mkdir restore && tar -xzf backup.tar.gz -C restore       # restore somewhere new
 cd restore && sha256sum -c ../checksums.txt              # every line must say OK
 ```
 
-Then break it on purpose: overwrite `backup.tar.gz` with junk and try the restore again. Seeing the failure in a drill is the whole point - better there than on the day you need it.
+Then break it on purpose. You are still inside `restore`, so step out, clear the old restore and replace the backup with junk:
+
+```bash
+cd .. && rm -rf restore && echo junk > backup.tar.gz
+mkdir restore && tar -xzf backup.tar.gz -C restore       # tar refuses: not in gzip format
+cd restore && sha256sum -c ../checksums.txt              # every line says FAILED open or read
+```
+
+Leave out the `rm -rf restore` and `mkdir` fails, `tar` never runs, and the check passes against the files from the first restore - a drill that proves nothing. Seeing the failure in a drill is the whole point - better there than on the day you need it.
 
 </DoItForReal>

@@ -63,9 +63,9 @@ The budget turns an argument into arithmetic. Budget left: ship, experiment, tak
 <Quiz
   id="sre-slo-1"
   q="Your SLO is 99.9% over 30 days. Last week a bad deploy failed every request for 30 minutes. How much of the month's budget is left?"
-  options={["None - any outage breaks a 99.9% SLO", "About 13 minutes of the 43.2", "About 30% of it - the outage spent 30 minutes of 43.2", "It depends on the SLA"]}
+  options={["None - any outage breaks a 99.9% SLO", "About 13 minutes of the 43.2", "About 70% of it - the outage spent 30 minutes of 43.2", "It depends on the SLA"]}
   answer={1}
-  explain="43.2 - 30 = 13.2 minutes. An SLO is a budget, not a promise of zero failures. The team can still ship, carefully - and if the next incident spends the rest, releases stop until the window rolls past."
+  explain="43.2 - 30 = 13.2 minutes, about 30% of the budget. The 70% is what the outage spent, not what is left. An SLO is a budget, not a promise of zero failures. The team can still ship, carefully - and if the next incident spends the rest, releases stop until the window rolls past."
 />
 
 ## The alert is the hard part
@@ -113,5 +113,5 @@ sum(rate(istio_requests_total{destination_service_name="hello", response_code!~"
 sum(rate(istio_requests_total{destination_service_name="hello"}[1h]))
 ```
 
-Divide `1 -` that by `0.001` and you have the 1-hour burn rate for a 99.9% SLO. If the query returns nothing, check the label names first with `istio_requests_total{destination_service_name=~"hello.*"}`: labels differ between gateway and sidecar proxies, and an empty result is a missing match, not a perfect service.
+Subtract that from 1 and divide by `0.001` - that is, `(1 - SLI) / 0.001` - and you have the 1-hour burn rate for a 99.9% SLO. If the query returns nothing, check the label names first with `istio_requests_total{destination_service_name=~"hello.*"}`: labels differ between gateway and sidecar proxies, and an empty result is a missing match, not a perfect service.
 </DoItForReal>

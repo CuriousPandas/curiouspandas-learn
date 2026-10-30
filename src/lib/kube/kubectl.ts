@@ -2,7 +2,7 @@
 // tool closely enough that muscle memory transfers: a learner who types
 // `kubectl describe pod` here should find the same Events table on a real one.
 
-import { Cluster, SECONDS_PER_TICK, type Pod } from './cluster.ts';
+import { Cluster, SECONDS_PER_TICK, LIVENESS, type Pod } from './cluster.ts';
 import { tokenize } from '../git/shell.ts';
 
 export type Out = { text: string; kind: 'out' | 'err' };
@@ -163,7 +163,13 @@ function run(c: Cluster, args: string[], observe?: Observer): string {
       if (body?.spec?.replicas !== undefined) c.deployment(t.name).replicas = Number(body.spec.replicas);
       const changed = !ctr || c.updateTemplate(t.name, (tpl) => {
         if (ctr.image) tpl.image = ctr.image;
-        if (ctr.startupProbe !== undefined) tpl.startupProbe = ctr.startupProbe !== null;
+        // Unset fields take the API defaults, so a bare probe is as short here
+        // as it is on a real cluster.
+        if (ctr.startupProbe !== undefined) tpl.startupProbe = ctr.startupProbe === null ? false : {
+          initialDelaySeconds: Number(ctr.startupProbe.initialDelaySeconds ?? 0),
+          periodSeconds: Number(ctr.startupProbe.periodSeconds ?? 10),
+          failureThreshold: Number(ctr.startupProbe.failureThreshold ?? 3),
+        };
         if (ctr.livenessProbe !== undefined) tpl.liveness = ctr.livenessProbe !== null;
         if (ctr.resources?.limits?.memory) tpl.limits.mem = parseMem(ctr.resources.limits.memory);
         if (ctr.resources?.requests?.memory) tpl.requests.mem = parseMem(ctr.resources.requests.memory);
@@ -177,8 +183,13 @@ function run(c: Cluster, args: string[], observe?: Observer): string {
       const d = c.deployment(t.name);
       if (sub === 'status') {
         const s = c.deploymentStatus(t.name);
-        if (s.upToDate === s.desired && s.ready === s.desired && s.current === s.desired) return `deployment "${t.name}" successfully rolled out`;
-        return `Waiting for deployment "${t.name}" rollout to finish: ${s.upToDate} of ${s.desired} updated replicas are available...`;
+        // The same three waiting messages, in the same order, as kubectl's own
+        // rollout status: a stuck new pod reads "new replicas have been
+        // updated", which is the line the Deployment docs show for a bad tag.
+        if (s.upToDate < s.desired) return `Waiting for deployment "${t.name}" rollout to finish: ${s.upToDate} out of ${s.desired} new replicas have been updated...`;
+        if (s.current > s.upToDate) return `Waiting for deployment "${t.name}" rollout to finish: ${s.current - s.upToDate} old replicas are pending termination...`;
+        if (s.available < s.upToDate) return `Waiting for deployment "${t.name}" rollout to finish: ${s.available} of ${s.upToDate} updated replicas are available...`;
+        return `deployment "${t.name}" successfully rolled out`;
       }
       if (sub === 'undo') {
         const prev = d.history.pop();
@@ -324,8 +335,8 @@ Containers:
     Requests:
       cpu:     ${tpl.requests.cpu}m
       memory:  ${fmtMem(tpl.requests.mem)}
-    Liveness:   ${tpl.liveness ? 'http-get http://:8080/ delay=15s period=5s' : '<none>'}
-    Startup:    ${tpl.startupProbe ? 'http-get http://:8080/ delay=0s period=5s #failure=30' : '<none>'}
+    Liveness:   ${tpl.liveness ? `http-get http://:8080/ delay=${LIVENESS.initialDelaySeconds}s timeout=1s period=${LIVENESS.periodSeconds}s #success=1 #failure=${LIVENESS.failureThreshold}` : '<none>'}
+    Startup:    ${tpl.startupProbe ? `http-get http://:8080/ delay=${tpl.startupProbe.initialDelaySeconds}s timeout=1s period=${tpl.startupProbe.periodSeconds}s #success=1 #failure=${tpl.startupProbe.failureThreshold}` : '<none>'}
     Environment:${env}
 Events:
 ${ev.length ? table([['  Type', 'Reason', 'Age', 'Message'], ...ev.slice(-10).map((e) => ['  ' + e.type, e.reason, age(c, e.tick), e.message])]) : '  <none>'}`;

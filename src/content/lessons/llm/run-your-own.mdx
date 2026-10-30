@@ -34,20 +34,25 @@ The platform runs Ollama **on the CPU by default** (`gpu.enabled: false` in its 
 
 - **tinyllama**, the model the platform pulls by default, has 1.1B parameters and a 638 MB download. It's fast enough to play with and not very clever.
 - **llama3.2:1b** (1.3 GB) and **llama3.2:3b** (2.0 GB) are more capable and noticeably slower on a CPU.
-- 7B-parameter models and up want far more memory than this setup gives them, and on a laptop CPU they're painfully slow. That's why serving at scale happens on GPUs, and why [vLLM's memory tricks](/learn/llm/serving-vllm/) matter.
+- 7B-parameter models (about 4-5 GB in Ollama's default 4-bit builds) squeeze into the 8 GiB limit, but on a laptop CPU they're painfully slow, and much bigger models don't fit at all. That's why serving at scale happens on GPUs, and why [vLLM's memory tricks](/learn/llm/serving-vllm/) matter.
 
 ## Step 1: a model of your own
 
-The switches in `tilt-config.json` only take effect in the platform's **full** profile. That profile also brings up Crossplane, which deploys Qdrant and Langfuse. So bring it up with:
+Ollama's switch in `tilt-config.json` only takes effect in the platform's **full** profile. That profile also brings up Crossplane, which deploys Qdrant and Langfuse. So bring it up with:
 
 ```bash
 PROFILE=full ./scripts/platform.sh up
 ```
 
-Then set this in `tilt-config.json`:
+Then, in `tilt-config.json`, find `ollama` under `flux_apps` and change its `enabled` to `true`. Edit that one value rather than replacing the file, because the other switches you need later live in it too:
 
 ```json
-{ "flux_apps": { "ollama": { "enabled": true } } }
+"ollama": {
+  "enabled": true,
+  "description": "Local LLM runner",
+  "category": "AI/ML",
+  "tested": true
+},
 ```
 
 Tilt notices and deploys it. The first start downloads tinyllama, so give it a few minutes. Then:
@@ -104,7 +109,7 @@ Langfuse is the heaviest of the three: it brings its own Postgres and ClickHouse
   q="Your laptop has no GPU. Which model is a realistic first choice for the platform's CPU-only Ollama?"
   options={["A 70B model", "A small model such as tinyllama (1.1B) or llama3.2:1b", "Any model - CPUs and GPUs are equally fast"]}
   answer={1}
-  explain="On a CPU, every extra billion parameters costs speed and memory. Small models are what fit in the 8 GiB limit the platform sets and still answer quickly enough to experiment with."
+  explain="On a CPU, every extra billion parameters costs speed and memory. Small models answer quickly enough to experiment with and leave plenty of headroom inside the 8 GiB limit the platform sets. A 70B model wouldn't fit at all."
 />
 
 <Quiz

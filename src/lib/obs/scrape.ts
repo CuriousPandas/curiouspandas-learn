@@ -7,16 +7,21 @@
 // Prometheus's own targets page. This file models exactly those rules; it does
 // not model Prometheus staleness timing (deliberately - see the lesson).
 
-export type Service = { name: string; labels: Record<string, string>; ports: { name: string; port: number }[] };
+export type Service = { name: string; labels: Record<string, string>; ports: { name: string; port: number; targetPort: number }[] };
 export type ServiceMonitor = { selectorKey: string; selectorValue: string; port: string };
 export type Target = { service: string; endpoint: string; health: 'up' };
 
-export const HELLO: Service = { name: 'hello', labels: { 'app.kubernetes.io/name': 'hello' }, ports: [{ name: 'http', port: 9898 }] };
+// As in examples/hello-world: Service port 80 named http, forwarding to the
+// pod's 9898. The pod IP is illustrative.
+export const HELLO: Service = { name: 'hello', labels: { 'app.kubernetes.io/name': 'hello' }, ports: [{ name: 'http', port: 80, targetPort: 9898 }] };
+const POD_IP = '10.244.1.12';
 
 export function targets(services: Service[], sm: ServiceMonitor): Target[] {
+  // Prometheus scrapes the pod behind the Service, on the target port: the
+  // Service port's name is only how the ServiceMonitor finds it.
   return services
     .filter((s) => s.labels[sm.selectorKey] === sm.selectorValue)
-    .flatMap((s) => s.ports.filter((p) => p.name === sm.port).map((p) => ({ service: s.name, endpoint: `http://${s.name}.hello.svc:${p.port}/metrics`, health: 'up' as const })));
+    .flatMap((s) => s.ports.filter((p) => p.name === sm.port).map((p) => ({ service: s.name, endpoint: `http://${POD_IP}:${p.targetPort}/metrics`, health: 'up' as const })));
 }
 
 /** What `kubectl get servicemonitor` and `kubectl get pods` say. Always fine - that is the trap. */

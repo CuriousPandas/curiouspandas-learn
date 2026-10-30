@@ -24,7 +24,7 @@ That third step is **gradient descent**. The *gradient* is the list of "which wa
 
 ## Watch it learn
 
-The background colour is the model's current opinion of every spot on the map: green means bamboo, grey means rocks, and paler means less sure. Press **Train** and watch the loss fall and the boundary bend into shape. Dots with a white ring are **held back**: the model never trains on them, and they're what the accuracy number is measured on.
+The background colour is the model's current opinion of every spot on the map: green means bamboo, grey means rocks, and paler means less sure. Press **Train** and watch the loss fall and the boundary bend into shape. Dots with a ring around them, drawn slightly smaller, are **held back**: the model never trains on them, and they're what the accuracy number is measured on.
 
 <NeuralPlayground challenge="nn-ring" dataset="circle" hidden="4" title="Teach it the ring" />
 
@@ -40,7 +40,7 @@ How big is each step? That's the **learning rate**, and it's one of the knobs *y
 - **Bigger:** faster, up to a point.
 - **Too large:** each step overshoots the bottom of the valley, so the loss jumps around and can end up worse than where it started.
 
-Try all three above, pressing **New random knobs** before each one. At **0.03** the ring barely changes in the time you'd wait. At **3**, on this small problem, it learns *faster* than the default. At **10**, watch the loss leap and stumble. Where "too large" begins depends on the problem. On big models it starts much lower, which is why picking the learning rate is a real part of the job.
+Try all three above, pressing **New random knobs** before each one. At **0.03** it creeps: the loss barely moves for the first few seconds, while the default is already done. At **3**, on this small problem, it learns *faster* than the default. At **10**, watch the loss leap and stumble. Where "too large" begins depends on the problem. On big models it starts much lower, which is why picking the learning rate is a real part of the job.
 
 <Quiz
   id="ml-learn-1"

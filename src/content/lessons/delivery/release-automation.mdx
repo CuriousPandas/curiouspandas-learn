@@ -51,17 +51,21 @@ So the question that matters at release time is: *is anything in here breaking?*
 - A `!` after the type or scope, or a `BREAKING CHANGE:` footer, marks a breaking API change. It lines up with MAJOR - whatever the type.
 - Other types - `docs:`, `chore:`, `refactor:`, `test:`, `ci:` and so on - are allowed and "have no implicit effect in Semantic Versioning (unless they include a BREAKING CHANGE)".
 
-Straight from the spec's examples:
+Two separate commits, straight from the spec's examples. A `!` in the first line:
 
 ```text
 feat(api)!: send an email to the customer when a product is shipped
+```
 
+A `BREAKING CHANGE:` footer:
+
+```text
 feat: allow provided config object to extend other configs
 
 BREAKING CHANGE: `extends` key in config file is now used for extending other config files
 ```
 
-Types aren't case-sensitive, but `BREAKING CHANGE` must be uppercase (`BREAKING-CHANGE` means the same thing). This site's own repository is a real example: run `git log --oneline` in it and nearly every commit starts with `feat:`, `fix:`, `docs:` or `chore:` - the rest are merge commits.
+Types aren't case-sensitive, but `BREAKING CHANGE` must be uppercase (`BREAKING-CHANGE` means the same thing). This site's own repository is a real example: run `git log --oneline` in it and nearly every commit starts with a type such as `feat:`, `fix:`, `docs:`, `chore:` or `ci:` - the rest are merge commits.
 
 ## Let a robot read them
 

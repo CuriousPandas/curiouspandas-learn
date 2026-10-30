@@ -78,7 +78,7 @@ Here's what the scheduler did each time it tried the third pod:
   q="Where does the reason a pod is Pending show up?"
   options={["In the container logs", "In the pod's events: kubectl describe pod, or kubectl get events", "In the Deployment's READY column"]}
   answer={1}
-  explain="A Pending pod never started, so it has no logs. The scheduler writes a FailedScheduling event, such as '0/2 nodes are available: 2 Insufficient cpu.', which describe shows at the bottom."
+  explain="A Pending pod never started, so it has no logs. The scheduler writes a FailedScheduling event, which starts like '0/2 nodes are available: 2 Insufficient cpu.' and describe shows at the bottom."
 />
 
 <Callout kind="real">
@@ -92,8 +92,8 @@ There's no dedicated tilt lab for this one; the minimal platform is enough. Ask 
 ```bash
 kubectl create deployment big --image=nginx --replicas=2
 kubectl set resources deployment big --requests=cpu=100   # 100 whole CPUs
-kubectl get pods                     # Pending
-kubectl describe pod -l app=big | tail -5
+kubectl get pods                     # one Pending, beside two Running from the first template
+kubectl get events --field-selector reason=FailedScheduling
 kubectl describe node | grep -A6 "Allocated resources"
 kubectl delete deployment big
 ```

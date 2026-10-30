@@ -83,6 +83,6 @@ pip install vllm
 vllm serve Qwen/Qwen2.5-0.5B-Instruct
 ```
 
-Read the startup log: vLLM reports how many KV cache blocks it could fit. That number is this whole lesson.
+Read the startup log: vLLM reports its **KV cache size** in tokens, and the **maximum concurrency** that leaves at the model's full context length. Divide the tokens by the block size (16 tokens by default) for the number of blocks. That number is this whole lesson.
 
 </DoItForReal>

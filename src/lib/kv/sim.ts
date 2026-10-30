@@ -139,3 +139,14 @@ export class KVSim {
 export function kvBytesPerToken(layers: number, kvHeads: number, headDim: number, bytesPerValue: number) {
   return 2 * layers * kvHeads * headDim * bytesPerValue;
 }
+
+/**
+ * Per-token sizes are a few hundred KiB. Shown as MiB to one decimal they
+ * rounded together: fp16 and fp8 Llama-3-8B (128 and 64 KiB) both read
+ * "0.1 MiB", so halving the precision looked like it changed nothing.
+ */
+export function formatBytes(b: number) {
+  if (b >= 2 ** 30) return `${(b / 2 ** 30).toFixed(1)} GiB`;
+  if (b >= 2 ** 20) return `${(b / 2 ** 20).toFixed(1)} MiB`;
+  return `${Math.round(b / 1024)} KiB`;
+}

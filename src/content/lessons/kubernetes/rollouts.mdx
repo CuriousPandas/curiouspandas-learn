@@ -1,6 +1,6 @@
 ---
 title: A typo is not an outage
-summary: A rolling update only retires an old pod once a new one is Ready. Ship a broken image tag, watch the old version keep serving, and finish the rollout properly.
+summary: A rolling update retires old pods only as new ones become Ready, beyond a small allowance. Ship a broken image tag, watch the old version keep serving, and finish the rollout properly.
 minutes: 16
 xp: 40
 tiers: [browser, machine]
@@ -17,7 +17,7 @@ When you change a Deployment's image, Kubernetes doesn't stop everything and sta
 
 Two knobs control the pace. **maxSurge** sets how many extra pods may exist during the update, and **maxUnavailable** sets how many may be missing. Both default to **25%**. The docs put it as: at least 75% of the desired pods are up, and at most 125% exist.
 
-The key rule: an old pod is removed only when a new one is **Ready**. So if the new version never becomes Ready, the old version is never removed.
+The key rule: beyond the maxUnavailable allowance, an old pod is removed only when a new one is **Ready**. The allowance is 25% rounded down: zero for the three replicas below, one for four, two for ten. So if the new version never becomes Ready, at most that 25% of the old version is ever removed. With small replica counts, none is.
 
 ## Ship a typo
 
@@ -40,9 +40,9 @@ Rolling updates assume old and new pods can run side by side. A database with on
 <Quiz
   id="kube-rollout-1"
   q="You deploy an image tag that doesn't exist. With the default strategy, what do users see?"
-  options={["An outage until you fix it", "The old version, still serving: the new pod never becomes Ready, so old pods are never removed", "A 50/50 mix of old and new"]}
+  options={["An outage until you fix it", "The old version, still serving: the new pod never becomes Ready, so no old pods are removed beyond the 25% allowance", "A 50/50 mix of old and new"]}
   answer={1}
-  explain="Old pods are retired only as new ones become Ready. A new pod stuck in ImagePullBackOff never is, so the rollout stalls with the old version still serving."
+  explain="Beyond maxUnavailable (25%, rounded down), old pods are retired only as new ones become Ready. A new pod stuck in ImagePullBackOff never is, so the rollout stalls with the old version still serving: all of it at small replica counts, at least 75% of it at large ones."
 />
 
 <Quiz

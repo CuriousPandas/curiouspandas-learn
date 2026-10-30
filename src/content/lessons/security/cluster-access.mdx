@@ -74,7 +74,7 @@ The reporter app logs a real-format error: it may not `get` the ConfigMap it nee
 `cluster-admin` passes step two and fails every check that matters, and so does the built-in `edit` role: the docs warn that `edit` "allows accessing Secrets", and a Secret can hold another service account's credentials. The built-in `view` deliberately leaves Secrets out for exactly that reason - but it still lets the app read *every* ConfigMap in the namespace. Only `--resource-name` narrows a rule to the one object.
 </Callout>
 
-The finished shape - one verb, one resource, one name, one namespace - isn't a classroom ideal. It's exactly the Role tilt's own config server runs with:
+The finished shape - one resource, one name, one namespace, and only the verbs the app actually uses - isn't a classroom ideal. tilt's own config server runs with exactly that shape. It writes its config as well as reading it, so it gets `update` and `patch` as well as `get`, and still only on the one ConfigMap:
 
 ```yaml
 kind: Role
@@ -102,7 +102,7 @@ RBAC governs the **API**: who may read and change Kubernetes objects. It says no
     { id: 'web', label: 'web', sub: 'app=web', x: 0, y: 0 },
     { id: 'api', label: 'api', sub: 'app=api', x: 1, y: 0 },
     { id: 'db', label: 'db', sub: 'app=db', x: 2, y: 0, kind: 'info' },
-    { id: 'evil', label: 'compromised pod', sub: 'any labels', x: 1, y: 1, kind: 'bad' },
+    { id: 'evil', label: 'compromised pod', sub: 'not app=api', x: 1, y: 1, kind: 'bad' },
   ]}
   edges={[
     { from: 'web', to: 'api', label: 'HTTP' },
@@ -171,13 +171,15 @@ kubectl auth can-i get secrets -n tilt-system --as=$SA                    # no
 kubectl auth can-i --list -n tilt-system --as=$SA
 ```
 
-Then look for the broadest grants on your cluster, and for what's actually enforcing network and pod rules:
+Then look for the broadest grants on your cluster, and at which network and pod rules are configured:
 
 ```bash
 kubectl get clusterrolebindings -o wide | grep cluster-admin
 kubectl get networkpolicy -A
 kubectl get ns -L pod-security.kubernetes.io/enforce,pod-security.kubernetes.io/audit
 ```
+
+`kubectl get networkpolicy` lists what is stored, not what is enforced. Whatever it prints, the only way to know a policy works is to attempt a connection it should refuse.
 
 Every `cluster-admin` line is a token worth stealing. Ask of each one: does it need all of that?
 

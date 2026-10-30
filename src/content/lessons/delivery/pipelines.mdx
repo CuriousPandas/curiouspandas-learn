@@ -56,7 +56,7 @@ Most of a slow pipeline is downloading the same dependencies again. A **cache** 
 <PipelineSim />
 
 <Callout kind="trap">
-"Re-run it, up to 3 times" makes the red go away, and that's the problem. A race condition doesn't fail every time either. It fails *more often* - here, two attempts in three instead of one - and three tries almost always find a green one. Retrying a flaky test turns "fails sometimes" into green, which is exactly what a race looks like.
+"Re-run it, up to 3 times" makes the red go away, and that's the problem. A race condition doesn't fail every time either. It fails *more often* - here, two attempts in three instead of one - and three tries usually find a green one - about 70% of the time if each attempt really fails two in three, and every time in the widget. Retrying a flaky test turns "fails sometimes" into green, which is exactly what a race looks like.
 </Callout>
 
 ## A flaky test is a broken alarm

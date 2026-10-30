@@ -67,7 +67,7 @@ PKCE ("pixy", RFC 7636) exists because the code travels through your browser's a
 
 ## Two tokens with two jobs
 
-The **ID token** is for the app. OIDC defines it as a JWT "that contains Claims about the Authentication event", with required claims including `iss` (who issued it), `sub` (a stable id for you), `aud` (which app it's for), `exp` and `iat`. The spec says clients **MUST** validate it: the signature, that `iss` is the expected issuer, that `aud` contains the app's own client id, and that it hasn't expired.
+The **ID token** is for the app. OIDC defines it as a JWT "that contains Claims about the Authentication event", with required claims including `iss` (who issued it), `sub` (a stable id for you), `aud` (which app it's for), `exp` and `iat`. The spec says clients **MUST** validate it: that `iss` is the expected issuer, that `aud` contains the app's own client id, and that it hasn't expired. It requires checking the signature too, with one exception: a token the app received directly from the token endpoint over TLS may rely on that connection instead.
 
 The **access token** is for APIs. RFC 9700 says access tokens "SHOULD be audience-restricted to a specific resource server", and that a server receiving a token meant for someone else "MUST refuse to serve the respective request". A valid token for the billing app isn't a ticket into the shop.
 
@@ -126,14 +126,14 @@ Keycloak needs the `full` profile and its switch in `tilt-config.json`:
 The route is **`https://auth.localhost`** (the platform's own Keycloak page says `keycloak.localhost`, but the deployed route and `KC_HOSTNAME` are `auth.localhost`). The admin login is `admin` / `admin`: a development default, never something to expose. First, the discovery document every OIDC client starts from:
 
 ```bash
-curl -s https://auth.localhost/realms/master/.well-known/openid-configuration \
+curl -sS --fail https://auth.localhost/realms/master/.well-known/openid-configuration \
   | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri}'
 ```
 
 Then get a token the quick way the platform docs use - the password grant, which RFC 9700 says apps must never use, but which is fine for poking at your own dev box - and read its payload:
 
 ```bash
-TOKEN=$(curl -s https://auth.localhost/realms/master/protocol/openid-connect/token \
+TOKEN=$(curl -sS --fail https://auth.localhost/realms/master/protocol/openid-connect/token \
   -d grant_type=password -d client_id=admin-cli -d username=admin -d password=admin \
   | jq -r .access_token)
 p=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+'); while [ $(( ${#p} % 4 )) -ne 0 ]; do p="$p="; done

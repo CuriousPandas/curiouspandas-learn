@@ -20,7 +20,7 @@ This network has **no hidden layer**: just the inputs `x` and `y`, straight to t
 
 <NeuralPlayground challenge="nn-xor-lean" dataset="xor" hidden="" features="x,y" title="A straight line vs. a checkerboard" />
 
-It gets stuck. The accuracy settles **around 75% at best, never solved**. Why 75% and not 50%? A line can't split four quarters correctly, but it can tilt so that three of the four land on the right side. That's the ceiling, and no amount of training gets past it.
+It gets stuck, far short of solved: on this data it settles not much better than a coin flip. A line *could* do a bit better, tilting so that three of the four quarters land on the right side (about 75%). But that line is confidently wrong about the fourth quarter, and the loss punishes confident mistakes hard, so training settles for a nearly flat, unsure answer instead. Either way, no straight line solves it, and no amount of training changes that.
 
 There are two ways out.
 
@@ -45,15 +45,15 @@ Now try the hardest shape. The spiral needs several layers or very well-chosen i
 <NeuralPlayground challenge="nn-spiral" dataset="spiral" hidden="6" title="Untangle the spiral" />
 
 <Callout kind="tip" title="Stuck on the spiral?">
-Try two hidden layers (`8,8`), tick `sin x` and `sin y`, and be patient: the spiral takes thousands of steps. For the hard mode, the 60-knob challenge in the [playground](/playground/#nn), a few well-chosen inputs beat a big network.
+Try two hidden layers (`8,8`), tick `sin x` and `sin y`, and be patient: the spiral takes thousands of steps. For a harder test, try the spiral in the [playground](/playground/#nn) with 60 knobs or fewer: a few well-chosen inputs beat a big network.
 </Callout>
 
 <Quiz
   id="ml-nn-1"
-  q="A network with no hidden layer is stuck near 75% on the checkerboard. Why won't more training fix it?"
+  q="A network with no hidden layer is stuck far below solved on the checkerboard. Why won't more training fix it?"
   options={["The learning rate is too small", "It can only ever draw a straight boundary, and no straight line separates the checkerboard", "It needs more data"]}
   answer={1}
-  explain="The limit is the shape of the model, not the training. Every setting of its knobs draws a straight line, and the best any line can do is get three of the four quarters right. Change the model (hidden layer) or the inputs (xy); training harder changes nothing."
+  explain="The limit is the shape of the model, not the training. Every setting of its knobs draws a straight line, and no straight line separates the checkerboard: even the best one gets a whole quarter wrong. Change the model (hidden layer) or the inputs (xy); training harder changes nothing."
 />
 
 <Quiz

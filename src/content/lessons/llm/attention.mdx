@@ -32,7 +32,7 @@ The **arithmetic** is the real thing: query·key dot products, divided by √(si
 
 Things to notice:
 
-- Click **it**. The weight splits evenly between *panda* and *bamboo*. At that point in the sentence nothing has decided the question yet, so the honest answer is "one of these two".
+- Click **it**. *panda* and *bamboo* get exactly equal weight, about a third each, well ahead of every other word. At that point in the sentence nothing has decided the question yet, so the honest answer is "one of these two".
 - Click the last word. **hungry** looks back at *panda*. Switch the sentence and **tasty** looks back at *bamboo*. The word that settles the question is the one that does the looking.
 - Words can only look *left*. Language models write one token at a time, so a token is never allowed to peek at what comes after it. That's the striped half of the matrix.
 - **Sharpness** scales the scores before the softmax: higher makes a word commit to one target, lower spreads its attention out. It's the same idea as temperature in the previous lesson.

@@ -24,7 +24,7 @@ From the platform's own setup guide, measured rather than guessed:
 
 - **About 15 GB of free disk and 8 GB of RAM to spare.** With everything running (the heaviest profile, 50 pods) it measured **9.7 GB of images and 5.9 GB of memory**. The default profile uses less; that hasn't been measured separately.
 - **Admin rights** to install a container runtime. Docker Desktop is the tested default; Podman also works.
-- **The tools:** kind, Tilt, Helm, the Flux CLI, kubectl, Python 3 with PyYAML, and OpenSSL. The README's prerequisites table has the versions.
+- **The tools:** kind, Tilt, Helm, the Flux CLI, kubectl, Python 3 with PyYAML, OpenSSL and curl. The README's prerequisites table has the versions. You also need **Node.js with npm, and Google Chrome**, for the real-browser check that `platform.sh hello` and lab 01's grader run. The README's table doesn't list those yet.
 - **bash.** On Windows that means **Git Bash**, which comes with Git for Windows. The scripts don't run in PowerShell or cmd.
 
 Not sure? [Check what this device can run](/machine/).
@@ -49,7 +49,7 @@ Then prove it, rather than assuming:
 ./scripts/student-check.sh     # tools, daemon, disk, version skew, and a real request
 ```
 
-"It finished with no errors" and "it works" are different claims. That script tells them apart.
+"It finished with no errors" and "it works" are different claims. That script tells them apart. It doesn't check for Node.js or Chrome, so `node --version` and `npm --version` yourself.
 
 ## Profiles: start small
 
@@ -60,7 +60,7 @@ The platform comes up in tiers. `minimal` is the default:
 | `minimal` | Flux, Gateway API, Istio ambient, cert-manager, hello-world | the Kubernetes track; about 10 min |
 | `observability` | + Prometheus, Grafana, Loki, Tempo, Kiali, metrics-server | the dashboard and mesh lessons |
 | `gitops` | + Crossplane, Flagger, External Secrets, CloudNativePG | canaries and GitOps |
-| `full` | + every app you can toggle in `tilt-config.json` | the whole [tool atlas](/atlas/) |
+| `full` | reads the app toggles in `tilt-config.json` (all off until you turn them on) | the whole [tool atlas](/atlas/) |
 
 ```bash
 PROFILE=observability ./scripts/platform.sh up
@@ -72,10 +72,11 @@ URLs: `https://hello.localhost`, `https://grafana.localhost`, `https://kiali.loc
 
 ```bash
 ./scripts/platform.sh lab 09    # grade a lab
-./scripts/platform.sh reset     # destroy the cluster, start empty
+./scripts/platform.sh reset     # destroy the cluster, leave an empty one
+./scripts/platform.sh up        # rebuild the platform on it
 ```
 
-Breaking things is how the platform is meant to be used. `reset` makes that safe, but it isn't free: it re-downloads everything. Each lab's README has a cheaper way back.
+Breaking things is how the platform is meant to be used. `reset` makes that safe, but it isn't free. The `up` after it re-downloads everything, and a reset mints a new root certificate, so your OS asks you to trust it again. Each lab's README has a cheaper way back.
 
 <Quiz
   id="platform-home-1"

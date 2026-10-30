@@ -61,7 +61,15 @@ The comment box below shows what a browser builds from a comment, without ever r
 "Just strip `<script>`" fails, and the lab shows why: the dangerous part was an attribute on an image. Attackers have endless spellings. Block-lists lose. Putting text where only text can go wins.
 </Callout>
 
-OWASP's advice, in order: let your framework's automatic escaping do its job (most templating systems escape by default), use safe sinks like `textContent` instead of `innerHTML`, and add a Content Security Policy as a second layer. It's useful, but too easy to get wrong to be the main defence. Every framework also has an escape hatch, like React's `dangerouslySetInnerHTML`, and that's where these bugs live now.
+OWASP's advice, in order:
+
+- Let your framework's automatic escaping do its job (most templating systems escape by default).
+- Encode output for the place it lands.
+- If users genuinely need to write HTML, like the bold comment above, run it through a maintained sanitizer such as DOMPurify. Don't write your own filter.
+- Use safe sinks like `textContent` instead of `innerHTML`.
+- Add a Content Security Policy as a second layer. It's useful, but too easy to get wrong to be the main defence.
+
+Every framework also has an escape hatch, like React's `dangerouslySetInnerHTML`, and that's where these bugs live now.
 
 <Quiz
   id="sec-web-1"

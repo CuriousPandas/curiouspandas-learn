@@ -67,7 +67,7 @@ The broken build's pods start, and they pass their readiness probe. Readiness on
 
 ## What each one cost
 
-With the same broken build, the rolling update fails more and more requests as each batch of pods turns over, until everyone is on v3. Blue-green fails everything at once, and recovers as fast as someone flips the switch back - which makes it great when a person is watching and painful at 3am. The canary showed v3 to a quarter of traffic for three intervals, then backed out on its own.
+With the same broken build, the rolling update fails more and more requests as each batch of pods turns over, until everyone is on v3. Blue-green puts everyone on v3 at once, so 6% of every user's requests fail from the first second, and it recovers as fast as someone flips the switch back - which makes it great when a person is watching and painful at 3am. The canary showed v3 to a quarter of traffic for three intervals, then backed out on its own.
 
 None of them prevented the bad version from meeting users. They decide how many users, and whether a human has to be awake.
 
@@ -111,6 +111,8 @@ kubectl -n hello get canary hello -w          # never Ready: Failed, primary unc
 kubectl -n hello describe canary hello | tail -15
 ./scripts/platform.sh lab 06
 ```
+
+The bad version here is a different failure from the widget's v3: its image doesn't exist, so the pod never becomes Ready and Flagger fails the release at `progressDeadlineSeconds`, before it shifts any traffic. The widget's v3 is Ready and still wrong, which only the success-rate check can catch.
 
 Read the lab's "Leaving the lab" section before you move on: deleting the Canary alone leaves the route pointing at services that no longer exist.
 
