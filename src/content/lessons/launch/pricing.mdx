@@ -1,0 +1,89 @@
+---
+title: Pricing and the numbers that keep you alive
+summary: A low price feels safe and can quietly sink you. Work through the unit economics of one customer - margin, acquisition cost, churn, payback - and find a price that earns back what it cost to win them.
+minutes: 16
+xp: 45
+tiers: [browser]
+sources:
+  - title: Andreessen Horowitz - 16 Startup Metrics (LTV, CAC, churn definitions)
+    url: https://a16z.com/16-startup-metrics/
+---
+
+New founders often price low. It feels kind, it feels competitive, and it seems to make the first sale easier. The trouble shows up later, in a number most people never work out: whether a customer ever pays back what it cost to win them.
+
+## Two ways to set a price
+
+**Cost-plus:** add up what it costs you to serve a customer and add a margin. It's simple, and it guarantees you're not selling at a loss on each unit.
+
+**Value-based:** start from what the problem costs the customer. A shop owner who lost most of a weekend's orders to an outage isn't comparing your price with your server bill. They're comparing it with that weekend. Cost tells you the lowest price that makes sense; value tells you how high you can go.
+
+Whichever you start from, the price has to clear one test: does a customer bring in more than they cost?
+
+## The unit economics of one customer
+
+Andreessen Horowitz's *16 Startup Metrics* defines the pieces. In plain terms:
+
+- **CAC (customer acquisition cost):** the full cost of winning one customer, including ads, referral fees, credits and discounts.
+- **Gross profit per month:** price minus what it costs to serve that customer.
+- **Churn:** the share of customers who cancel each month. The a16z post puts the expected lifetime, in months, at 1 divided by monthly churn.
+- **LTV (lifetime value):** the profit from a customer over the relationship. The post's simple version is contribution margin multiplied by expected lifetime; here, gross profit per month stands in for contribution margin.
+- **Payback:** how many months of gross profit it takes to earn back the CAC.
+
+<Diagram
+  id="launch-unit-economics"
+  title="Where one customer's money goes"
+  desc="Each month a customer pays the price. The cost to serve them comes off first, leaving gross profit. That gross profit has to repay the acquisition cost before the customer leaves; only after payback does the customer contribute profit."
+  nodes={[
+    { id: 'price', label: 'price', sub: 'paid each month', x: 0, y: 0, kind: 'info' },
+    { id: 'serve', label: 'cost to serve', sub: 'servers, SMS, fees', x: 1, y: 0, kind: 'warn' },
+    { id: 'gross', label: 'gross profit', sub: 'price - cost', x: 2, y: 0 },
+    { id: 'cac', label: 'repays CAC', sub: 'month by month', x: 2, y: 1, kind: 'warn' },
+    { id: 'profit', label: 'profit', sub: 'only after payback', x: 1, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'price', to: 'serve', label: 'minus' },
+    { from: 'serve', to: 'gross', label: 'leaves' },
+    { from: 'gross', to: 'cac', label: 'first' },
+    { from: 'cac', to: 'profit', label: 'then' },
+  ]}
+  steps={[
+    { caption: 'A customer pays the price every month.', show: ['price'], focus: ['price'] },
+    { caption: 'Serving them costs something every month too. What is left is gross profit.', show: ['serve', 'gross', 'price->serve', 'serve->gross'], focus: ['gross'] },
+    { caption: 'Gross profit first pays back what it cost to win the customer. Until then, that customer has cost you money.', show: ['cac', 'gross->cac'], focus: ['cac'] },
+    { caption: 'Only after payback does the customer make you money - and they have to stay long enough to get there.', show: ['profit', 'cac->profit'], focus: ['profit'] },
+  ]}
+/>
+
+## Try it
+
+The numbers below belong to this toy shop, not to any industry: $1.50 a month to serve each customer, $60 to win one, and 5% of monthly customers cancelling each month. Change the price and the billing, and watch payback move.
+
+<PriceLab />
+
+<Callout kind="trap">
+At $3 a month every customer looks profitable: $3 in, $1.50 out. But at 5% churn the average customer stays 20 months and earns back only $30 of the $60 it took to win them. The business loses $30 on every new customer, so growing faster just loses money faster.
+</Callout>
+
+<Quiz
+  id="launch-pricing-1"
+  q="Price $7, cost to serve $1.50, CAC $60. How many months until a customer pays back?"
+  options={["About 8.6 months ($60 / $7)", "About 10.9 months ($60 / $5.50)", "40 months"]}
+  answer={1}
+  explain="Payback uses gross profit, not price: $7 - $1.50 = $5.50 a month, and $60 / $5.50 is about 10.9 months. Dividing by the price ignores what it costs to serve them."
+/>
+
+## Annual billing moves the cash forward
+
+Offering a year upfront at a discount (here, a year for the price of ten months) changes when the money arrives. At $6 a month the annual payment is $60, which covers the cost of winning that customer on day one. That cash can fund winning the next customer, rather than waiting a year for each one to pay back.
+
+<Quiz
+  id="launch-pricing-2"
+  q="Your churn is higher than you assumed. What happens to lifetime value?"
+  options={["It goes up", "It goes down, because customers stay fewer months", "Nothing - churn only affects growth"]}
+  answer={1}
+  explain="Expected lifetime is 1 divided by monthly churn. Double the churn and you halve the lifetime, so the same price earns half the lifetime value."
+/>
+
+<Callout kind="real">
+Real numbers come from your own data, and early on you won't have much: a few customers, a guessed churn rate. That's fine. The habit that matters is writing the formula down and putting your best numbers in it before you pick a price, so you know which assumption to check first.
+</Callout>

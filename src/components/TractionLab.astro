@@ -1,0 +1,99 @@
+---
+import '../styles/widgets.css';
+import { CHANNELS } from '../lib/launch/traction.ts';
+---
+<div class="widget card traction-lab" data-traction>
+  <div class="widget-head">
+    <strong>Launch month</strong>
+    <span class="pill info">illustrative rates, not benchmarks</span>
+  </div>
+  <div class="controls">
+    <label>Where to launch
+      <select data-channel>{Object.entries(CHANNELS).map(([id, c]) => <option value={id}>{c.label}</option>)}</select>
+    </label>
+    <label><input type="checkbox" data-byhand /> set up their first check with them (30 min each)</label>
+    <button class="btn small primary" type="button" data-launch>Launch</button>
+  </div>
+  <p class="tr-detail muted" data-detail>{CHANNELS['big-launch'].detail}</p>
+  <div class="tr-grid">
+    <div class="tr-main">
+      <div class="tr-scroll" tabindex="0" role="region" aria-label="Launch results">
+        <table class="tr-table">
+          <thead><tr><th scope="col">Launch</th><th scope="col">Sign-ups</th><th scope="col">Set up a check</th><th scope="col">Active in week 4</th><th scope="col">Your hours</th></tr></thead>
+          <tbody data-rows><tr class="tr-empty"><td colspan="5">No launches yet.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="tr-decide">
+        <label>Put next month into
+          <select data-choose>{Object.entries(CHANNELS).map(([id, c]) => <option value={id}>{c.label}</option>)}</select>
+        </label>
+        <button class="btn small" type="button" data-pick>Choose</button>
+        <p class="tr-verdict" data-verdict aria-live="polite"></p>
+      </div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { launch, bestChannel, CHANNELS, type Channel } from '../lib/launch/traction.ts';
+  import { TRACTION_MISSION } from '../lib/launch/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const SHORT: Record<Channel, string> = { 'big-launch': 'Big launch', forum: 'Their forum', ads: 'Paid ads' };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-traction]')) {
+    const state = TRACTION_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), TRACTION_MISSION, () => state, () => {});
+    const channelIn = q<HTMLSelectElement>('[data-channel]');
+    channelIn.addEventListener('change', () => { q('[data-detail]').textContent = CHANNELS[channelIn.value as Channel].detail; });
+
+    q('[data-launch]').addEventListener('click', () => {
+      const l = launch(q<HTMLSelectElement>('[data-channel]').value as Channel, q<HTMLInputElement>('[data-byhand]').checked ? 'by-hand' : 'self');
+      state.launches.push(l);
+      q('[data-rows]').replaceChildren(...state.launches.map((x) => el('tr', {},
+        el('th', { scope: 'row' }, `${SHORT[x.channel]}${x.onboarding === 'by-hand' ? ' + by hand' : ''}`),
+        el('td', {}, String(x.signups)), el('td', {}, String(x.activated)),
+        el('td', { class: 'tr-key' }, String(x.retained)), el('td', {}, x.hours ? String(x.hours) : '-'))));
+      refresh();
+    });
+
+    q('[data-pick]').addEventListener('click', () => {
+      const ch = q<HTMLSelectElement>('[data-choose]').value as Channel;
+      state.chosen = ch;
+      const tried = state.launches.some((l) => l.channel === ch);
+      const v = q('[data-verdict]');
+      const right = ch === bestChannel() && tried;
+      v.textContent = !tried ? `Launch there first - you have no numbers for "${CHANNELS[ch].label}" yet.`
+        : right ? 'Yes. Fewer sign-ups, more people still using it a month later - and few enough that you can help each one by hand.'
+        : 'More sign-ups, fewer people still using it in week four. Sign-ups measure your launch post; week four measures your product.';
+      v.className = `tr-verdict ${right ? 'ok' : 'bad'}`;
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the rows are built by the script. */
+  .traction-lab .controls label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .traction-lab select { font: inherit; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; }
+  .traction-lab .tr-detail { margin: 0; font-size: 0.86rem; }
+  .traction-lab .tr-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .traction-lab .tr-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .traction-lab .tr-main { min-width: 0; }
+  .traction-lab .tr-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .traction-lab .tr-table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+  .traction-lab .tr-table th, .traction-lab .tr-table td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .traction-lab .tr-table th:first-child { text-align: left; }
+  .traction-lab .tr-table thead th { font-size: 0.78rem; color: var(--ink-2); }
+  .traction-lab .tr-key { font-weight: 750; color: var(--bamboo); }
+  .traction-lab .tr-empty td { text-align: left; color: var(--ink-2); }
+  .traction-lab .tr-decide { margin-top: 12px; display: grid; gap: 8px; }
+  .traction-lab .tr-decide label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.92rem; }
+  .traction-lab .tr-decide .btn { justify-self: start; }
+  .traction-lab .tr-verdict { margin: 0; font-size: 0.92rem; }
+  .traction-lab .tr-verdict:empty { display: none; }
+  .traction-lab .tr-verdict.ok { color: var(--bamboo); font-weight: 650; }
+  .traction-lab .tr-verdict.bad { color: var(--berry); }
+</style>

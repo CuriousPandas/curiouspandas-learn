@@ -1,0 +1,90 @@
+---
+title: Is the problem real?
+summary: Everyone you ask will say your idea is great. Learn to ask about what already happened instead - and watch five polite yeses turn into two real problems.
+minutes: 15
+xp: 40
+tiers: [browser]
+sources:
+  - title: Rob Fitzpatrick - The Mom Test (How to talk to customers & learn if your business is a good idea when everyone is lying to you)
+    url: https://www.momtestbook.com/
+  - title: Paul Graham - How to Get Startup Ideas
+    url: https://paulgraham.com/startupideas.html
+---
+
+You have an idea. Before you build it, you want to know if it solves a problem people actually have. So you ask them: *"Would you use an app that does this?"*
+
+They say yes. Nearly everyone does. It costs nothing to be encouraging, and most people would rather not disappoint you. Rob Fitzpatrick's book on customer interviews is called *The Mom Test* for exactly this reason, and its subtitle states the problem: how to learn if your business is a good idea "when everyone is lying to you". They aren't lying to be cruel. They're being kind.
+
+The fix isn't finding more honest people. It's asking questions that a kind answer can't distort.
+
+## Opinions versus evidence
+
+A question about **your idea**, **their opinion**, or **what they would do one day** invites a guess about the future, and a guess costs the person nothing. A question about **what already happened** has a true answer, and the true answer is different for every person.
+
+<Diagram
+  id="launch-opinion-vs-evidence"
+  title="Two kinds of question"
+  desc="Questions about your idea or the future lead to compliments and promises, which are weak evidence. Questions about what already happened - the last time, what they do today, what they spent - lead to facts, which are strong evidence."
+  nodes={[
+    { id: 'you', label: 'your question', sub: 'pick one kind', x: 0, y: 0, kind: 'info' },
+    { id: 'idea', label: 'about the idea', sub: 'would you, do you like', x: 1, y: 0, kind: 'warn' },
+    { id: 'kind', label: 'compliments', sub: 'free to give', x: 2, y: 0, kind: 'warn' },
+    { id: 'past', label: 'about the past', sub: 'what already happened', x: 1, y: 1, kind: 'ok' },
+    { id: 'facts', label: 'facts', sub: 'different per person', x: 2, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'you', to: 'idea' },
+    { from: 'idea', to: 'kind', label: 'invites' },
+    { from: 'you', to: 'past' },
+    { from: 'past', to: 'facts', label: 'reveals' },
+  ]}
+  steps={[
+    { caption: 'Every interview is a series of choices about what to ask.', show: ['you'], focus: ['you'] },
+    { caption: '"Would you use it?" and "How much would you pay?" ask for a prediction. People predict generously.', show: ['idea', 'you->idea', 'kind', 'idea->kind'], focus: ['kind'] },
+    { caption: '"When did it last happen? What do you do about it today? What have you spent?" ask for memories. Memories are specific.', show: ['past', 'you->past', 'facts', 'past->facts'], focus: ['facts'] },
+  ]}
+/>
+
+The strongest evidence of all is **money or time already spent**. Someone paying for a clumsy workaround, or doing the same tedious check every morning, has the problem badly enough to act on it. That's the kind of person who might pay you to fix it.
+
+## Try it
+
+The idea is an app that tells small online shops when their site goes down. Start with the script you'd probably write first, then fix it.
+
+<InterviewLab />
+
+<Callout kind="trap">
+"How much would you pay?" sounds like a hard, commercial question. It's still a prediction, and it gets a generous number. The useful version is "What have you spent on this?", because it has a real answer, and that answer is often nothing.
+</Callout>
+
+<Quiz
+  id="launch-validate-1"
+  q="Which question gives you the most reliable evidence that someone has the problem?"
+  options={["Would you use an app that fixes this?", "What did you do about it the last time it happened?", "How much would you pay for a fix?"]}
+  answer={1}
+  explain="It asks about something that already happened, so it has a true answer. The other two ask the person to predict their future behaviour, which people tend to do generously."
+/>
+
+## Good problems are ones people already fight
+
+Paul Graham's essay *How to Get Startup Ideas* argues that the best ideas usually come from problems the founders have themselves, rather than ones they made up because they sounded like startups. That's the same test from the other side. If a problem is real, someone is already living with it, and you can ask them how.
+
+Some things to listen for:
+
+- **A workaround:** a spreadsheet, a manual check, a tool used for something it wasn't built for.
+- **Money already spent:** even on something that works badly.
+- **Detail:** "Black Friday, six hours, customers emailed me" is a real memory. "Yeah, that happens sometimes" usually isn't.
+
+And some things to discount: compliments, "I'd definitely use that", and promises about next month.
+
+<Quiz
+  id="launch-validate-2"
+  q="Five people loved your pitch. Two of them already pay for a workaround. What have you learned?"
+  options={["You have five interested customers", "At least two people have the problem badly enough to act on it - start with them", "The idea is validated; start building everything"]}
+  answer={1}
+  explain="The five compliments cost nothing. The two workarounds cost money and time, so they're real. Two is a smaller number, but it's one you can build on - talk to them again, and find more people like them."
+/>
+
+<Callout kind="real">
+Real interviews are conversations, not scripts. You follow up ("Why did you stop using that?"), you let silences sit, and you talk much less than you listen. The simulator only shows the core move: trade questions about your idea for questions about their life.
+</Callout>

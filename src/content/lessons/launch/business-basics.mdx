@@ -1,0 +1,112 @@
+---
+title: "The boring essentials: company, terms, taxes"
+summary: The paperwork nobody puts in the launch post - a business structure, terms and a privacy policy, invoices and records, sales tax, and the licences of the code you ship. A checklist of questions to answer, with official links for the US, UK and India.
+minutes: 14
+xp: 35
+tiers: [browser]
+sources:
+  - title: U.S. Small Business Administration - Choose a business structure
+    url: https://www.sba.gov/business-guide/launch-your-business/choose-business-structure
+  - title: U.S. Small Business Administration - Pay taxes
+    url: https://www.sba.gov/business-guide/manage-your-business/pay-taxes
+  - title: GOV.UK - Set up a business
+    url: https://www.gov.uk/set-up-business
+  - title: GOV.UK - Register for VAT (when you must register)
+    url: https://www.gov.uk/vat-registration
+  - title: Government of India - Ministry of Corporate Affairs (company registration)
+    url: https://www.mca.gov.in/
+  - title: Government of India - Goods and Services Tax portal
+    url: https://www.gst.gov.in/
+  - title: General Data Protection Regulation, Article 3 - territorial scope (official text, EUR-Lex)
+    url: https://eur-lex.europa.eu/eli/reg/2016/679/oj
+  - title: European Commission - One Stop Shop (who can use the OSS schemes)
+    url: https://vat-one-stop-shop.ec.europa.eu/one-stop-shop_en
+  - title: Choose an open source license
+    url: https://choosealicense.com/
+---
+
+<Callout kind="trap" title="Not legal, tax or financial advice">
+This lesson is general information to help you ask the right questions. The rules depend on your country, and often your state or region, and they change. Before you rely on any of it, check the official source for where you live and talk to a qualified accountant or lawyer about your situation.
+</Callout>
+
+None of this is exciting, and all of it is easier to get right at the start than to fix later. Treat it as a checklist of questions to answer, not a list of answers.
+
+## 1. Your business structure
+
+When you start selling, you're already some kind of business. The U.S. Small Business Administration says you're automatically a sole proprietorship if you do business activities but don't register as anything else, and that a sole proprietorship doesn't create a separate business entity: "your business assets and liabilities are not separate from your personal assets and liabilities." Structures such as an LLC or a corporation separate them, at the cost of more paperwork and fees.
+
+The UK's equivalent guidance, *Set up a business* on GOV.UK, notes that most businesses register as a sole trader or a limited company, and compares the legal risk, registration and taxes of each. In India, company registration is handled by the Ministry of Corporate Affairs.
+
+**Questions to answer:** Does my structure protect my personal assets if something goes wrong? What do I have to file each year? When would I need to change structure?
+
+## 2. Terms and privacy
+
+**Terms of service** set out what you provide, what customers may do, how they pay, how they cancel, and what you're not responsible for. **A privacy policy** says what personal data you collect, why, who you share it with, and how people can ask for it to be deleted.
+
+Privacy law can apply even to a tiny site in another country. Article 3 of the EU's General Data Protection Regulation covers businesses "not established in the Union" when they process the personal data of people in the EU in connection with offering them goods or services, whether or not they pay, or when they monitor people's behaviour. An email address on a sign-up form is personal data.
+
+**Questions to answer:** What personal data do I actually need? Where is it stored? Which laws apply to the people I sell to?
+
+## 3. Getting paid, and keeping records
+
+Send proper invoices, keep every receipt, and keep records of income and expenses from the first sale. It makes tax returns possible and disputes winnable. **Keep business money separate from personal money:** with a sole proprietorship the law doesn't separate them, so your bookkeeping has to.
+
+<Diagram
+  id="launch-money-flow"
+  title="Where a payment goes"
+  desc="A customer pays through a payment processor into a business bank account. From there, money is set aside for taxes, pays the business's expenses, and only what is left is yours to pay yourself."
+  nodes={[
+    { id: 'customer', label: 'customer', sub: 'pays an invoice', x: 0, y: 0, kind: 'info' },
+    { id: 'processor', label: 'card processor', sub: 'takes a fee', x: 1, y: 0 },
+    { id: 'account', label: 'business account', sub: 'not your personal one', x: 2, y: 0, kind: 'ok' },
+    { id: 'tax', label: 'tax set aside', sub: 'sales tax, income tax', x: 2, y: 1, kind: 'warn' },
+    { id: 'you', label: 'what is left', sub: 'after costs and tax', x: 1, y: 1 },
+  ]}
+  edges={[
+    { from: 'customer', to: 'processor', label: 'pays' },
+    { from: 'processor', to: 'account', label: 'settles' },
+    { from: 'account', to: 'tax', label: 'first' },
+    { from: 'account', to: 'you', label: 'then' },
+  ]}
+  steps={[
+    { caption: 'A customer pays. Usually through a card processor, which keeps a fee.', show: ['customer', 'processor', 'customer->processor'], focus: ['processor'] },
+    { caption: 'The money lands in an account that is only for the business, so records stay clean.', show: ['account', 'processor->account'], focus: ['account'] },
+    { caption: 'Some of it was never yours: sales tax collected for the government, and tax owed on profit. Set it aside as it arrives.', show: ['tax', 'account->tax'], focus: ['tax'] },
+    { caption: 'What remains after expenses and tax is what the business can actually pay you.', show: ['you', 'account->you'], focus: ['you'] },
+  ]}
+/>
+
+## 4. Sales tax and VAT
+
+Selling to consumers often means collecting tax on the sale and paying it on.
+
+- **US:** the SBA's *Pay taxes* guide says a business has federal, state and local tax obligations, and that tax laws vary by location and business structure. Check your state's rules on sales tax for what you sell.
+- **UK:** GOV.UK says you must register for VAT if your taxable turnover for the last 12 months goes over £90,000, or you expect it to go over £90,000 in the next 30 days.
+- **India:** Goods and Services Tax is administered through the GST portal.
+- **EU:** selling to consumers in EU countries can mean owing VAT in those countries. The EU's One Stop Shop schemes let a business declare and pay that VAT through one portal, and the European Commission says they're open to businesses established outside the EU as well as inside it.
+
+**Questions to answer:** Where are my customers? Which taxes apply to selling to them? At what threshold do I have to register?
+
+## 5. The licences of the code you ship
+
+Your product is built on other people's code, and every open-source dependency comes with a licence. Most permissive licences ask only that you keep their notices. Some copyleft licences place conditions on how you distribute software built with them. *Choose an open source license* explains the common licences in plain terms. Know what you depend on before a customer, investor or buyer asks.
+
+<Quiz
+  id="launch-basics-1"
+  q="You sell a small app from the US and have never registered a business. What are you, according to the SBA?"
+  options={["Nothing - it's a hobby until you register", "A sole proprietorship, with no separation between business and personal liabilities", "An LLC by default"]}
+  answer={1}
+  explain="The SBA says you're automatically a sole proprietorship if you do business activities without registering as anything else, and that this doesn't create a separate business entity."
+/>
+
+<Quiz
+  id="launch-basics-2"
+  q="Your app is run from India and has EU users who sign up with their email. Could the GDPR apply?"
+  options={["No - it only applies to EU companies", "Yes - Article 3 covers businesses outside the EU that offer goods or services to people in the EU", "Only if they pay"]}
+  answer={1}
+  explain="Article 3 extends the regulation to businesses not established in the EU when they process EU residents' personal data while offering them goods or services, whether or not payment is required."
+/>
+
+<Callout kind="real">
+Most of this is a one-time setup plus a monthly habit: one session with an accountant to choose a structure and understand your tax obligations, then a small block of time each month for invoices and records. It's cheap insurance compared with untangling a year of mixed personal and business money later.
+</Callout>

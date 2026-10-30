@@ -1,0 +1,83 @@
+---
+import '../styles/widgets.css';
+import { FEATURES, ROADMAP } from '../lib/launch/scope.ts';
+---
+<div class="widget card scope-cut" data-scope>
+  <div class="widget-head">
+    <strong>Scope cutter</strong>
+    <span class="pill info">riskiest assumption: will owners pay?</span>
+  </div>
+  <div class="controls">
+    <button class="btn small" type="button" data-roadmap>Full roadmap</button>
+    <button class="btn small" type="button" data-clear>Clear</button>
+  </div>
+  <fieldset class="sc-list">
+    <legend class="eyebrow">What you build first</legend>
+    {FEATURES.map((f) => (
+      <label class={f.byHand ? 'by-hand' : ''}>
+        <input type="checkbox" value={f.id} checked={ROADMAP.includes(f.id)} />
+        <span class="sc-name">{f.label}</span>
+        <span class="sc-days">{f.days} {f.days === 1 ? 'day' : 'days'}</span>
+      </label>
+    ))}
+  </fieldset>
+  <div class="controls"><button class="btn small primary" type="button" data-check>Check this plan</button></div>
+  <div class="sc-grid">
+    <div class="sc-main">
+      <p class="sc-total" data-total aria-live="polite">Pick features, then check the plan.</p>
+      <ul class="sc-needs" data-needs aria-label="What the plan can test"></ul>
+      <p class="sc-extras" data-extras></p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { evaluate, ROADMAP, NEED_LABEL, type Need } from '../lib/launch/scope.ts';
+  import { SCOPE_MISSION } from '../lib/launch/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-scope]')) {
+    const state = SCOPE_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), SCOPE_MISSION, () => state, () => {});
+    const boxes = [...root.querySelectorAll<HTMLInputElement>('.sc-list input')];
+    q('[data-roadmap]').addEventListener('click', () => boxes.forEach((b) => { b.checked = ROADMAP.includes(b.value); }));
+    q('[data-clear]').addEventListener('click', () => boxes.forEach((b) => { b.checked = false; }));
+
+    q('[data-check]').addEventListener('click', () => {
+      const plan = evaluate(boxes.filter((b) => b.checked).map((b) => b.value));
+      state.plans.push(plan);
+      const weeks = plan.days / 5;
+      const t = q('[data-total]');
+      t.textContent = `${plan.days} working day${plan.days === 1 ? '' : 's'} (about ${weeks < 1 ? 'one day' : `${weeks.toFixed(weeks < 2 ? 1 : 0)} weeks`}) before the first customer can answer. ${plan.learns ? 'This plan tests the riskiest assumption.' : 'This plan cannot tell you whether owners will pay.'}`;
+      t.className = `sc-total ${plan.learns ? 'ok' : 'bad'}`;
+      q('[data-needs]').replaceChildren(...(Object.keys(NEED_LABEL) as Need[]).map((n) =>
+        el('li', { class: plan.covers[n] ? 'ok' : 'bad' }, el('span', { class: 'sc-mark' }, plan.covers[n] ? 'yes' : 'no'), ` ${NEED_LABEL[n]}`)));
+      q('[data-extras]').textContent = plan.extras.length ? `Not needed to test it yet: ${plan.extras.join(', ')}.` : '';
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the results are built by the script. */
+  .scope-cut .sc-list { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 10px 0; display: grid; gap: 4px; min-width: 0; }
+  .scope-cut .sc-list label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 0.92rem; cursor: pointer; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+  .scope-cut .sc-list label:last-of-type { border-bottom: 0; }
+  /* Manual options are marked by a gold left rule; their labels already say "by hand". */
+  .scope-cut .sc-list label.by-hand { box-shadow: inset 3px 0 0 var(--sun); padding-left: 8px; }
+  .scope-cut .sc-days { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 0.85rem; white-space: nowrap; }
+  .scope-cut .sc-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .scope-cut .sc-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); } }
+  .scope-cut .sc-main { min-width: 0; }
+  .scope-cut .sc-total { margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .scope-cut .sc-total.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .scope-cut .sc-total.bad { background: var(--berry-soft); color: var(--berry); }
+  .scope-cut .sc-needs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 0.92rem; }
+  .scope-cut .sc-mark { display: inline-block; min-width: 2.4em; text-align: center; font-size: 0.75rem; font-weight: 700; padding: 1px 6px; border-radius: 99px; }
+  .scope-cut .sc-needs .ok .sc-mark { background: var(--bamboo-soft); color: var(--bamboo); }
+  .scope-cut .sc-needs .bad .sc-mark { background: var(--berry-soft); color: var(--berry); }
+  .scope-cut .sc-extras { margin: 8px 0 0; font-size: 0.86rem; color: var(--ink-2); }
+  .scope-cut .sc-extras:empty { display: none; }
+</style>
