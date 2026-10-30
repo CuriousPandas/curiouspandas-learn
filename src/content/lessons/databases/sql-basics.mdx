@@ -1,0 +1,117 @@
+---
+title: Tables, queries and joins
+summary: Ask a real SQLite database questions about a small zoo - and catch the two queries that return a tidy table, no error, and the wrong answer.
+minutes: 16
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: SQLite - SELECT (joins, GROUP BY, ORDER BY)
+    url: https://www.sqlite.org/lang_select.html
+  - title: SQLite - aggregate functions, count(X) and count(*)
+    url: https://www.sqlite.org/lang_aggfunc.html
+  - title: PostgreSQL 17 tutorial - joins between tables (outer joins)
+    url: https://www.postgresql.org/docs/17/tutorial-join.html
+  - title: sql.js - SQLite compiled to WebAssembly
+    url: https://github.com/sql-js/sql.js
+  - title: SQLite - most widely deployed database engine
+    url: https://www.sqlite.org/mostdeployed.html
+---
+
+A relational database keeps data in **tables**: rows of the same shape, each column with a name. You don't tell it *how* to find anything. You describe the rows you want in **SQL**, and the database works out how to get them.
+
+The console below runs **real SQLite**, the database built into every phone and browser, compiled to WebAssembly and running in your tab. There's no server and nothing to install, and nothing you type leaves your machine.
+
+The zoo has three tables:
+
+- `keepers`: who works here, and on which shift.
+- `pandas`: each panda, with a `keeper_id` saying who looks after it.
+- `feedings`: what each panda ate, how much, and on which day.
+
+## Four words do most of the work
+
+```sql
+SELECT name, age          -- which columns
+FROM pandas               -- from which table
+WHERE age > 10            -- which rows
+ORDER BY age DESC;        -- in what order
+```
+
+Without `ORDER BY`, rows come back in whatever order is cheapest for the database. That's often the order they were inserted, until one day it isn't. If order matters, say so.
+
+`GROUP BY` folds rows that share a value into one row, so you can total them: `SUM(kg)`, `COUNT(...)`, `AVG(age)`.
+
+## Joins: one question, two tables
+
+Each panda row stores its keeper's `id`, not their name. To show names you **join** the tables on that key:
+
+<Diagram
+  id="db-join-kinds"
+  title="Two ways to line up pandas and keepers"
+  desc="Each panda row has a keeper_id. A join matches it to the keeper with the same id. A plain JOIN keeps only pandas that found a keeper, so Pip, who has none yet, disappears. A LEFT JOIN keeps every panda and fills the keeper columns with NULL when there is no match."
+  nodes={[
+    { id: 'pandas', label: 'pandas', sub: 'keeper_id', x: 0, y: 0, kind: 'info' },
+    { id: 'match', label: 'match rows', sub: 'keeper_id = id', x: 1, y: 0 },
+    { id: 'keepers', label: 'keepers', sub: 'id', x: 2, y: 0, kind: 'info' },
+    { id: 'inner', label: 'JOIN', sub: 'matched rows only', x: 1, y: 1, kind: 'warn' },
+    { id: 'left', label: 'LEFT JOIN', sub: 'every panda, NULLs', x: 2, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'pandas', to: 'match', label: 'each panda' },
+    { from: 'keepers', to: 'match', label: 'each keeper' },
+    { from: 'match', to: 'inner', label: 'Pip dropped' },
+    { from: 'match', to: 'left', label: 'Pip kept' },
+  ]}
+  steps={[
+    { caption: 'Each panda row stores a keeper_id, not a name. Each keeper row has an id.', show: ['pandas', 'keepers'], focus: ['pandas', 'keepers'] },
+    { caption: 'A join pairs every panda with the keeper whose id equals its keeper_id.', show: ['match', 'pandas->match', 'keepers->match'], focus: ['match'] },
+    { caption: 'A plain JOIN (an inner join) keeps only pairs that matched. Pip has no keeper yet, so Pip silently disappears from the answer.', show: ['inner', 'match->inner'], focus: ['inner'] },
+    { caption: 'A LEFT JOIN keeps every row from the left table. Where nothing matched, the keeper columns are NULL. Pip stays.', show: ['left', 'match->left'], focus: ['left'] },
+  ]}
+/>
+
+<DbConsole dataset="zoo" mission="db-zoo" title="The zoo database" starter="SELECT * FROM pandas;" />
+
+<Callout kind="trap">
+`COUNT(*)` counts rows. `COUNT(p.id)` counts rows where `p.id` isn't NULL (SQLite's own documentation draws exactly this distinction). After a `LEFT JOIN`, a keeper with no pandas still produces one row, full of NULLs, so `COUNT(*)` reports 1. A report that says every keeper looks after at least one panda is the kind of mistake nobody notices for months.
+</Callout>
+
+<Quiz
+  id="db-sql-1"
+  q="A query with a plain JOIN returns 7 pandas, but the pandas table has 8 rows. What is the most likely reason?"
+  options={["The database lost a row", "One panda has no matching row in the other table, so the inner join dropped it", "The query needs ORDER BY"]}
+  answer={1}
+  explain="An inner join only keeps rows that found a partner. Rows with a NULL or unmatched key vanish without an error. Use a LEFT JOIN when every row from one side must appear."
+/>
+
+<Quiz
+  id="db-sql-2"
+  q="Why add ORDER BY when the rows already come back in the order you want?"
+  options={["It makes the query faster", "Without it the order is whatever is cheapest for the database, and that can change with an index or an upgrade", "SQL requires it with WHERE"]}
+  answer={1}
+  explain="Without ORDER BY, SQL promises a set of rows, not an order. Today's order is an accident of how the data is stored, and a new index can change it."
+/>
+
+<Callout kind="real">
+Production databases such as PostgreSQL, MySQL and SQL Server speak the same SQL for everything in this lesson. SQLite is real too: it's the most widely deployed database engine there is, inside every Android and iOS phone and every major browser. What it doesn't do is serve many users over a network, which is where a database server comes in.
+</Callout>
+
+<DoItForReal id="db-sql-real" needs="terminal">
+
+macOS and most Linux systems ship the `sqlite3` shell (on Debian or Ubuntu: `sudo apt install sqlite3`). Try the `COUNT` trap on your own machine:
+
+```bash
+sqlite3 :memory:
+```
+
+```sql
+.mode box
+CREATE TABLE keepers (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE pandas (id INTEGER PRIMARY KEY, name TEXT, keeper_id INTEGER);
+INSERT INTO keepers VALUES (1, 'Mei'), (2, 'Ravi');
+INSERT INTO pandas VALUES (1, 'Bao', 1), (2, 'Lin', 1);
+SELECT k.name, COUNT(*), COUNT(p.id) FROM keepers k LEFT JOIN pandas p ON p.keeper_id = k.id GROUP BY k.id;
+```
+
+Ravi's row shows `1` and `0` side by side.
+
+</DoItForReal>

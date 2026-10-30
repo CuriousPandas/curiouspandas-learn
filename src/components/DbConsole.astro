@@ -1,0 +1,180 @@
+---
+// A real SQLite console. The query runs in a Web Worker (src/lib/db/worker.ts)
+// against a dataset built on load, and the plan shown is SQLite's own.
+import '../styles/widgets.css';
+interface Props { dataset: 'zoo' | 'shop'; mission?: string; title?: string; starter?: string }
+const { dataset, mission = '', title = 'SQL console', starter = '' } = Astro.props;
+---
+<div class="widget card db-console" data-db-console data-dataset={dataset} data-mission={mission} data-starter={starter}>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info">real SQLite, in your browser</span>
+    <span class="spacer"></span>
+    <button class="btn small" type="button" data-reset>Reset data</button>
+  </div>
+  <p class="db-status muted small" data-status aria-live="polite">Loading SQLite...</p>
+  <div class="db-grid">
+    <div class="db-main">
+      <div data-term></div>
+      <div class="db-plan" data-plan hidden></div>
+      <div class="db-result" data-result></div>
+    </div>
+    <div class="db-side">
+      <div class="db-schema" data-schema></div>
+      <div data-mission-panel hidden></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { DbClient, DEADLINE_MS, type Reply } from '../lib/db/client.ts';
+  import { shown, MAX_ROWS, type StmtResult, type Dataset } from '../lib/db/engine.ts';
+  import { DB_MISSIONS, type SqlState } from '../lib/db/missions.ts';
+  import { mountTerminal, mountMission, el, type TermLine } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const ms = (t: number) => (t < 1 ? `${t.toFixed(2)} ms` : `${t.toFixed(t < 10 ? 1 : 0)} ms`);
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-db-console]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const dataset = root.dataset.dataset as Dataset;
+    const mission = DB_MISSIONS[root.dataset.mission as keyof typeof DB_MISSIONS];
+    const state: SqlState = { runs: [] };
+    let refreshMission = () => {};
+    const status = q('[data-status]');
+    let busy = false;
+    let client: DbClient | undefined;
+
+    const drawSchema = (r: Reply) => {
+      const box = q('[data-schema]');
+      box.replaceChildren(el('span', { class: 'eyebrow' }, 'Tables'));
+      for (const t of r.schema) box.append(el('p', {}, el('code', { class: 'db-table' }, t.table), ' ', el('span', { class: 'muted small' }, t.columns.join(', '))));
+      box.append(el('span', { class: 'eyebrow' }, 'Indexes you made'));
+      box.append(r.indexes.length ? el('ul', {}, ...r.indexes.map((s) => el('li', {}, el('code', {}, s)))) : el('p', { class: 'muted small' }, 'None yet. Primary keys are indexed automatically.'));
+    };
+
+    const drawPlan = (s: StmtResult | undefined) => {
+      const box = q('[data-plan]');
+      if (!s?.plan?.length) { box.hidden = true; return; }
+      box.hidden = false;
+      const verdict = s.scanned
+        ? el('p', { class: 'db-scan' }, `Read every row of ${s.scanned.table}: ${fmt(s.scanned.rows)} rows, to return ${fmt(s.total ?? 0)}.`)
+        : el('p', { class: 'db-search' }, `No full table read: SQLite went straight to the rows it needed.`);
+      box.replaceChildren(el('span', { class: 'eyebrow' }, `Query plan · ${ms(s.ms)}`), el('pre', {}, s.plan.join('\n')), verdict);
+    };
+
+    const drawRows = (s: StmtResult | undefined) => {
+      const box = q('[data-result]');
+      if (!s?.columns) { box.replaceChildren(); return; }
+      const table = el('table');
+      const cap = s.total! > MAX_ROWS ? `First ${MAX_ROWS} of ${fmt(s.total!)} rows` : `${fmt(s.total!)} row${s.total === 1 ? '' : 's'}`;
+      table.append(el('caption', {}, cap));
+      const head = table.createTHead().insertRow();
+      for (const c of s.columns) head.append(el('th', { scope: 'col' }, c));
+      const body = table.createTBody();
+      for (const row of s.rows ?? []) {
+        const tr = body.insertRow();
+        for (const v of row) { const td = tr.insertCell(); if (v === null) { td.className = 'null'; td.textContent = 'NULL'; } else td.textContent = String(v); }
+      }
+      box.replaceChildren(table);
+    };
+
+    const execute = async (sql: string) => {
+      if (!client) return;
+      busy = true;
+      status.textContent = 'Running...';
+      const reply = await client.run(sql);
+      busy = false;
+      status.textContent = 'Ready.';
+      drawSchema(reply);
+      if (reply.stopped) {
+        term.print([{ text: `Stopped after ${DEADLINE_MS / 1000} s. The query was still running, so the database was reset to its starting data.`, kind: 'err' }]);
+        drawPlan(undefined); drawRows(undefined);
+        state.runs.push({ sql, error: 'stopped' });
+        return refreshMission();
+      }
+      const r = reply.result!;
+      const out: TermLine[] = [];
+      for (const st of r.statements) {
+        if (st.columns) out.push({ text: `${fmt(st.total!)} row${st.total === 1 ? '' : 's'} in ${ms(st.ms)}${st.scanned ? ` - read all ${fmt(st.scanned.rows)} rows of ${st.scanned.table}` : ''}`, kind: 'out' });
+        else out.push({ text: `${st.sql.split(/\s+/).slice(0, 2).join(' ').toUpperCase()}: done in ${ms(st.ms)}${st.changed ? ` (${fmt(st.changed)} rows)` : ''}`, kind: 'out' });
+      }
+      if (r.error) out.push({ text: `Error: ${r.error}`, kind: 'err' });
+      term.print(out);
+      const main = shown(r);
+      drawPlan(main); drawRows(main);
+      state.runs.push({ sql, result: main, error: r.error });
+      refreshMission();
+    };
+
+    const term = mountTerminal(q('[data-term]'), {
+      prompt: 'sqlite>',
+      greeting: ['Type SQL and press Enter. .tables lists the tables, .reset reloads the data.', ...(root.dataset.starter ? [`Try: ${root.dataset.starter}`] : [])],
+      onCommand: (line) => {
+        const cmd = line.trim();
+        if (!cmd) return [];
+        if (busy) return [{ text: 'Still running the last query...', kind: 'dim' }];
+        if (cmd === '.tables') { void client?.ready.then((r) => term.print([{ text: r.schema.map((t) => t.table).join('  '), kind: 'out' }])); return []; }
+        if (cmd === '.reset') { void reset(); return []; }
+        if (cmd === 'help' || cmd === '.help') return [{ text: 'Any SQLite SQL: SELECT, JOIN, GROUP BY, CREATE INDEX, EXPLAIN QUERY PLAN... plus .tables and .reset.', kind: 'dim' }];
+        if (cmd.startsWith('.')) return [{ text: `${cmd.split(' ')[0]}: only .tables and .reset work here. The real sqlite3 shell has many more.`, kind: 'err' }];
+        void execute(cmd);
+        return [];
+      },
+    });
+
+    const reset = async () => {
+      status.textContent = dataset === 'shop' ? 'Rebuilding 200,000 orders...' : 'Reloading...';
+      const r = await (client ? client.reset() : (client = new DbClient(dataset)).ready);
+      drawSchema(r); drawPlan(undefined); drawRows(undefined);
+      status.textContent = 'Ready.';
+      term.print([{ text: 'Data reset to the start. Indexes you made are gone.', kind: 'dim' }]);
+    };
+
+    if (mission) {
+      const panel = q('[data-mission-panel]');
+      panel.hidden = false;
+      refreshMission = mountMission(panel, mission, () => state, (cmd) => term.type(cmd));
+    }
+    q('[data-reset]').addEventListener('click', () => { if (!busy) void reset(); });
+
+    // Load only when the console comes near the screen: the shop dataset builds
+    // 200,000 rows, which is wasted work for a reader who never scrolls here.
+    new IntersectionObserver((entries, obs) => {
+      if (!entries[0].isIntersecting) return;
+      obs.disconnect();
+      status.textContent = dataset === 'shop' ? 'Loading SQLite and building 200,000 orders...' : 'Loading SQLite...';
+      client = new DbClient(dataset);
+      client.ready.then((r) => { drawSchema(r); status.textContent = 'Ready.'; root.dataset.ready = '1'; });
+    }, { rootMargin: '400px' }).observe(root);
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: rows, plans and the schema list are
+     created by the script, which Astro's scoped styles never reach. */
+  .db-console .db-status { margin: 0 0 8px; }
+  /* Programming fonts with ligatures drew SQLite's "(<expr>=?)" as "(<expr≥?)" -
+     a different operator. SQL here must read exactly as typed and printed. */
+  .db-console pre, .db-console code, .db-console .term, .db-console table { font-variant-ligatures: none; }
+  .db-console .db-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .db-console .db-grid { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
+  .db-console .db-main, .db-console .db-side { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .db-console .db-plan { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); }
+  .db-console .db-plan pre { margin: 6px 0; font-size: 0.85rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .db-console .db-plan p { margin: 0; font-size: 0.9rem; font-weight: 600; }
+  .db-console .db-scan { color: var(--berry); }
+  .db-console .db-search { color: var(--bamboo); }
+  .db-console .db-result { overflow-x: auto; max-height: 340px; overflow-y: auto; border-radius: 10px; }
+  .db-console .db-result:empty { display: none; }
+  .db-console .db-result table { border-collapse: collapse; width: 100%; font: 0.85rem var(--mono); }
+  .db-console .db-result caption { text-align: left; font: 600 0.82rem var(--sans); color: var(--muted); padding-bottom: 4px; }
+  .db-console .db-result th, .db-console .db-result td { border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; white-space: nowrap; }
+  .db-console .db-result th { background: var(--bg-2); position: sticky; top: 0; }
+  .db-console .db-result td.null { color: var(--muted); font-style: italic; }
+  .db-console .db-schema { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 0.88rem; }
+  .db-console .db-schema p { margin: 4px 0 8px; }
+  .db-console .db-schema ul { margin: 4px 0 0; padding-left: 18px; }
+  .db-console .db-schema code { overflow-wrap: anywhere; }
+  .db-console .db-table { font-weight: 700; }
+</style>

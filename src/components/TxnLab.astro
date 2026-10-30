@@ -1,0 +1,102 @@
+---
+// Two clerks, one row. Each strategy replays what PostgreSQL 17.6 did with two
+// real sessions (src/lib/db/txn.ts), one statement at a time.
+import '../styles/widgets.css';
+import { STRATEGIES, START } from '../lib/db/txn.ts';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card txn-lab" data-txn-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>The last panda tees</strong>
+    <span class="pill info">two sessions, replayed from PostgreSQL 17.6</span>
+  </div>
+  <p class="small">The table holds one row: <code>panda-tee</code> with stock <b>{START}</b>. Clerks A and B each sell one tee, half a second apart.</p>
+  <div class="controls">
+    <label>How each clerk sells
+      <select data-strategy>
+        {Object.entries(STRATEGIES).map(([k, v]) => <option value={k}>{v}</option>)}
+      </select>
+    </label>
+    <label class="txn-retry"><input type="checkbox" data-retry disabled /> retry on serialization failure</label>
+    <button class="btn small primary" type="button" data-run>Run both clerks</button>
+  </div>
+  <div class="txn-grid">
+    <div class="txn-lanes">
+      <div class="txn-head"><span>Clerk A</span><span>Clerk B</span></div>
+      <ol class="txn-events" data-events aria-live="polite"></ol>
+      <p class="txn-result" data-result hidden></p>
+    </div>
+    <div data-mission-panel hidden></div>
+  </div>
+</div>
+
+<script>
+  import { START, type Strategy } from '../lib/db/txn.ts';
+  import { TXN_MISSION, doSale, type TxnState } from '../lib/db/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-txn-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const strategy = q<HTMLSelectElement>('[data-strategy]'), retry = q<HTMLInputElement>('[data-retry]'), btn = q<HTMLButtonElement>('[data-run]');
+    const state: TxnState = { sales: [] };
+    let refresh = () => {};
+    if (root.dataset.mission) {
+      const panel = q('[data-mission-panel]');
+      panel.hidden = false;
+      refresh = mountMission(panel, TXN_MISSION, () => state, () => {});
+    }
+    // Retrying only means something where the database refuses a write.
+    strategy.addEventListener('change', () => { retry.disabled = strategy.value !== 'repeatable'; if (retry.disabled) retry.checked = false; });
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const sale = doSale(state, strategy.value as Strategy, retry.checked);
+      const list = q('[data-events]');
+      const result = q('[data-result]');
+      list.replaceChildren();
+      result.hidden = true;
+      for (const e of sale.events) {
+        const li = el('li', { class: `txn-${e.who} ${e.kind}` }, el('code', {}, e.sql), el('span', { class: 'txn-out' }, `→ ${e.result}`));
+        list.append(li);
+        if (!reduced) await new Promise((r) => setTimeout(r, 260));
+      }
+      const told = `${sale.sold} sale${sale.sold === 1 ? '' : 's'} confirmed`;
+      result.className = `txn-result ${sale.lost ? 'bad' : sale.refused ? 'warn' : 'ok'}`;
+      result.textContent = sale.lost
+        ? `Stock ${sale.final} after ${told}: ${sale.lost} sale lost. The shop thinks it has a tee it sold.`
+        : sale.refused
+          ? `Stock ${sale.final}, ${told}, ${sale.refused} refused with an error. Nothing was lost - but the customer was turned away.`
+          : `Stock ${sale.final} after ${told}: ${START} - 2 = ${sale.final}. Both sales counted.`;
+      result.hidden = false;
+      btn.disabled = false;
+      root.dataset.final = String(sale.final);
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  .txn-lab .txn-retry { gap: 6px; }
+  .txn-lab code { font-variant-ligatures: none; }
+  .txn-lab .txn-grid { display: grid; gap: 14px; margin-top: 10px; }
+  @media (min-width: 900px) { .txn-lab .txn-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); } }
+  .txn-lab .txn-lanes { min-width: 0; }
+  .txn-lab .txn-head { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font: 700 0.82rem var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 0 4px 4px; }
+  .txn-lab .txn-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; min-height: 60px; }
+  .txn-lab .txn-events li { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; background: var(--bg); width: calc(50% - 4px); display: grid; gap: 2px; font-size: 0.84rem; }
+  .txn-lab .txn-events li.txn-B { margin-left: auto; }
+  .txn-lab .txn-events code { font-size: 0.8rem; overflow-wrap: anywhere; }
+  .txn-lab .txn-events .txn-out { color: var(--ink-2); }
+  .txn-lab .txn-events li.wait { border-style: dashed; border-color: var(--sun); background: var(--sun-soft); }
+  .txn-lab .txn-events li.wait .txn-out { color: var(--sun-text); font-weight: 600; }
+  .txn-lab .txn-events li.err { border-color: var(--berry); background: var(--berry-soft); }
+  .txn-lab .txn-events li.err .txn-out { color: var(--berry); font-weight: 600; }
+  .txn-lab .txn-result { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; font-weight: 600; }
+  .txn-lab .txn-result.bad { background: var(--berry-soft); color: var(--berry); }
+  .txn-lab .txn-result.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .txn-lab .txn-result.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  @media (max-width: 640px) { .txn-lab .txn-events li { width: 88%; } }
+</style>
