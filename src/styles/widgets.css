@@ -7,6 +7,11 @@
    options pushed phones sideways by 9-42px in CI while passing locally. */
 .widget-head .pill { white-space: normal; }
 .widget select, .widget input[type="range"] { max-width: 100%; min-width: 0; }
+/* A label wrapping a <select> sits in a grid or flex box whose items default to
+   min-width: auto, so the label grew to the select's widest option and pushed
+   phones 19px sideways on Linux (pipelines lesson, wider fonts than Windows).
+   Let the label shrink; a stacked label's select then fills it (per widget). */
+.widget label:has(> select) { min-width: 0; max-width: 100%; }
 .widget .controls label, .widget label.controls { max-width: 100%; flex-wrap: wrap; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.9rem; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }

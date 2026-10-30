@@ -112,7 +112,8 @@ import { CHANGES, STAGES } from '../lib/delivery/pipeline.ts';
   .pipe .pp-box > label > input { margin-top: 4px; flex: none; }
   .pipe .pp-box > label > span { display: flex; flex-direction: column; }
   .pipe .pp-box .muted { font-size: 0.8rem; }
-  .pipe .pp-select { flex-direction: column; gap: 4px !important; }
+  .pipe .pp-select { flex-direction: column; gap: 4px !important; min-width: 0; }
+  .pipe .pp-select select { width: 100%; text-overflow: ellipsis; }
   .pipe .pp-select select { font: inherit; font-size: 0.86rem; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; }
   .pipe .pp-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; counter-reset: st; }
   .pipe .pp-stages li { counter-increment: st; display: grid; grid-template-columns: 26px 92px minmax(0, 1fr); align-items: baseline; gap: 6px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.86rem; background: var(--bg); }
