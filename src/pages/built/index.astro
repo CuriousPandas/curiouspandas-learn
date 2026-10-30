@@ -1,0 +1,162 @@
+---
+import Base from '../../layouts/Base.astro';
+import Diagram from '../../components/Diagram.astro';
+import { curriculum, totals } from '../../lib/curriculum.ts';
+import { EXPEDITIONS } from '../../data/expeditions.ts';
+
+// Every count on this page that can change is counted here, at build time,
+// from the files themselves. A hand-typed "73 lessons" is exactly the kind of
+// number this page warns about: true the day it was written, quietly wrong
+// after the next lesson ships. The story below is dated instead.
+const tracks = await curriculum();
+const t = totals(tracks);
+const entries = tracks.flatMap((tr) => tr.lessons.flatMap((l) => (l.entry ? [l.entry] : [])));
+const quizzes = entries.reduce((n, e) => n + (e.body?.match(/<Quiz\b/g)?.length ?? 0), 0);
+const sources = entries.reduce((n, e) => n + e.data.sources.length, 0);
+const words = entries.reduce((n, e) => n + (e.body?.split(/\s+/).filter(Boolean).length ?? 0), 0);
+const raw = (files: Record<string, string>) => Object.values(files);
+const lines = (files: string[]) => files.reduce((n, f) => n + f.split('\n').length, 0);
+const code = raw(import.meta.glob(['/src/lib/**/*.ts', '/src/components/*.astro', '/src/pages/**/*.astro', '/src/layouts/*.astro'], { query: '?raw', import: 'default', eager: true }));
+const tests = raw(import.meta.glob('/tests/*.test.ts', { query: '?raw', import: 'default', eager: true }));
+const check = raw(import.meta.glob('/scripts/check-site.mjs', { query: '?raw', import: 'default', eager: true }))[0] ?? '';
+const widgets = Object.keys(import.meta.glob('/src/components/*.astro')).length;
+// Definitions, not runs: a test inside a loop runs once per mission, and only
+// running the suite knows that number. The label says "written" for that reason.
+const testCount = tests.reduce((n, f) => n + (f.match(/^\s*test\(/gm)?.length ?? 0), 0);
+const scenarios = check.match(/^await scenario\(/gm)?.length ?? 0;
+// Zero here means a pattern stopped matching, not that the site has no tests.
+if (!code.length || !testCount || !scenarios || !quizzes) throw new Error(`/built/ counted nothing: code ${code.length}, tests ${testCount}, scenarios ${scenarios}, quizzes ${quizzes}`);
+const fmt = (n: number) => n.toLocaleString('en-US');
+const open = EXPEDITIONS.filter((e) => e.status === 'ready').length;
+
+const stats = [
+  [fmt(t.ready), 'lessons', `in ${t.tracks} trails`],
+  [fmt(words), 'words of lessons', `citing ${fmt(sources)} sources`],
+  [fmt(quizzes), 'quiz questions', 'each with an explanation'],
+  [fmt(widgets), 'components', 'simulators, labs and page parts'],
+  [fmt(lines(code)), 'lines of site code', 'TypeScript and Astro'],
+  [fmt(testCount), 'unit tests written', `${fmt(lines(tests))} lines; some run once per mission`],
+  [fmt(scenarios), 'browser scenarios', 'plus every page, in 3 browsers'],
+  [`${open} of ${EXPEDITIONS.length}`, 'expeditions open', 'the rest planned'],
+];
+---
+<Base title="How this was built" description="One person, an AI coding agent and a day and a half: what was built, how it was checked, what went wrong and what it cost.">
+  <article class="wrap page">
+    <div class="prose">
+      <p class="eyebrow">Behind the scenes</p>
+      <h1>How this was built</h1>
+      <p class="lede">Curious Pandas was built in about a day and a half, on 29 and 30 October 2026, by one person directing an AI coding agent. Most of the code and lesson text on this site was written by the AI. This page says how that worked, what kept it honest, what went wrong, and what it cost - because how software gets made is changing, and that is worth learning about too.</p>
+    </div>
+
+    <h2 class="sr">The site in numbers</h2>
+    <div class="stats">
+      {stats.map(([n, label, sub]) => <div class="stat card"><b>{n}</b><span>{label}</span><small>{sub}</small></div>)}
+    </div>
+    <p class="muted small">Counted from the source each time the site is built, so these never go stale.</p>
+
+    <div class="prose">
+      <h2>Who did what</h2>
+      <p><strong>Dave Johnson</strong> (<a href="https://sallux.dev">Sallux</a>) decided what the site is and is not: free forever, no accounts, nothing running on a server, every lesson playable in a browser. He chose the subjects, the names, the domain, which features to build next, and when something was good enough to ship. He also set the working rules below, which caught most of the bugs on this page.</p>
+      <p><strong>Claude</strong>, Anthropic's AI model (Opus 5, and Opus 5.5 for the last changes), worked as a coding agent inside <a href="https://claude.com/claude-code">Claude Code</a>. It wrote the lessons, simulators, tests and deployment, ran them, read the results, and fixed what failed. The commits in the <a href="https://github.com/CuriousPandas/curiouspandas-learn">repository</a> credit both.</p>
+      <p>For the big pushes, the main agent split the work. Each new trail went to a separate "writer" agent working in its own copy of the repository (a git worktree), with its own lessons, widgets, tests and browser checks. The main agent then merged each one and ran every check again before anything went live. Up to seven writers worked at once.</p>
+    </div>
+
+    <Diagram
+      id="built-flow"
+      title="How a change reached the site"
+      desc="Dave decides what to build. The main agent plans it and hands whole trails to writer agents, each in its own git worktree. Their work merges back, then unit tests and browser checks in three engines run locally and again in CI, and only a fully green build deploys to GitHub Pages."
+      nodes={[
+        { id: 'dave', label: 'Dave', sub: 'decides, reviews', x: 0, y: 0 },
+        { id: 'main', label: 'main agent', sub: 'plans, merges', x: 1, y: 0, kind: 'info' },
+        { id: 'writers', label: 'writer agents', sub: 'one trail each', x: 2, y: 0, kind: 'info' },
+        { id: 'tests', label: 'unit tests', sub: 'vs real tools', x: 3, y: 0 },
+        { id: 'live', label: 'GitHub Pages', sub: 'static files only', x: 0, y: 1, kind: 'ok' },
+        { id: 'ci', label: 'CI', sub: 'all checks again', x: 1, y: 1, kind: 'warn' },
+        { id: 'browsers', label: '3 browsers', sub: 'every page + axe', x: 2, y: 1 },
+        { id: 'fix', label: 'fix it', sub: 'back to the agent', x: 3, y: 1, kind: 'warn' },
+      ]}
+      edges={[
+        { from: 'dave', to: 'main', label: 'what next' },
+        { from: 'main', to: 'writers', label: 'a trail' },
+        { from: 'writers', to: 'tests', label: 'merged' },
+        { from: 'tests', to: 'browsers' },
+        { from: 'browsers', to: 'fix', label: 'red', dashed: true },
+        { from: 'fix', to: 'tests', dashed: true },
+        { from: 'browsers', to: 'ci', label: 'green' },
+        { from: 'ci', to: 'live', label: 'deploy' },
+      ]}
+      steps={[
+        { caption: 'Dave picks what to build next and the rules it has to meet.', show: ['dave', 'main', 'dave->main'], focus: ['dave'] },
+        { caption: 'The main agent hands whole trails to writer agents, each in its own git worktree so they cannot trip over each other.', show: ['writers', 'main->writers'], focus: ['writers'] },
+        { caption: 'Merged work runs the unit tests, many of which compare a simulator against the real tool: real git, real SQLite, real bash.', show: ['tests', 'writers->tests'], focus: ['tests'] },
+        { caption: 'Every page is rendered in Chromium, WebKit and Firefox, every widget is driven, and axe checks accessibility. Red goes back for a fix.', show: ['browsers', 'tests->browsers', 'fix', 'browsers->fix', 'fix->tests'], focus: ['browsers', 'fix'] },
+        { caption: 'Green runs everything again in CI, and only that exact build is deployed.', show: ['ci', 'browsers->ci', 'live', 'ci->live'], focus: ['ci', 'live'] },
+      ]}
+    />
+
+    <div class="prose">
+      <h2>The rules that kept it honest</h2>
+      <p>An AI agent says "done" with the same confidence whether or not it is. So the rules were about evidence, not effort:</p>
+      <ul>
+        <li><strong>Verify in the running system.</strong> A green build proves the code compiles, not that the page works. Every page is opened in a real browser, its visible text read, its widgets clicked, its screenshots looked at - by phone width too.</li>
+        <li><strong>Check simulators against the real thing.</strong> The git playground's hashes are compared with the real git binary. The shell is replayed through real bash. The SQL runs real SQLite, and the lost-update lesson was checked against real PostgreSQL. A simulator that teaches the wrong failure is worse than none.</li>
+        <li><strong>Hunt the silent failure.</strong> After every change, ask: how would I know if this quietly did nothing? Most of the bugs below passed every check that existed at the time.</li>
+        <li><strong>Prefer loud failures.</strong> A misspelled icon, a lesson linked before it is written, an expedition that uses an idea before teaching it, a renamed quiz that would strand someone's progress - each now stops the build instead of shipping.</li>
+        <li><strong>Report honestly.</strong> Lead with what is broken or unverified. The <a href="https://github.com/CuriousPandas/curiouspandas-learn/commits/main">commit messages</a> name each failure and its symptom, and say what was not done.</li>
+      </ul>
+
+      <h2>What went wrong</h2>
+      <p>A selection, in roughly the order they happened. Every one of these looked fine until something specific was checked.</p>
+    </div>
+
+    <ol class="oops">
+      <li class="card"><strong>Pods that ignored clicks in Safari.</strong> The cluster simulator rebuilt its pods on every tick. In WebKit, a click landing between rebuilds hit an element that no longer existed. Chromium never showed it. Found only once the browser checks ran in all three engines.</li>
+      <li class="card"><strong>73 accessibility failures.</strong> Gold text at 2.6:1 contrast, links nested inside links, faded cards meaning "locked". None of it showed in a screenshot. Adding the axe accessibility checker in light and dark mode found all of it.</li>
+      <li class="card"><strong>Nine failures that only happened in CI.</strong> Buttons fade their colour over 150 ms, and on CI's slower machine axe measured them mid-fade. Fixed by measuring settled colours, not by loosening the check.</li>
+      <li class="card"><strong>The CI machine changed underneath it.</strong> GitHub's newest Ubuntu image replaced the GNU tools with a Rust rewrite whose error messages are worded differently, and the shell lessons compare against those exact words. The runner is now pinned, with a test that fails if the reference tools are ever not GNU.</li>
+      <li class="card"><strong>Phones that scrolled sideways, on Linux only.</strong> Linux fonts are slightly wider, so a dropdown and a list that fitted on Windows overflowed by 3 to 19 pixels in CI. Reproduced locally by stretching letter spacing, then fixed properly.</li>
+      <li class="card"><strong>The merge tool damaged its own output.</strong> Windows decoded the writers' work in the wrong character set, garbling ✓ and ≥, and Git Bash silently rewrote a "//" argument to "/". Both were caught before anything was pushed, and every merged block was then compared byte for byte.</li>
+      <li class="card"><strong>A typo that drew the wrong picture.</strong> An unknown icon name quietly fell back to a default icon. Now an unknown name stops the build.</li>
+      <li class="card"><strong>A test that passed while half of it never ran.</strong> In the <a href="https://github.com/CuriousPandas/practice">practice repository's</a> tests, deleting the only file in a folder also deleted the folder, so the step after it failed - and the test still passed on the part that did run.</li>
+      <li class="card"><strong>Progress that could vanish without an error.</strong> Your progress lives only in your browser, keyed by lesson and quiz names. Renaming one would have quietly un-ticked it for everyone. Every name ever shipped is now recorded, and removing one without saying where it went fails the tests.</li>
+      <li class="card"><strong>A lesson that pointed at a later lesson.</strong> Mapping what every lesson builds on, for the expeditions, turned up a lesson that opened by referring to one learners would not reach until later - and two lessons that covered the same ground. They were merged, with progress carried over.</li>
+    </ol>
+
+    <div class="prose">
+      <h2>What it cost</h2>
+      <ul>
+        <li><strong>Hosting: $0.</strong> The site is static files on GitHub Pages, and every simulator runs in your browser, so there is no server bill to grow with learners.</li>
+        <li><strong>AI: about 10 million tokens</strong> of writer-agent work, which at Anthropic's published API prices would be roughly $200-400. That does not include the main conversation, which was not measured. It ran on a Claude subscription, so there was no per-token bill.</li>
+        <li><strong>Human time:</strong> one person, steering and reviewing, across two days.</li>
+      </ul>
+      <p><strong>Without AI</strong>, the same site would be roughly 330-590 person-days of work: writing and fact-checking at 500-1,000 words a day, two to three weeks per complex simulator, two to four days per simpler widget, plus tests and design. Realistically that is a small team for six to nine months, or about $250,000-$700,000 at typical contractor rates. That is an estimate from the size of the code and text, not a quote, and a team with that budget would probably have built less and reviewed it more.</p>
+
+      <h2>What is not verified yet</h2>
+      <p>Speed has a cost, and it is fair to say where:</p>
+      <ul>
+        <li><strong>No human subject expert has reviewed most lessons.</strong> Claims are sourced (you can follow every one) and simulators are tested against real tools, but nobody with ten years in each field has read every page.</li>
+        <li><strong>Many "Do it for real" commands have not been run</strong> on a real cluster from start to finish.</li>
+        <li><strong>The agent lessons use a simulated model,</strong> clearly labelled, so they work offline and cost nothing. A real model behaves less predictably.</li>
+      </ul>
+      <p>If you find a mistake, that is the most useful thing you can send. Open an issue on the <a href="https://github.com/CuriousPandas/curiouspandas-learn/issues">repository</a>; corrections are credited.</p>
+
+      <h2>The stack</h2>
+      <p><a href="https://astro.build">Astro</a> builds static pages from MDX lessons. Simulators are plain TypeScript in your browser; SQL runs in <a href="https://sql.js.org">sql.js</a> (SQLite compiled to WebAssembly) in a sandboxed worker. <a href="https://playwright.dev">Playwright</a> drives every page in Chromium, WebKit and Firefox, with <a href="https://github.com/dequelabs/axe-core">axe-core</a> for accessibility. GitHub Actions runs it all on every push and deploys to GitHub Pages behind Cloudflare DNS. The <a href="https://github.com/CuriousPandas/curiouspandas-learn#how-it-is-sandboxed">README</a> explains how the site is sandboxed, with each claim pinned by a test.</p>
+      <p class="muted small">Story, costs and estimates as of 30 October 2026.</p>
+    </div>
+  </article>
+</Base>
+<style>
+  .page { padding-top: 32px; max-width: 900px; }
+  .lede { font-size: 1.08rem; color: var(--ink-2); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 10px; margin-top: 22px; }
+  .stat { padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .stat b { font-size: 1.7rem; line-height: 1.1; color: var(--sun-text); font-variant-numeric: tabular-nums; }
+  .stat span { font-weight: 700; }
+  .stat small { color: var(--muted); font-size: 0.84rem; }
+  .small { font-size: 0.85rem; }
+  .oops { list-style: none; padding: 0; margin: 14px 0 8px; display: grid; gap: 10px; counter-reset: oops; }
+  .oops li { padding: 14px 16px 14px 52px; position: relative; counter-increment: oops; line-height: 1.55; }
+  .oops li::before { content: counter(oops); position: absolute; left: 14px; top: 13px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 0.85rem; background: var(--bg-2); color: var(--ink); }
+</style>
