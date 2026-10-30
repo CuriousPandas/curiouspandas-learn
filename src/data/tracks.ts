@@ -95,7 +95,7 @@ export const TRACKS: Track[] = [
     ],
   },
   {
-    id: 'frontiers', title: 'AI Frontiers', tagline: 'Agents, alignment and superintelligence - what is known, and what is not.', icon: 'compass', hue: 180,
+    id: 'frontiers', title: 'SI Frontiers', tagline: 'Agents, alignment and superintelligence - what is known, and what is not.', icon: 'compass', hue: 180,
     lessons: [
       { slug: 'agents', title: 'Agents are loops with tools', status: 'ready' },
       { slug: 'alignment', title: 'Getting what you asked for', status: 'ready' },

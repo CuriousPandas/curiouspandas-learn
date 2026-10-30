@@ -7,6 +7,8 @@ tiers: [browser, machine]
 sources:
   - title: Pro Git, chapter 10.2 - Git Objects
     url: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+  - title: Pro Git, chapter 1.2 - A Short History of Git
+    url: https://git-scm.com/book/en/v2/Getting-Started-A-Short-History-of-Git
 ---
 
 Every project you'll ever work on changes. Files get edited, deleted, renamed, broken and fixed again. **Git** is the tool almost every software team uses to remember all of it. It can tell you what the project looked like last Tuesday, who changed this line, and give you back the version from before you broke it.
@@ -55,6 +57,10 @@ Beginners often ask why you can't just commit straight away. Staging lets you ch
 
 <Callout kind="real">
 Real git puts all of this in a hidden `.git` folder next to your files, and it opens a text editor when you leave out `-m`. This sandbox has no editor, so it always asks for `-m`.
+</Callout>
+
+<Callout kind="tip" title="Panda prediction">
+Git was written in 2005 to look after the Linux kernel. Twenty years on, everyone from first-time students to frontier AI labs still types `git commit`. So here's the panda's forecast: the day a superintelligence finally outgrows git, its first act will be to write a replacement. Its second will be to commit it. With git.
 </Callout>
 
 <DoItForReal id="git-first-commit-real">

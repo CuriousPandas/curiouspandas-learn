@@ -22,6 +22,15 @@ import Base from '../../layouts/Base.astro';
     <h2>What is simplified</h2>
     <p>Simulations simplify, and a simplification you do not know about is a misconception. Each lesson marks where the sandbox differs from the real thing ("In the real world" boxes). What the simulators must get right is the shape of each failure: the cluster's two exit-137 crashes, the quota refusal that shows up only as an event, the git hashes. Those are checked by tests against the real tools on every change.</p>
 
+    <h2>Credits</h2>
+    <p>The "Do it for real" labs stand on other people's open-source work:</p>
+    <ul>
+      <li><a href="https://tilt.dev/">Tilt</a> (<a href="https://github.com/tilt-dev/tilt">tilt-dev/tilt</a>, Apache 2.0) builds and runs every service in the platform and keeps it in sync as you change things. The labs would not exist without it.</li>
+      <li><a href="https://kind.sigs.k8s.io/">kind</a> (Apache 2.0) runs a whole Kubernetes cluster inside Docker on your laptop.</li>
+      <li><a href="https://github.com/TemplateMechanics/tilt">TemplateMechanics/tilt</a> wires the CNCF tools together and writes the graded labs.</li>
+      <li>CNCF maturity levels in the <a href="/atlas/">Tool Atlas</a> come from the <a href="https://github.com/cncf/landscape">CNCF Landscape</a> data (Apache 2.0).</li>
+    </ul>
+
     <h2>Open source</h2>
     <p>All of it - lessons, simulators and tests - is MIT licensed. Spotted a mistake? That is the most useful thing you can send. Corrections are credited.</p>
   </article>
