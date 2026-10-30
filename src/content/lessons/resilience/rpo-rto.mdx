@@ -1,0 +1,101 @@
+---
+title: How much can you lose?
+summary: Every disaster asks two questions - how much data is gone, and how long you are down. RPO and RTO are the answers you choose in advance, per system, and the business chooses them, not IT.
+minutes: 12
+xp: 35
+tiers: [browser]
+sources:
+  - title: NIST CSRC glossary - Recovery Point Objective (from NIST SP 800-34 Rev. 1)
+    url: https://csrc.nist.gov/glossary/term/recovery_point_objective
+  - title: NIST CSRC glossary - Recovery Time Objective (from NIST SP 800-34 Rev. 1)
+    url: https://csrc.nist.gov/glossary/term/recovery_time_objective
+  - title: NIST CSRC glossary - Maximum Tolerable Downtime (from NIST SP 800-34 Rev. 1)
+    url: https://csrc.nist.gov/glossary/term/maximum_tolerable_downtime
+  - title: NIST SP 800-34 Rev. 1 - Contingency Planning Guide for Federal Information Systems
+    url: https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+  - title: AWS - Disaster recovery options in the cloud (how backup frequency sets the recovery point)
+    url: https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html
+---
+
+A disk dies, a region goes dark, someone runs the wrong script. However it happens, the morning after comes down to two questions:
+
+1. **How much did we lose?** Everything written since the last good copy is gone.
+2. **How long were we down?** From the moment it broke to the moment it worked again.
+
+You can't choose when disaster strikes, but you can choose, in advance, how bad each answer is allowed to be. Those choices have names.
+
+## Two numbers, decided before anything breaks
+
+NIST's contingency planning guide, SP 800-34, defines them:
+
+- **Recovery point objective (RPO):** "the point in time to which data must be recovered after an outage". In practice, the most data you can afford to lose, measured in time. An RPO of 1 hour means you must never lose more than the last hour's work.
+- **Recovery time objective (RTO):** "the overall length of time an information system's components can be in the recovery phase before negatively impacting the organization's mission or mission/business processes". In practice, how long you can be down.
+
+Behind both sits a third number from the same guide, **maximum tolerable downtime**: "the amount of time mission/business process can be disrupted without causing significant harm". That's the business's limit. RTO is the target you plan to, so it has to fit inside it.
+
+<Diagram
+  id="res-rpo-timeline"
+  title="One disaster, two numbers"
+  desc="A timeline. The last backup ran at 02:00 on Wednesday. The disaster hits at 14:50; everything written between 02:00 and 14:50 is lost, and that gap is what RPO limits. Recovery runs until 17:50; that downtime is what RTO limits."
+  nodes={[
+    { id: 'backup', label: 'last backup', sub: 'Wed 02:00', x: 0, y: 0, kind: 'ok' },
+    { id: 'disaster', label: 'disaster', sub: 'Wed 14:50', x: 1, y: 0, kind: 'bad' },
+    { id: 'back', label: 'back online', sub: 'Wed 17:50', x: 2, y: 0, kind: 'info' },
+    { id: 'rpo', label: 'RPO', sub: 'data you can lose', x: 0, y: 1, kind: 'warn' },
+    { id: 'rto', label: 'RTO', sub: 'time you can be down', x: 2, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'backup', to: 'disaster', label: 'data at risk' },
+    { from: 'disaster', to: 'back', label: 'recovering' },
+    { from: 'backup', to: 'rpo', label: 'measures', dashed: true },
+    { from: 'back', to: 'rto', label: 'measures', dashed: true },
+  ]}
+  steps={[
+    { caption: 'The last good copy of the data was taken at 02:00. Everything after it exists in one place only.', show: ['backup'], focus: ['backup'] },
+    { caption: 'At 14:50 that one place fails. Nearly thirteen hours of orders, edits and payments are gone.', show: ['disaster', 'backup->disaster'], focus: ['disaster', 'backup->disaster'] },
+    { caption: 'RPO caps that gap. Here the backup schedule decides it: nightly backups can lose up to a full day.', show: ['rpo', 'backup->rpo'], focus: ['rpo'] },
+    { caption: 'Then the clock runs until service is back. RTO caps that: how fast you can restore, not how fast you would like to.', show: ['back', 'rto', 'disaster->back', 'back->rto'], focus: ['rto', 'disaster->back'] },
+  ]}
+/>
+
+AWS's disaster recovery whitepaper puts the first half plainly: how often you run your backup "will determine your achievable recovery point". The second half is the same idea: your recovery method determines your achievable recovery time.
+
+## The business sets them, per system
+
+It's tempting for IT to pick numbers that sound responsible ("everything backed up every 15 minutes!"). But the right RPO for online orders and the right RPO for the marketing site are different, because losing an hour of each costs very different amounts. So the targets come from the people who know what an hour of each system is worth, and IT's job is to meet them at the lowest cost.
+
+Try it with three systems. Set a backup schedule and a recovery method, then let the disaster hit.
+
+<RpoLab />
+
+<Callout kind="trap">
+RPO is about the worst case. If the disaster happens to land just after the nightly backup, you lose ten minutes - and nightly backups still can't promise a 1-hour RPO, because the next disaster may land at 01:59. Judge a schedule by the gap it allows, not by the disaster you got.
+</Callout>
+
+<Quiz
+  id="res-rpo-1"
+  q="Backups run every night at 02:00. What RPO can this schedule promise?"
+  options={["About 12 hours - disasters usually happen in the daytime", "24 hours - the worst case is a failure just before the next backup", "Zero - there is always a backup"]}
+  answer={1}
+  explain="RPO limits the worst case. A failure at 01:59 loses almost a full day, so nightly backups can promise 24 hours and no better."
+/>
+
+<Quiz
+  id="res-rpo-2"
+  q="Who should decide that online orders may lose at most 1 hour of data?"
+  options={["The backup administrator, based on what the tools can do", "The business, based on what an hour of lost orders costs", "The cloud provider"]}
+  answer={1}
+  explain="RPO and RTO express how much loss and downtime the business can tolerate. IT then finds the cheapest way to meet them - and can tell the business what a tighter target would cost."
+/>
+
+<Quiz
+  id="res-rpo-3"
+  q="A system's maximum tolerable downtime is 8 hours. Which RTO makes sense?"
+  options={["12 hours", "8 hours or less - recovery has to finish before the harm becomes significant", "It doesn't matter if the RPO is short"]}
+  answer={1}
+  explain="MTD is the business's limit before significant harm. RTO is the target you plan recovery to, so it must fit inside the MTD - ideally with room to spare."
+/>
+
+<Callout kind="real">
+In a real outage the clock starts before the restore does. Someone has to notice, decide it is a disaster, find the runbook and the credentials. A restore that takes three hours on a quiet afternoon can take much longer at 03:00 - which is why recovery methods get practised, as the next lessons show.
+</Callout>

@@ -1,0 +1,109 @@
+---
+import '../styles/widgets.css';
+import { PROCESSES, CHECKPOINTS, LEVELS, MTD_LABEL, TABLETOP, IDS } from '../lib/resilience/bia.ts';
+---
+<div class="widget card bia-lab" data-bia>
+  <div class="widget-head">
+    <strong>Business impact analysis</strong>
+    <span class="pill info">a small online bakery</span>
+  </div>
+  <div class="bi-grid">
+    <div class="bi-main">
+      <div class="bi-table-wrap" tabindex="0" aria-label="Impact over time, per process">
+        <table class="bi-table">
+          <caption>How bad is it if this stops for...</caption>
+          <thead><tr><th scope="col">Process</th>{CHECKPOINTS.map((c) => <th scope="col">{c.label}</th>)}<th scope="col">Can be down for</th></tr></thead>
+          <tbody>
+            {IDS.map((id) => (
+              <tr>
+                <th scope="row">{PROCESSES[id].label}</th>
+                {PROCESSES[id].impact.map((l) => <td class={`lv${l}`}>{LEVELS[l]}</td>)}
+                <td><select data-mtd={id} aria-label={`How long ${PROCESSES[id].label} can be down`}><option value="">choose...</option>{Object.entries(MTD_LABEL).map(([v, t]) => <option value={v}>{t}</option>)}</select></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="bi-order" data-order aria-live="polite"></p>
+      <fieldset class="bi-box">
+        <legend class="eyebrow">Workarounds in the plan</legend>
+        {IDS.filter((id) => PROCESSES[id].workarounds.length).map((id) => (
+          <label>{PROCESSES[id].label}
+            <select data-work={id}><option value="">none</option>{PROCESSES[id].workarounds.map((w) => <option value={w.id}>{w.text}</option>)}</select>
+          </label>
+        ))}
+      </fieldset>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-run>Run the exercise: {TABLETOP.label}</button>
+      </div>
+      <ul class="bi-log" data-log aria-live="polite"></ul>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { tabletop, recoveryOrder, PROCESSES, IDS, trueMtd, MTD_LABEL, type Mtd, type ProcessId } from '../lib/resilience/bia.ts';
+  import { BIA_MISSION } from '../lib/resilience/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-bia]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = BIA_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), BIA_MISSION, () => state, () => {});
+    const choices: Partial<Record<ProcessId, string>> = {};
+
+    const draw = () => {
+      // Recovery order appears only once every estimate matches its table: an
+      // order built on guesses is worse than none.
+      const right = IDS.every((p) => state.mtd[p] === trueMtd(p));
+      q('[data-order]').textContent = right
+        ? `Recovery order, least tolerance first: ${recoveryOrder().map((p) => `${PROCESSES[p].label} (${MTD_LABEL[trueMtd(p)]})`).join(', ')}.`
+        : 'Set every process\'s downtime from its row: the last column before "severe".';
+      refresh();
+    };
+    root.querySelectorAll<HTMLSelectElement>('[data-mtd]').forEach((s) => s.addEventListener('change', () => {
+      const p = s.dataset.mtd as ProcessId;
+      if (s.value) state.mtd[p] = s.value as Mtd; else delete state.mtd[p];
+      s.classList.toggle('wrong', !!s.value && s.value !== trueMtd(p));
+      draw();
+    }));
+    root.querySelectorAll<HTMLSelectElement>('[data-work]').forEach((s) => s.addEventListener('change', () => { choices[s.dataset.work as ProcessId] = s.value || undefined; }));
+    q('[data-run]').addEventListener('click', () => {
+      const lines = tabletop(choices);
+      state.runs.push(lines);
+      const failed = lines.filter((l) => !l.ok).length;
+      q('[data-log]').replaceChildren(
+        el('li', { class: failed ? 'bad' : 'ok' }, el('b', {}, failed ? `Exercise ${state.runs.length}: ${failed} process${failed > 1 ? 'es' : ''} past what the business can take.` : `Exercise ${state.runs.length}: the plan holds for two days.`)),
+        ...lines.filter((l) => l.affected).map((l) => el('li', { class: l.ok ? 'ok' : 'bad' }, el('b', {}, `${PROCESSES[l.p].label}:`), ` ${l.note}`)),
+        el('li', {}, `Not affected: ${lines.filter((l) => !l.affected).map((l) => PROCESSES[l.p].label).join(', ')}.`),
+      );
+      refresh();
+    });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* One column at every width: beside the mission panel, the impact table's
+     answer column was cut off on desktop. */
+  .bia-lab .bi-grid { display: grid; gap: 14px; }
+  .bia-lab .bi-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .bia-lab .bi-table-wrap { overflow-x: auto; max-width: 100%; }
+  .bia-lab .bi-table { border-collapse: collapse; font-size: 0.84rem; width: 100%; }
+  .bia-lab .bi-table caption { text-align: left; font-weight: 650; padding-bottom: 4px; }
+  .bia-lab .bi-table th, .bia-lab .bi-table td { border-bottom: 1px solid var(--line); padding: 5px 6px; text-align: left; white-space: nowrap; }
+  .bia-lab .bi-table td.lv1 { background: var(--sky-soft); }
+  .bia-lab .bi-table td.lv2 { background: var(--sun-soft); }
+  .bia-lab .bi-table td.lv3 { background: var(--berry-soft); font-weight: 650; }
+  .bia-lab .bi-table select { font: inherit; padding: 2px 6px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; }
+  .bia-lab .bi-table select.wrong { border-color: var(--berry); border-width: 2px; }
+  .bia-lab .bi-order { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--bg-2); font-size: 0.88rem; }
+  .bia-lab .bi-box { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 8px; min-width: 0; }
+  .bia-lab .bi-box label { display: grid; gap: 4px; font-size: 0.88rem; font-weight: 600; }
+  .bia-lab .bi-box select { font: inherit; font-weight: 400; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; }
+  .bia-lab .bi-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.88rem; }
+  .bia-lab .bi-log li { padding: 6px 10px; border-radius: 8px; background: var(--bg-2); }
+  .bia-lab .bi-log li.ok { background: var(--bamboo-soft); }
+  .bia-lab .bi-log li.bad { background: var(--berry-soft); }
+</style>

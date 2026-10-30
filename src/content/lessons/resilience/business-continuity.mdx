@@ -1,0 +1,103 @@
+---
+title: Keeping the business running
+summary: Disaster recovery brings systems back. Business continuity keeps the business going while they're gone - by knowing which processes can't wait, what they depend on, and what people do by hand in the meantime. Then you test the plan on paper before reality does.
+minutes: 15
+xp: 40
+tiers: [browser]
+sources:
+  - title: NIST CSRC glossary - Maximum Tolerable Downtime (from NIST SP 800-34 Rev. 1)
+    url: https://csrc.nist.gov/glossary/term/maximum_tolerable_downtime
+  - title: NIST SP 800-34 Rev. 1 - Contingency Planning Guide (with its Business Impact Analysis template)
+    url: https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+  - title: ISO 22301:2019 - Security and resilience, Business continuity management systems, Requirements
+    url: https://www.iso.org/standard/75106.html
+  - title: CISA - Tabletop Exercise Packages (CTEPs)
+    url: https://www.cisa.gov/resources-tools/services/cisa-tabletop-exercise-packages
+---
+
+When the order system goes down, IT's job is to get it back. Everyone else's question is different: *what do we do until then?* Customers still phone, staff still need paying on Friday, and the van still arrives at four. **Business continuity** is the plan for that.
+
+The international standard for it, ISO 22301, describes a management system to "protect against, reduce the likelihood of the occurrence of, prepare for, respond to and recover from disruptions". In a small business, that comes down to three questions, asked before anything breaks:
+
+1. **What matters, and how fast does it hurt?**
+2. **What does each part depend on?** People, suppliers and IT systems.
+3. **What do we do by hand while it's down,** and who tells whom?
+
+## Business impact analysis
+
+The first question has a formal name: a **business impact analysis (BIA)**. NIST's contingency planning guide ships a BIA template, and the core of it is simple. For each business process, ask how bad it gets if the process stops for four hours, a day, three days, a week. Where it turns *severe* is its limit, the **maximum tolerable downtime**, defined by NIST as "the amount of time mission/business process can be disrupted without causing significant harm".
+
+That limit sets the **recovery order**: the processes with the least tolerance come back first. It usually surprises people. The thing that feels important (the website newsletter that marketing loves) can wait a week, while the thing nobody thinks about (paying the flour supplier) can't wait a week.
+
+<Diagram
+  id="res-bia-flow"
+  title="From processes to a tested plan"
+  desc="List the business processes. For each, judge the impact over time, which gives its maximum tolerable downtime. Sorting by that gives the recovery order. Each process's dependencies get a manual workaround. A tabletop exercise then tests the plan against a realistic scenario."
+  nodes={[
+    { id: 'procs', label: 'processes', sub: 'what the business does', x: 0, y: 0 },
+    { id: 'impact', label: 'impact over time', sub: '4 h, 1 day, 3 days...', x: 1, y: 0, kind: 'warn' },
+    { id: 'mtd', label: 'tolerable down', sub: 'per process', x: 2, y: 0, kind: 'info' },
+    { id: 'order', label: 'recovery order', sub: 'least tolerance first', x: 3, y: 0, kind: 'ok' },
+    { id: 'deps', label: 'workarounds', sub: 'people, paper, phones', x: 2, y: 1 },
+    { id: 'tabletop', label: 'tabletop test', sub: 'walk a scenario', x: 3, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'procs', to: 'impact' },
+    { from: 'impact', to: 'mtd', label: 'severe at?' },
+    { from: 'mtd', to: 'order', label: 'sort' },
+    { from: 'mtd', to: 'deps', label: 'cannot wait' },
+    { from: 'deps', to: 'tabletop', label: 'tested by' },
+  ]}
+  steps={[
+    { caption: 'Start with what the business does, not with the IT systems: take orders, ship, pay staff, pay suppliers.', show: ['procs'], focus: ['procs'] },
+    { caption: 'For each, how bad is it after four hours, a day, three days, a week? Ask the people who run it.', show: ['impact', 'procs->impact'], focus: ['impact'] },
+    { caption: 'The last point before it turns severe is how long it can be down. Least tolerance comes back first.', show: ['mtd', 'order', 'impact->mtd', 'mtd->order'], focus: ['mtd', 'order'] },
+    { caption: 'Whatever cannot wait gets a workaround that does not need the broken thing. Then walk through a scenario and see what breaks.', show: ['deps', 'tabletop', 'mtd->deps', 'deps->tabletop'], focus: ['tabletop'] },
+  ]}
+/>
+
+## Dependencies, workarounds and the phone list
+
+Each process depends on things: people with particular knowledge, suppliers, IT systems, a building. A plan names them, and for anything that can't wait, it names a workaround that doesn't depend on whatever has failed. Workarounds are usually low-tech: paper order forms, the carrier's website for labels, paying staff last month's amounts from the bank's site.
+
+The plan also needs a **communication plan**: who declares that the plan is in effect, who calls staff, customers and suppliers, and what they say. Keep the contact list somewhere that doesn't depend on the systems that might be down. A phone list that lives only on the file server is no help when the file server is the problem.
+
+## Test it on paper first
+
+A plan nobody has tried has the same problem as a backup nobody has restored. The cheap test is a **tabletop exercise**: the people involved sit round a table, someone reads out a scenario ("the order system is down for two days"), and everyone says what they'd actually do, step by step. CISA publishes free tabletop exercise packages so organisations can "initiate discussions within their organizations about their ability to address a variety of threat scenarios" and then update their plans.
+
+Do one now, for a small online bakery.
+
+<BiaLab />
+
+<Callout kind="trap">
+"Email the orders into the order system" sounds like a workaround until you read the scenario again: the order system is the thing that is down. Many plans quietly depend on the very system they are meant to replace. A tabletop exercise is where that shows up - on paper, not on a Wednesday afternoon.
+</Callout>
+
+<Quiz
+  id="res-bc-1"
+  q="Who should say how long payroll can be down?"
+  options={["The IT team, based on how long a restore takes", "The people who run payroll, based on when the harm turns severe (here, payday)", "Whoever wrote the backup policy"]}
+  answer={1}
+  explain="A BIA asks the process owners how the impact grows over time. IT then plans recovery to fit inside that limit."
+/>
+
+<Quiz
+  id="res-bc-2"
+  q="Disaster recovery versus business continuity: which is which?"
+  options={["They are two names for the same thing", "DR restores IT systems; business continuity keeps the business's processes going - including by hand - while they are down", "Business continuity is only for large companies"]}
+  answer={1}
+  explain="DR is part of business continuity. Continuity also covers people, suppliers, premises, workarounds and communication - everything needed to keep operating during the disruption."
+/>
+
+<Quiz
+  id="res-bc-3"
+  q="Where should the emergency contact list live?"
+  options={["On the file server, where everyone can find it", "Somewhere that works when the usual systems don't - printed copies and people's phones, kept up to date", "In the order system"]}
+  answer={1}
+  explain="A list that depends on the failed system cannot be read during the failure. Keep copies outside the systems the plan exists to cover."
+/>
+
+<Callout kind="real">
+ISO 22301 is a certifiable standard, and larger organisations run business continuity as an ongoing management system: policy, analysis, plans, exercises and review, then round again. A small business does not need the certificate to get most of the value. A one-page impact table, a list of workarounds, a printed phone list and one tabletop exercise a year cover the essentials.
+</Callout>

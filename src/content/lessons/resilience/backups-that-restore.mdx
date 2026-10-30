@@ -1,0 +1,112 @@
+---
+title: Backups that actually restore
+summary: A backup you have never restored is a hope, not a backup. Learn the 3-2-1 rule, why ransomware hunts backups, why sync is not backup - and find the copy that has quietly failed since March.
+minutes: 15
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: US-CERT - Data Backup Options (Ruggiero and Heckathorn, Carnegie Mellon University, 2012) - the 3-2-1 rule
+    url: https://www.cisa.gov/sites/default/files/publications/data_backup_options.pdf
+  - title: CISA and MS-ISAC - #StopRansomware Guide (offline, encrypted backups; immutable storage; testing)
+    url: https://www.cisa.gov/stopransomware/ransomware-guide
+  - title: Google SRE book - Data Integrity, What You Read Is What You Wrote
+    url: https://sre.google/sre-book/data-integrity/
+  - title: AWS - Disaster recovery options in the cloud ("Your backup strategy must include testing your backups")
+    url: https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html
+  - title: Velero docs - Restore reference (restoring into a different namespace)
+    url: https://velero.io/docs/main/restore-reference/
+---
+
+Ask any organisation whether it has backups and the answer is yes. Ask when it last restored one, start to finish, and the room goes quiet. Google's SRE book puts it in one line: "No one really wants to make backups; what people really want are restores."
+
+## 3-2-1
+
+The best-known rule comes from a 2012 US-CERT paper, *Data Backup Options*:
+
+- **3** - "Keep 3 copies of any important file: 1 primary and 2 backups."
+- **2** - "Keep the files on 2 different media types to protect against different types of hazards."
+- **1** - "Store 1 copy offsite (e.g., outside your home or business facility)."
+
+Each number answers a different disaster. Three copies survive one failing. Two kinds of media survive a fault that hits every disk of one kind, and one offsite copy survives losing the building.
+
+<Diagram
+  id="res-321"
+  title="3-2-1, and the step it leaves out"
+  desc="The original files on the office server are copied nightly to a second copy on different media, and copied to a third copy kept offsite - ideally offline or immutable, where an attacker cannot reach it. A restore drill then proves a copy can actually be restored."
+  nodes={[
+    { id: 'orig', label: 'original', sub: 'the office server', x: 0, y: 0 },
+    { id: 'second', label: 'second copy', sub: 'different media', x: 1, y: 0, kind: 'ok' },
+    { id: 'offsite', label: 'offsite copy', sub: 'offline or immutable', x: 2, y: 0, kind: 'ok' },
+    { id: 'drill', label: 'restore drill', sub: 'proves it works', x: 2, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'orig', to: 'second', label: 'nightly' },
+    { from: 'second', to: 'offsite', label: 'weekly' },
+    { from: 'offsite', to: 'drill', label: 'restore' },
+  ]}
+  steps={[
+    { caption: 'One copy is the original. It is the one that fails.', show: ['orig'], focus: ['orig'] },
+    { caption: 'A second copy on different media survives a dead disk or a corrupt file system.', show: ['second', 'orig->second'], focus: ['second'] },
+    { caption: 'A third copy somewhere else survives fire, flood and theft. Today it should also be out of an attacker\'s reach.', show: ['offsite', 'second->offsite'], focus: ['offsite'] },
+    { caption: 'None of it counts until something has been restored from it. 3-2-1 says where copies live, not whether they work.', show: ['drill', 'offsite->drill'], focus: ['drill', 'offsite->drill'] },
+  ]}
+/>
+
+## Ransomware goes looking for backups
+
+The 2012 rule predates modern ransomware, which doesn't just encrypt the files in front of it. The CISA and MS-ISAC *#StopRansomware Guide* warns that many ransomware variants try to find and delete or encrypt any backups they can reach. Its advice: "Maintain offline, encrypted backups of critical data", because "it is important that backups are maintained offline."
+
+The guide also mentions **immutable storage**, which some cloud vendors offer and which can't be changed or deleted for a set period, and adds a caution: "Use immutable storage with caution as it does not meet compliance criteria for certain regulations."
+
+A USB drive that's always plugged in is reachable. So is a cloud backup whose admin password sits on the infected network. Distance doesn't make a copy safe; reachability is what decides it.
+
+## Sync is not backup
+
+A folder that syncs to the cloud feels like a backup, but it copies everything faithfully, including a deletion, an accidental overwrite, or a file the ransomware just encrypted, within seconds. A backup has history: you can go back to how things were before the mistake. That matters most for mistakes nobody notices for a week or two.
+
+Try all of it on a small office. Tick the copies it keeps, then throw disasters at them. Run a restore drill too: one of these copies isn't what it seems.
+
+<BackupLab />
+
+<Callout kind="trap">
+Every configured backup in that office "succeeded" on paper. The cloud job had failed every night since a password changed, and nothing told anyone. A backup job that fails silently is worse than no job: it is a reason to believe you are safe. Alert on every failed run, and prove the rest with restores.
+</Callout>
+
+<Quiz
+  id="res-backup-1"
+  q="An office keeps its server, a USB drive that is always plugged in, and a cloud sync folder. Ransomware hits. What survives?"
+  options={["The cloud copy - it is offsite", "Probably nothing - every copy was reachable, and sync copies the encrypted files", "The USB drive - it is different media"]}
+  answer={1}
+  explain="Offsite and different media protect against other disasters. Against ransomware the question is reachability: an attached drive and a sync folder are both reachable, and sync replicates the damage."
+/>
+
+<Quiz
+  id="res-backup-2"
+  q="What is the only way to know a backup works?"
+  options={["The backup job reports success", "Restore from it, somewhere safe, and check the result", "It satisfies 3-2-1"]}
+  answer={1}
+  explain="The CISA guide says to regularly test the availability and integrity of backups, and AWS's DR whitepaper says a backup strategy must include testing your backups. A success message proves the job ran, not that the data can come back."
+/>
+
+<Callout kind="real">
+On Kubernetes the usual tool is Velero, which backs up cluster objects and volumes and can restore them into a different namespace - a safe way to run a drill without touching production (`velero restore create --from-backup <name> --namespace-mappings old:new`). The tilt platform includes Velero, off by default, and its own configuration marks it as untested, so there is no tilt lab for it here yet.
+</Callout>
+
+<DoItForReal id="res-backup-real" needs="terminal">
+
+Run a restore drill on your own machine. Record a checksum of every file, back up, "lose" the original, restore somewhere new, and prove the restored files match:
+
+```bash
+mkdir -p drill/data && cd drill
+printf 'invoice 1\n' > data/invoice-1.txt
+printf 'invoice 2\n' > data/invoice-2.txt
+find data -type f -exec sha256sum {} + > checksums.txt   # what "correct" looks like
+tar -czf backup.tar.gz data                              # the backup
+rm -rf data                                              # the disaster
+mkdir restore && tar -xzf backup.tar.gz -C restore       # restore somewhere new
+cd restore && sha256sum -c ../checksums.txt              # every line must say OK
+```
+
+Then break it on purpose: overwrite `backup.tar.gz` with junk and try the restore again. Seeing the failure in a drill is the whole point - better there than on the day you need it.
+
+</DoItForReal>

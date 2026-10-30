@@ -1,0 +1,81 @@
+---
+title: From backup-and-restore to active-active
+summary: Four ways to survive losing a whole site, from cheap and slow to expensive and near-instant. The right one is the cheapest that meets each system's targets - and replication, the thing that makes the fast ones fast, copies your mistakes too.
+minutes: 15
+xp: 40
+tiers: [browser]
+sources:
+  - title: AWS whitepaper - Disaster Recovery of Workloads on AWS, "Disaster recovery options in the cloud"
+    url: https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html
+  - title: NIST SP 800-34 Rev. 1 - Contingency Planning Guide for Federal Information Systems
+    url: https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final
+---
+
+Backups protect your data. **Disaster recovery (DR)** is about the rest: if the building, the data centre or the whole cloud region you run in is gone, where does the system run tomorrow, and how quickly can it be there?
+
+AWS's whitepaper *Disaster Recovery of Workloads on AWS* sorts the answers into four approaches, "ranging from the low cost and low complexity of making backups to more complex strategies using multiple active Regions". The names are used across the industry, whichever cloud or data centre you're in.
+
+<Diagram
+  id="res-dr-patterns"
+  title="Four patterns, cheapest to fastest"
+  desc="Four disaster recovery patterns in a row. Backup and restore is cheapest and slowest, recovering in hours to a day. Pilot light keeps data replicated and core infrastructure ready but application servers switched off. Warm standby runs a smaller working copy all the time. Multi-site active/active serves users from both sites at once and recovers in near zero time, at the highest cost."
+  nodes={[
+    { id: 'backup', label: 'backup, restore', sub: 'hours to a day', x: 0, y: 0 },
+    { id: 'pilot', label: 'pilot light', sub: 'data on, servers off', x: 1, y: 0, kind: 'info' },
+    { id: 'warm', label: 'warm standby', sub: 'small copy running', x: 2, y: 0, kind: 'info' },
+    { id: 'active', label: 'active/active', sub: 'both sites serving', x: 3, y: 0, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'backup', to: 'pilot', label: 'costs more' },
+    { from: 'pilot', to: 'warm', label: 'costs more' },
+    { from: 'warm', to: 'active', label: 'costs more' },
+  ]}
+  steps={[
+    { caption: 'Backup and restore: copy backups to another region; after a disaster, rebuild everything there and restore. Cheapest, slowest.', show: ['backup'], focus: ['backup'] },
+    { caption: 'Pilot light: data is replicated continuously and core infrastructure is ready, but application servers stay switched off until a failover.', show: ['pilot', 'backup->pilot'], focus: ['pilot'] },
+    { caption: 'Warm standby: a scaled-down but working copy runs all the time. It can take traffic at once, then scales up.', show: ['warm', 'pilot->warm'], focus: ['warm'] },
+    { caption: 'Active/active: both sites serve users all the time, so there is nothing to fail over to. Most complex, most costly, recovery near zero.', show: ['active', 'warm->active'], focus: ['active'] },
+  ]}
+/>
+
+## What separates them
+
+- **Backup and restore** is, in the whitepaper's words, "a suitable approach for mitigating against data loss or corruption", and for many systems it's enough. Recovery means redeploying "the infrastructure, configuration, and application code" as well as the data. Without infrastructure as code, it warns, that "may be complex" and can blow your RTO.
+- **Pilot light vs warm standby** is the distinction people mix up. The whitepaper is precise: "pilot light cannot process requests without additional action taken first, whereas warm standby can handle traffic (at reduced capacity levels) immediately."
+- **Multi-site active/active** "is the most complex and costly approach to disaster recovery, but it can reduce your recovery time to near zero for most disasters".
+
+None of them is "best". The right one is the cheapest that meets a system's RTO and RPO, which is why the targets from the previous lesson come first. Most organisations end up with different patterns for different systems.
+
+<DrLab />
+
+<Callout kind="trap">
+Replication protects against a lost site, not a bad write. A bad deploy that corrupts the orders table is copied to the standby region within seconds, so failing over gives you two corrupt copies. The whitepaper is blunt: continuous replication "may not protect you against data corruption or destruction unless your strategy also includes versioning of stored data or options for point-in-time recovery". Even active/active needs backups, and for a data disaster its recovery point "will always be at some point before the disaster was discovered".
+</Callout>
+
+<Quiz
+  id="res-dr-1"
+  q="What is the difference between pilot light and warm standby?"
+  options={["Warm standby is in a different cloud", "A pilot light environment cannot serve requests until servers are switched on; warm standby can take traffic immediately at reduced capacity", "Pilot light has no copy of the data"]}
+  answer={1}
+  explain="Both keep data replicated. Pilot light keeps application servers off until failover; warm standby runs a smaller working copy that can serve traffic at once and then scale up."
+/>
+
+<Quiz
+  id="res-dr-2"
+  q="A payment service needs RTO 15 minutes and RPO 1 minute. Warm standby meets both; active/active does too. Which should you pick?"
+  options={["Active/active - it is the safest", "Warm standby - it meets the targets for far less", "Backup and restore - it is cheapest"]}
+  answer={1}
+  explain="The goal is the cheapest pattern that meets the targets. Active/active buys recovery the business did not ask for; backup and restore cannot recover in 15 minutes."
+/>
+
+<Quiz
+  id="res-dr-3"
+  q="Your shop runs warm standby. A bad deploy corrupts the orders table. Why doesn't failing over help?"
+  options={["Failover is too slow", "Replication already copied the corruption to the standby region", "The standby region is switched off"]}
+  answer={1}
+  explain="Replication copies every write, good or bad. Recovering from corruption needs a point in time before it - versioned or point-in-time backups - whatever the DR pattern."
+/>
+
+<Callout kind="real">
+The figures in the simulator are illustrative, not price quotes: real costs depend on how big the workload is and how much of it runs in the standby site. Whatever the numbers, the whitepaper's other rule holds: "It is critical to regularly assess and test your disaster recovery strategy". A failover nobody has practised is the slowest failover there is.
+</Callout>
