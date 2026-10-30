@@ -877,6 +877,105 @@ await scenario('net-lb', '/learn/network/load-balancers/', async (page) => {
   await expectText(page, 'header [data-xp]', /^[1-9]/);
 });
 
+// ---- agents (writer AG)
+// Each widget: play its mission the way a learner would, and check the
+// tempting shortcuts stay open - the prompt rule alone, going back to v1,
+// letting the agent do everything on its own.
+
+await scenario('agents-loop', '/learn/agents/what-is-an-agent/', async (page) => {
+  const r = '[data-agent-loop]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  for (let i = 0; i < 3; i++) await page.click(`${r} [data-step]`);
+  await expectText(page, `${r} [data-trace]`, /18 days overdue/);
+  // Every call re-reads everything so far: the context bars must grow.
+  const ctx = (await page.locator(`${r} [data-bars] li > span:last-child`).allInnerTexts()).map((t) => Number(t.replace(/\D/g, '')));
+  if (ctx.length !== 3 || !(ctx[0] < ctx[1] && ctx[1] < ctx[2])) throw new Error(`context did not grow call by call: ${ctx}`);
+  await page.selectOption(`${r} [data-limit]`, '2');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-trace]`, /the step limit, not the model/);
+  await page.selectOption(`${r} [data-limit]`, '8');
+  await page.uncheck(`${r} [data-tool="days_between"]`);
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-trace]`, /better than guessing/);
+  await expectText(page, `${r} .m-debrief`, /the step limit was the loop/);
+});
+
+await scenario('agents-tools', '/learn/agents/tools/', async (page) => {
+  const r = '[data-tool-bench]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // A vague description sends the lookup to the refund tool.
+  await page.selectOption(`${r} [data-desc]`, 'vague');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-refunded]`, /^1$/);
+  await page.selectOption(`${r} [data-desc]`, 'precise');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-trace]`, /track\.example/);
+  await page.selectOption(`${r} [data-email]`, 'disguised');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-refunded]`, /^37$/);
+  // Asking nicely does not hold against the disguised email.
+  await page.check(`${r} [data-rule]`);
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-refunded]`, /^37$/);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('the prompt rule alone completed the mission');
+  await page.check(`${r} [data-gate]`);
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-approval-text]`, /refunds 37 orders/);
+  await page.click(`${r} [data-deny]`);
+  await expectText(page, `${r} [data-approval-text]`, /send_reply/);
+  await page.click(`${r} [data-approve]`);
+  await expectText(page, `${r} [data-refunded]`, /^0$/);
+  await expectText(page, `${r} .m-debrief`, /a person who saw/);
+});
+
+await scenario('agents-flows', '/learn/agents/workflows-vs-agents/', async (page) => {
+  const r = '[data-workflow-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-design="workflow"]`);
+  await expectText(page, `${r} [data-rows]`, /17 \/ 20/);
+  await page.click(`${r} [data-design="agent"]`);
+  await page.click(`${r} [data-design="hybrid"]`);
+  await expectText(page, `${r} [data-rows]`, /Workflow \+ agent\s+20 \/ 20/);
+  await expectText(page, `${r} .m-debrief`, /workflow prices/);
+});
+
+await scenario('agents-evals', '/learn/agents/guardrails-and-evals/', async (page) => {
+  const r = '[data-eval-bench]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-which="all"]`);
+  await expectText(page, `${r} [data-score]`, /prompt v1: 6 of 8/);
+  await page.selectOption(`${r} [data-prompt]`, 'v2');
+  await page.click(`${r} [data-which="demo"]`);
+  await expectText(page, `${r} [data-score]`, /Demo on prompt v2: 1 of 1/);
+  await page.click(`${r} [data-which="all"]`);
+  await expectText(page, `${r} [data-score]`, /prompt v2: 6 of 8/);
+  // Going back to v1, even with the guardrail, is not a way out.
+  await page.selectOption(`${r} [data-prompt]`, 'v1');
+  await page.check(`${r} [data-guard]`);
+  await page.click(`${r} [data-which="all"]`);
+  await expectText(page, `${r} [data-score]`, /v1 \+ guardrail: 6 of 8/);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('v1 + guardrail completed the mission');
+  await page.selectOption(`${r} [data-prompt]`, 'v2');
+  await page.click(`${r} [data-which="all"]`);
+  await expectText(page, `${r} [data-score]`, /v2 \+ guardrail: 8 of 8/);
+  await expectText(page, `${r} .m-debrief`, /case by case/);
+});
+
+await scenario('agents-business', '/learn/agents/business-agents/', async (page) => {
+  const r = '[data-agent-designer]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // Every action starts on "Alone": the tempting design.
+  await page.click(`${r} [data-check]`);
+  await expectText(page, `${r} [data-verdict]`, /Fail: risk/);
+  for (const [id, v] of [['send', 'approve'], ['fee', 'approve'], ['pause', 'never']]) await page.selectOption(`${r} [data-action="${id}"]`, v);
+  await page.click(`${r} [data-check]`);
+  await expectText(page, `${r} [data-verdict]`, /Pass: risk[\s\S]*Pass: useful/);
+  await expectText(page, `${r} [data-verdict]`, /\$8\.00/);
+  await page.selectOption(`${r} [data-model]`, 'haiku');
+  await page.click(`${r} [data-check]`);
+  await expectText(page, `${r} .m-debrief`, /minutes of review/);
+});
+
 await browser.close();
 server?.kill();
 

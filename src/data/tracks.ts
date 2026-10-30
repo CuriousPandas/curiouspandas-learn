@@ -153,11 +153,11 @@ export const TRACKS: Track[] = [
     // "Do it for real" on the learner's own machine and account.
     id: 'agents', title: 'Build AI Agents', tagline: 'A model, a loop and some tools - and how to trust it with real work.', icon: 'bot', hue: 15,
     lessons: [
-      { slug: 'what-is-an-agent', title: 'A model, a loop and some tools', status: 'soon' },
-      { slug: 'tools', title: 'Tools: how a model touches the world', status: 'soon' },
-      { slug: 'workflows-vs-agents', title: 'Workflows first, agents when you must', status: 'soon' },
-      { slug: 'guardrails-and-evals', title: 'Guardrails, approvals and evals', status: 'soon' },
-      { slug: 'business-agents', title: 'Agents that help run a business', status: 'soon' },
+      { slug: 'what-is-an-agent', title: 'A model, a loop and some tools', status: 'ready' },
+      { slug: 'tools', title: 'Tools: how a model touches the world', status: 'ready' },
+      { slug: 'workflows-vs-agents', title: 'Workflows first, agents when you must', status: 'ready' },
+      { slug: 'guardrails-and-evals', title: 'Guardrails, approvals and evals', status: 'ready' },
+      { slug: 'business-agents', title: 'Agents that help run a business', status: 'ready' },
     ],
   },
   {

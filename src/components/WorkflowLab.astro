@@ -1,0 +1,89 @@
+---
+// The same 20 tickets through a fixed workflow, an agent, and a hybrid. Token
+// counts per call are illustrative (src/lib/agents/workflows.ts); the price
+// is a real list price, dated.
+import '../styles/widgets.css';
+import { PRICE } from '../lib/agents/workflows.ts';
+---
+<div class="widget card workflow-lab" data-workflow-lab>
+  <div class="widget-head">
+    <strong>20 support tickets, three designs</strong>
+    <span class="pill info">priced at {PRICE.model} list price, checked {PRICE.checked}</span>
+  </div>
+  <div class="controls">
+    <button class="btn small" type="button" data-design="workflow">Fixed workflow</button>
+    <button class="btn small" type="button" data-design="agent">Agent for everything</button>
+    <button class="btn small" type="button" data-design="hybrid">Workflow, agent for the odd ones</button>
+  </div>
+  <div class="wl-grid">
+    <div class="wl-main">
+      <div class="wl-scroll" tabindex="0" role="region" aria-label="Results by design">
+        <table class="wl-table">
+          <caption class="sr-only">Results for each design you ran</caption>
+          <thead><tr><th scope="col">Design</th><th scope="col">Handled</th><th scope="col">Model calls</th><th scope="col">Cost for 20</th><th scope="col">Slowest</th></tr></thead>
+          <tbody data-rows><tr><td colspan="5" class="muted">Run a design to see how it does.</td></tr></tbody>
+        </table>
+      </div>
+      <span class="eyebrow">Last run, ticket by ticket</span>
+      <ol class="wl-tickets" data-tickets aria-label="Tickets in the last run"></ol>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { runDesign, TICKETS, type Design } from '../lib/agents/workflows.ts';
+  import { FLOW_MISSION } from '../lib/agents/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const NAME: Record<Design, string> = { workflow: 'Fixed workflow', agent: 'Agent for everything', hybrid: 'Workflow + agent' };
+  const usd = (n: number) => `$${n.toFixed(2)}`;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-workflow-lab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = FLOW_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), FLOW_MISSION, () => state, () => {});
+
+    const draw = () => {
+      // One row per design, latest run of each.
+      const latest = new Map(state.runs.map((r) => [r.design, r]));
+      q('[data-rows]').replaceChildren(...[...latest.values()].map((r) => el('tr', { class: r.handled < 20 ? 'short' : '' },
+        el('th', { scope: 'row' }, NAME[r.design]),
+        el('td', {}, `${r.handled} / 20`),
+        el('td', {}, String(r.calls)),
+        el('td', {}, usd(r.cost), el('small', {}, `${usd(r.cost * 50)} per 1,000`)),
+        el('td', {}, `${r.slowest} calls`))));
+      const last = state.runs.at(-1);
+      q('[data-tickets]').replaceChildren(...(last ? last.tickets.map((t) => {
+        const ticket = TICKETS.find((x) => x.id === t.id)!;
+        return el('li', { class: t.handled ? 'ok' : 'bad', title: `#${t.id}: ${ticket.text} - ${t.route}, ${t.calls} calls` },
+          el('b', {}, `#${t.id}`), el('span', {}, t.handled ? `${t.calls} calls` : 'wrong answer'));
+      }) : []));
+      refresh();
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-design]').forEach((b) => b.addEventListener('click', () => {
+      state.runs.push(runDesign(b.dataset.design as Design));
+      draw();
+    }));
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: rows and tickets are created by the script. */
+  .workflow-lab .wl-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .workflow-lab .wl-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .workflow-lab .wl-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .workflow-lab .wl-scroll { overflow-x: auto; }
+  .workflow-lab .wl-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  .workflow-lab .wl-table th, .workflow-lab .wl-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+  .workflow-lab .wl-table small { display: block; color: var(--ink-2); font-size: 0.76rem; }
+  .workflow-lab .wl-table tr.short td:nth-child(2) { color: var(--berry); font-weight: 700; }
+  .workflow-lab .wl-tickets { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 6px; }
+  .workflow-lab .wl-tickets li { display: grid; gap: 1px; padding: 5px 8px; border-radius: 8px; font-size: 0.8rem; border: 1px solid var(--line); background: var(--bg); }
+  .workflow-lab .wl-tickets li.ok { border-color: color-mix(in srgb, var(--bamboo) 50%, transparent); background: var(--bamboo-soft); }
+  .workflow-lab .wl-tickets li.bad { border-color: var(--berry); background: var(--berry-soft); }
+  .workflow-lab .wl-tickets li b { font-size: 0.78rem; }
+  .workflow-lab .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
