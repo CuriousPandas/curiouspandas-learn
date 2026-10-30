@@ -1,0 +1,104 @@
+---
+title: Everything is a file
+summary: One tree, starting at /. Learn to walk it with absolute and relative paths, find the files ls hides, and meet the file that swallows everything you write to it.
+minutes: 14
+xp: 30
+tiers: [browser, machine]
+sources:
+  - title: hier(7) - description of the filesystem hierarchy
+    url: https://man7.org/linux/man-pages/man7/hier.7.html
+  - title: path_resolution(7) - how a pathname is turned into a file
+    url: https://man7.org/linux/man-pages/man7/path_resolution.7.html
+  - title: null(4) - /dev/null and /dev/zero
+    url: https://man7.org/linux/man-pages/man4/null.4.html
+  - title: proc(5) - the /proc process information filesystem
+    url: https://man7.org/linux/man-pages/man5/proc.5.html
+---
+
+Windows gives every drive a letter: `C:`, `D:`. Linux has no letters. It has **one tree**, and everything hangs from a single root written `/`. Your files, the machine's settings, even the hardware: all of it has a place somewhere under `/`.
+
+Learn that tree and you can find your way around any Linux machine, whether it's your laptop, a server or the container a cluster is running for you.
+
+<Diagram
+  id="linux-one-tree"
+  title="One tree, one root"
+  desc="The root directory / contains home and etc. home contains panda, the home directory of the user panda, which holds notes.txt. etc holds the machine's settings, such as the file hostname. The absolute path of notes.txt is /home/panda/notes.txt."
+  nodes={[
+    { id: 'root', label: '/', sub: 'the root', x: 0, y: 0, kind: 'info' },
+    { id: 'home', label: 'home/', sub: 'one folder per user', x: 1, y: 0 },
+    { id: 'panda', label: 'panda/', sub: 'your home: ~', x: 2, y: 0, kind: 'ok' },
+    { id: 'notes', label: 'notes.txt', sub: '/home/panda/notes.txt', x: 3, y: 0 },
+    { id: 'etc', label: 'etc/', sub: 'settings', x: 1, y: 1 },
+    { id: 'hostname', label: 'hostname', sub: '/etc/hostname', x: 2, y: 1 },
+  ]}
+  edges={[
+    { from: 'root', to: 'home' },
+    { from: 'home', to: 'panda' },
+    { from: 'panda', to: 'notes' },
+    { from: 'root', to: 'etc' },
+    { from: 'etc', to: 'hostname' },
+  ]}
+  steps={[
+    { caption: 'Everything starts at /, the root. There is exactly one.', show: ['root'], focus: ['root'] },
+    { caption: 'Each user gets a folder under /home. Yours is /home/panda, and ~ is shorthand for it.', show: ['home', 'panda', 'root->home', 'home->panda'], focus: ['panda'] },
+    { caption: 'A full path from the root is absolute: /home/panda/notes.txt means the same file wherever you are standing.', show: ['notes', 'panda->notes'], focus: ['notes'] },
+    { caption: 'The machine\'s own settings live under /etc, as ordinary text files you can read with cat.', show: ['etc', 'hostname', 'root->etc', 'etc->hostname'], focus: ['hostname'] },
+  ]}
+/>
+
+## Where am I, and how do I get there?
+
+Your shell always stands in one directory, the **working directory**. `pwd` prints it. Paths come in two kinds:
+
+- **Absolute** paths start with `/` and are read from the root: `/etc/hostname`. They mean the same thing wherever you are.
+- **Relative** paths don't start with `/` and are read from where you're standing: from `/home/panda`, `projects/bamboo` means `/home/panda/projects/bamboo`.
+
+Two names are in every directory: `.` is the directory itself and `..` is its parent. So `cd ..` climbs one level, and `../../notes.txt` climbs two and then picks a file.
+
+<ShellPlayground mission="linux-paths" title="Your first Linux machine" />
+
+<Quiz
+  id="linux-paths-1"
+  q="You are in /home/panda/projects/bamboo. Which path names /home/panda/notes.txt?"
+  options={["../notes.txt", "../../notes.txt", "/notes.txt"]}
+  answer={1}
+  explain="One .. climbs from bamboo to projects, a second climbs to /home/panda, and notes.txt is there. /notes.txt is an absolute path: a file directly under the root, which is something else entirely."
+/>
+
+## The files ls doesn't show you
+
+`ls` skips any name that starts with a dot. That's a convention, not a security feature: dot-files are mostly settings (`.bashrc` configures your shell) that would otherwise clutter every listing. `ls -a` shows them, along with `.` and `..`.
+
+<Quiz
+  id="linux-paths-2"
+  q="ls shows nothing, but ls -a lists .env and .git. What happened?"
+  options={["The files are protected and only ls -a is allowed to read them", "Names starting with a dot are skipped by ls unless you ask for -a", "The folder is corrupt"]}
+  answer={1}
+  explain="A leading dot only hides a name from a plain ls. Anyone who can read the folder can list and open them - which is why a .env file full of passwords is no safer for its dot."
+/>
+
+## Why "everything is a file"
+
+Linux presents far more than documents as files. **Devices** live under `/dev`. **Running processes** appear under `/proc`, one folder per process ID, with files describing each one. Settings live in `/etc`. Because they're all files, the same handful of tools - `cat`, `echo`, `>` - work on every one of them.
+
+The most famous is `/dev/null`. Anything written to it is thrown away, and reading it gives you nothing at all. It's where you send output you don't want: `noisy-command > /dev/null`.
+
+<Callout kind="real">
+The sandbox has the shape of a real system but only a few of its files: no `/proc`, no real devices beyond `/dev/null`, and `ls` prints no colours. A real `ls -l` also shows hard-link counts and dates that come from your clock. On your own machine, `ls /proc` lists a numbered folder for every running process.
+</Callout>
+
+<DoItForReal id="linux-paths-real" needs="terminal" xp={20}>
+
+Look at your own machine's tree, its hidden files and its live process files:
+
+```bash
+pwd
+ls -la ~
+cat /etc/hostname
+head -5 /proc/$$/status    # Linux and WSL: your own shell, as a file
+echo "gone" > /dev/null; cat /dev/null
+```
+
+On a Mac there is no `/proc`; `ps -p $$` shows the same shell instead.
+
+</DoItForReal>

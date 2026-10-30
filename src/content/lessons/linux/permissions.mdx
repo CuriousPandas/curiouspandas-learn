@@ -1,0 +1,113 @@
+---
+title: Who may touch this file
+summary: Nine little letters decide who can read, change and run every file. Learn to read them, grant exactly one missing bit, and see why chmod 777 is never the fix.
+minutes: 15
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: path_resolution(7) - permission checking
+    url: https://man7.org/linux/man-pages/man7/path_resolution.7.html
+  - title: chmod(1) - symbolic and numeric modes
+    url: https://man7.org/linux/man-pages/man1/chmod.1.html
+  - title: chmod(2) - who may change a file's mode (EPERM)
+    url: https://man7.org/linux/man-pages/man2/chmod.2.html
+  - title: unlink(2) - deleting needs write access to the directory (EACCES)
+    url: https://man7.org/linux/man-pages/man2/unlink.2.html
+  - title: Bash Reference Manual - Exit Status
+    url: https://www.gnu.org/software/bash/manual/html_node/Exit-Status.html
+---
+
+Linux was built for many people sharing one machine, and every file still carries the answer to one question: **who may do what to me?** `ls -l` shows it as ten characters at the start of each line:
+
+```text
+-rwxr-xr--  1 panda dev  64 Oct 30 09:00 deploy.sh
+```
+
+The first character is the type (`-` a file, `d` a directory). The next nine are three groups of three, for three kinds of people:
+
+| Letters | Who | In this example |
+|---|---|---|
+| `rwx` | the **owner** (`panda`) | read, write and run it |
+| `r-x` | the file's **group** (`dev`) | read and run, not change |
+| `r--` | **everyone else** | read only |
+
+Each letter is a bit: **r** = 4, **w** = 2, **x** = 1. Add them per group and you get the three digits people type: `rwxr-xr--` is **754**.
+
+<Diagram
+  id="linux-which-bits"
+  title="Which three bits apply to you"
+  desc="When you open a file, Linux first asks whether you own it; if so, the owner bits decide and nothing else is consulted. If not, it asks whether you are in the file's group; if so, the group bits decide. Otherwise the bits for everyone else decide. Only one group of three bits is ever used."
+  nodes={[
+    { id: 'open', label: 'you open a file', sub: 'read, write or run', x: 0, y: 0, kind: 'info' },
+    { id: 'own', label: 'do you own it?', x: 1, y: 0 },
+    { id: 'ownerbits', label: 'owner bits', sub: 'and only those', x: 2, y: 0, kind: 'ok' },
+    { id: 'grp', label: 'in its group?', x: 1, y: 1 },
+    { id: 'grpbits', label: 'group bits', x: 2, y: 1, kind: 'ok' },
+    { id: 'other', label: 'other bits', sub: 'everyone else', x: 0, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'open', to: 'own' },
+    { from: 'own', to: 'ownerbits', label: 'yes' },
+    { from: 'own', to: 'grp', label: 'no' },
+    { from: 'grp', to: 'grpbits', label: 'yes' },
+    { from: 'grp', to: 'other', label: 'no' },
+  ]}
+  steps={[
+    { caption: 'Every open, write or run starts the same check.', show: ['open', 'own', 'open->own'], focus: ['own'] },
+    { caption: 'If you own the file, the owner bits decide - and that is the end of it. If the owner has no r, the owner cannot read, even when everyone else can.', show: ['ownerbits', 'own->ownerbits'], focus: ['ownerbits'] },
+    { caption: 'Not the owner? If you belong to the file\'s group, the group bits decide.', show: ['grp', 'grpbits', 'own->grp', 'grp->grpbits'], focus: ['grpbits'] },
+    { caption: 'Otherwise, the bits for everyone else. Exactly one group of three is ever used.', show: ['other', 'grp->other'], focus: ['other'] },
+  ]}
+/>
+
+## Grant exactly what's missing
+
+`chmod` changes the bits, either as digits (`chmod 754 deploy.sh`) or as a change to make: who (`u` owner, `g` group, `o` others, `a` all), then `+`, `-` or `=`, then the letters. `chmod u+x deploy.sh` adds one bit, run-for-the-owner, and touches nothing else.
+
+<ShellPlayground mission="linux-perms" title="A script that will not run" />
+
+<Callout kind="trap" title="chmod 777 makes the error go away">
+`777` is `rwxrwxrwx`: anyone on the machine may run the file, and anyone may **rewrite** it. The script now works, and the next person to edit it decides what it does the next time you run it. It's the file-system version of granting cluster-admin to make a "forbidden" error disappear, and [the cluster-access lesson](/learn/security/cluster-access/) meets the same trap one level up.
+</Callout>
+
+<Quiz
+  id="linux-perms-1"
+  q="A file is -r--r--rw- and you own it. Can you write to it?"
+  options={["Yes - everyone else may write it, so its owner surely can", "No - you own it, so only the owner bits (r--) count, and they have no w", "Yes - write is allowed if any of the three groups allows it"]}
+  answer={1}
+  explain="Linux picks one class first - owner, then group, then everyone else - and uses only its bits. You are the owner, so r-- decides: you can read but not write, even though a stranger could. (As the owner you could chmod u+w and then write.)"
+/>
+
+## Folders have the same bits, with different meanings
+
+On a **directory**, `r` lets you list the names in it, `w` lets you create, delete and rename entries in it, and `x` lets you go into it and reach anything inside.
+
+That gives one surprise worth remembering: **deleting a file needs write permission on the folder, not on the file.** A read-only file in your own folder can still be deleted by you. A file you could rewrite completely can't be deleted if its folder isn't yours.
+
+<Quiz
+  id="linux-perms-2"
+  q="Only who can chmod a file, whatever its current bits say?"
+  options={["Anyone with write permission on it", "Its owner (or root)", "Anyone in its group"]}
+  answer={1}
+  explain="Changing the mode is reserved for the file's owner and privileged processes. Write permission lets you change the contents, never the permissions - otherwise any rw-rw-rw- file could be made yours."
+/>
+
+<Callout kind="real">
+Real systems add more than the nine bits: `root` skips most checks, `sudo` lets you act as root, a `umask` trims the permissions new files are born with, and special bits like setuid and the sticky bit on `/tmp` (anyone may create files there, but only the owner may delete them) change the rules in specific places. The sandbox has none of these, so it can show the nine bits on their own.
+</Callout>
+
+<DoItForReal id="linux-perms-real" needs="terminal" xp={20}>
+
+On Linux, a Mac or WSL:
+
+```bash
+printf 'echo it runs\n' > hello.sh
+ls -l hello.sh        # -rw-r--r--: nobody may run it
+./hello.sh            # Permission denied
+echo $?               # 126: found, but not executable
+bash hello.sh         # runs: bash only needs to READ the file
+chmod u+x hello.sh && ./hello.sh
+ls -l /etc/shadow     # Linux/WSL: password hashes, unreadable to you
+```
+
+</DoItForReal>

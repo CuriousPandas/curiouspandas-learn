@@ -20,10 +20,10 @@ export const TRACKS: Track[] = [
   {
     id: 'linux', title: 'Linux & the Shell', tagline: 'Files, processes and pipes - the ground every other tool stands on.', icon: 'terminal', hue: 90,
     lessons: [
-      { slug: 'files-and-paths', title: 'Everything is a file', status: 'soon' },
-      { slug: 'processes-and-signals', title: 'Processes, signals and exit codes', status: 'soon' },
-      { slug: 'permissions', title: 'Who may touch this file', status: 'soon' },
-      { slug: 'pipes', title: 'Small tools, joined by pipes', status: 'soon' },
+      { slug: 'files-and-paths', title: 'Everything is a file', status: 'ready' },
+      { slug: 'processes-and-signals', title: 'Processes, signals and exit codes', status: 'ready' },
+      { slug: 'permissions', title: 'Who may touch this file', status: 'ready' },
+      { slug: 'pipes', title: 'Small tools, joined by pipes', status: 'ready' },
     ],
   },
   {
