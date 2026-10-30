@@ -1,0 +1,137 @@
+---
+title: Trusting what you ship
+summary: You chose a handful of packages and installed hundreds. Five real ways the code you install stops being the code you meant - and why every defence is blind to at least one of them.
+minutes: 17
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: npm blog - Details about the event-stream incident (2018)
+    url: https://blog.npmjs.org/post/180565383195/details-about-the-event-stream-incident
+  - title: npm blog - crossenv malware on the npm registry (2017)
+    url: https://blog.npmjs.org/post/163723642530/crossenv-malware-on-the-npm-registry
+  - title: Andres Freund - backdoor in upstream xz/liblzma (oss-security, 2024-03-29)
+    url: https://www.openwall.com/lists/oss-security/2024/03/29/4
+  - title: npm docs - package-lock.json (integrity, resolved)
+    url: https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json
+  - title: npm docs - npm ci
+    url: https://docs.npmjs.com/cli/v10/commands/npm-ci
+  - title: npm docs - npm audit (audit signatures)
+    url: https://docs.npmjs.com/cli/v10/commands/npm-audit
+  - title: SLSA v1.0 - Security levels
+    url: https://slsa.dev/spec/v1.0/levels
+  - title: Sigstore - Overview
+    url: https://docs.sigstore.dev/about/overview/
+  - title: TemplateMechanics/tilt - apps/harbor.yaml
+    url: https://github.com/TemplateMechanics/tilt/blob/main/apps/harbor.yaml
+---
+
+This site asks for **8 packages** by name in its `package.json`. Installing them puts **346 packages** on disk. You chose eight; strangers chose the other 338, and their dependencies chose some of those. Every one runs with your permissions when you build.
+
+That's what "supply chain" means here: everything between a stranger's keyboard and your running code, and every place along that path where the code can quietly become something else.
+
+## Three times it really happened
+
+| When | What | How it got in |
+|---|---|---|
+| 2017 | **crossenv**, a lookalike of the popular `cross-env`, sent your environment variables to the attacker's server. npm removed about 40 packages from the same publisher. | You typed the wrong name |
+| 2018 | **event-stream**: a new maintainer took over the package and added a dependency, `flatmap-stream`, whose payload targeted a Bitcoin wallet app. | An update you didn't read |
+| 2024 | **xz utils** 5.6.0 and 5.6.1: the line that switched the backdoor on existed only in the released tarballs, not in the git repository. It was found by an engineer chasing odd ssh behaviour, who measured logins taking about 0.8s instead of 0.3s. | The artifact differed from the source |
+
+The xz one deserves a second read. The repository held the payload only as two innocent-looking binary test files. The line that unpacked them into the build lived in the tarball - the thing people actually installed - and nowhere in the repository. Reviewing the source would not have shown you the switch.
+
+<Diagram
+  id="supply-path"
+  title="Where a package can change on its way to you"
+  desc="A package goes from its source repository, through a build, to a registry, to your install. Provenance attests which source and build produced it. Your lockfile pins the exact version and hash you first installed."
+  nodes={[
+    { id: 'source', label: 'Source repo', sub: 'what reviewers read', x: 0, y: 0 },
+    { id: 'build', label: 'Build', sub: 'makes the tarball', x: 1, y: 0 },
+    { id: 'registry', label: 'Registry', sub: 'or a mirror', x: 2, y: 0 },
+    { id: 'install', label: 'Your install', sub: 'npm ci', x: 3, y: 0, kind: 'info' },
+    { id: 'prov', label: 'Provenance', sub: 'signed: built here', x: 1, y: 1, kind: 'ok' },
+    { id: 'lock', label: 'Lockfile', sub: 'version + hash', x: 3, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'source', to: 'build', label: 'git tag' },
+    { from: 'build', to: 'registry', label: 'publish' },
+    { from: 'registry', to: 'install', label: 'download' },
+    { from: 'build', to: 'prov', label: 'attests' },
+    { from: 'lock', to: 'install', label: 'must match' },
+  ]}
+  steps={[
+    { caption: 'A package travels from source, through a build, to a registry, to you. Every hop is a place it can change.', show: ['source', 'build', 'registry', 'install', 'source->build', 'build->registry', 'registry->install'] },
+    { caption: 'xz changed here: the release tarball was not what the tagged source would build. Reviewing the source cannot see this hop.', focus: ['build'] },
+    { caption: 'Provenance is a signed record of which source and which build produced the artifact. No record from the expected build, no install.', show: ['prov', 'build->prov'], focus: ['prov'] },
+    { caption: 'A compromised mirror or a stolen publish token changes what the registry hands out - same name, different bytes.', focus: ['registry'] },
+    { caption: 'Your lockfile pins the exact version and hash you first installed. Different bytes, and npm ci stops.', show: ['lock', 'lock->install'], focus: ['lock', 'lock->install'] },
+  ]}
+/>
+
+## Install day
+
+Five incidents, modelled on the shapes above, against a toy project. Every package name starts with `toy-` - real names in a lesson about backdoors would accuse real maintainers. Switch controls on and off and read *why* each one does or doesn't help.
+
+<SupplyChainSim />
+
+## What each control actually buys
+
+**A lockfile with `npm ci`.** `package-lock.json` records the exact tree that was installed, and for each package an `integrity` field: a `sha512` hash of the artifact. `npm ci` installs exactly that, and if the lockfile and `package.json` disagree it exits with an error instead of "fixing" anything. It never writes to either file. So bytes can't change under you - but the lockfile hashes whatever you had *when you locked*. Lock a backdoored release and you've pinned the backdoor.
+
+Pinning also has a cost you saw in the widget: a lockfile turns "the attacker's version arrives today" into "arrives at your next routine update". That's a delay, not a defence. Security fixes arrive the same slow way, which is the trade-off the [tags and digests](/learn/containers/tags-and-digests/) lesson describes for images.
+
+**Dependency review.** A person, or a tool such as a dependency-review check on pull requests, looks at every package name that's new in the diff. It's the only control here that notices *you asked for the wrong thing*. It's blind to bytes changing under a name you already approved.
+
+**Provenance and signatures.** [SLSA](https://slsa.dev/spec/v1.0/levels) defines provenance as a record of "what entity built the artifact, what process they used, and what the inputs were". Its levels climb from "package has provenance" (easy to forge) to builds where forging it means exploiting a vulnerability. Sigstore makes signing practical without key management: a short-lived certificate is issued for the signer's OIDC identity, the private key is discarded after one signature, and the record goes into a public append-only log, Rekor. Verifying then means checking that the identity in the certificate is the one you expected - for example, the project's own release workflow.
+
+Provenance only covers packages that publish it, and most of a real tree doesn't yet. And it proves *where* something came from, not that it's *good*: a typosquat can have flawless provenance from the attacker's own repository.
+
+**An SBOM** - a software bill of materials - blocks nothing. It's the list of what's inside each thing you ship. Its value shows on the morning a new vulnerability is announced: with SBOMs you can answer "are we affected?" by searching, instead of by guessing. That's the same job the Trivy scanner does continuously in the [policy and scanning](/learn/platform/policy-and-security/) lesson.
+
+<Callout kind="trap" title="The signature that showed as missing">
+tilt's own Harbor registry config carries this comment: Harbor 2.11 "does not recognise cosign signatures stored through the OCI 1.1 referrers API - the default in cosign v3. Harbor shows such an image as unsigned while the signature is sitting right there, which reads as 'never signed'." The fix was upgrading Harbor. The same file notes a `notary:` setting that Helm silently ignored after Harbor removed Notary - a control that "read like a deliberate control while doing precisely nothing". Verify that verification happens, not that it's configured.
+</Callout>
+
+<Quiz
+  id="sec-supply-1"
+  q="A release tarball contains code that isn't in the project's git repository, and the reviewed source is clean. Which control can catch it?"
+  options={["A lockfile, written after the release", "Code review of the source", "Provenance: a signed record that the artifact was built from that source by the project's own build"]}
+  answer={2}
+  explain="The lockfile would hash the bad tarball faithfully, and the source is clean so review finds nothing. Only a link between artifact and source - provenance - exposes the gap. That's the xz shape."
+/>
+
+<Quiz
+  id="sec-supply-2"
+  q="Your team uses lockfiles and npm ci everywhere. A maintainer's account is taken over and a malicious patch release is published. Are you safe?"
+  options={["Yes: the lockfile pins versions", "Until your next routine dependency update, when the patch release comes in with everything else", "Yes, because npm ci verifies signatures"]}
+  answer={1}
+  explain="A lockfile delays new versions; it doesn't judge them. Updates are when they arrive - which is why review and provenance checks belong on the update, not just the install."
+/>
+
+<Quiz
+  id="sec-supply-3"
+  q="Someone adds 'toy-cross-envv' to package.json by mistake. The package is properly signed and has valid provenance. What catches it?"
+  options={["Signature verification", "The lockfile's integrity hash", "A human or tool reviewing new package names in the dependency diff"]}
+  answer={2}
+  explain="Signatures and provenance prove where a package came from - here, faithfully, the attacker. The lockfile records exactly what you asked for. Only reviewing the request itself notices the typo."
+/>
+
+<DoItForReal id="sec-supply-real">
+
+Two checks you can run today. First, any Node project with a lockfile, including this site's repository:
+
+```bash
+npm ci                  # refuses to "fix" a lockfile that disagrees with package.json
+npm audit signatures    # verifies registry signatures and provenance attestations
+```
+
+Then, on the tilt platform, see how many images your cluster runs by a movable tag versus a fixed digest:
+
+```bash
+kubectl get pods -A -o jsonpath='{range .items[*].spec.containers[*]}{.image}{"\n"}{end}' | sort -u > images.txt
+wc -l < images.txt                  # distinct images
+grep -c '@sha256:' images.txt       # pinned by digest
+```
+
+The count by digest is usually small. That's the tags-and-digests trade-off at cluster scale: every tag is something that can be repointed under you.
+
+</DoItForReal>

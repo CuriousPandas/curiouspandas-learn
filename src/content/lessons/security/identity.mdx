@@ -1,0 +1,144 @@
+---
+title: Who are you, really?
+summary: Logging in once and being trusted everywhere - how OpenID Connect hands an app a signed statement about you, why a token is readable by anyone, and the one header field that let forged tokens through.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+sources:
+  - title: OpenID Connect Core 1.0 (ID Token, validation)
+    url: https://openid.net/specs/openid-connect-core-1_0.html
+  - title: RFC 7636 - Proof Key for Code Exchange (PKCE)
+    url: https://www.rfc-editor.org/rfc/rfc7636.html
+  - title: RFC 9700 - Best Current Practice for OAuth 2.0 Security (January 2025)
+    url: https://www.rfc-editor.org/rfc/rfc9700.html
+  - title: RFC 8725 - JSON Web Token Best Current Practices
+    url: https://www.rfc-editor.org/rfc/rfc8725.html
+  - title: NIST SP 800-207 - Zero Trust Architecture
+    url: https://csrc.nist.gov/pubs/sp/800/207/final
+  - title: Keycloak documentation
+    url: https://www.keycloak.org/documentation
+  - title: TemplateMechanics/tilt - Keycloak deployment
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/keycloak/deployment.yaml
+---
+
+Two different questions hide behind "security", and they're easy to blur:
+
+- **Authentication**: who are you? Prove it.
+- **Authorization**: now that we know who you are, what may you do?
+
+The [cluster access](/learn/security/cluster-access/) lesson was authorization: RBAC took an identity for granted and decided what it could touch. This lesson is the part before that: how an app comes to believe it knows who you are.
+
+## Log in once, be trusted everywhere
+
+If every app kept its own passwords, you'd have one password per app, and every app would be a place to steal them from. Instead, an **identity provider** - Keycloak on the tilt platform - is the only thing that ever sees your password. Apps send you to it, you log in there, and the app gets back a **signed statement** saying who you are. The protocol for that is **OpenID Connect** (OIDC), built on OAuth 2.0.
+
+The flow apps should use is the **authorization code flow with PKCE**. The 2025 OAuth security best practice, RFC 9700, says public clients "MUST use PKCE", says clients "SHOULD NOT use the implicit grant", and says the password grant, where the app collects your password itself, "MUST NOT be used".
+
+<Diagram
+  id="oidc-pkce"
+  title="Logging in with OIDC and PKCE"
+  desc="The app creates a secret verifier and sends you to Keycloak with a hash of it. You log in at Keycloak, which redirects back to the app with a one-time code. The app sends the code plus the verifier to the token endpoint, receives signed ID and access tokens, and calls the API with the access token."
+  nodes={[
+    { id: 'app', label: 'Your app', sub: 'makes a verifier', x: 0, y: 0, kind: 'info' },
+    { id: 'login', label: 'Keycloak login', sub: 'only it sees passwords', x: 1, y: 0, kind: 'ok' },
+    { id: 'back', label: 'Back at the app', sub: '?code=one-time', x: 2, y: 0, kind: 'info' },
+    { id: 'tokenep', label: 'Token endpoint', sub: 'checks the verifier', x: 3, y: 0, kind: 'ok' },
+    { id: 'tokens', label: 'ID + access token', sub: 'signed JWTs', x: 3, y: 1 },
+    { id: 'api', label: 'API', sub: 'checks every request', x: 2, y: 1 },
+  ]}
+  edges={[
+    { from: 'app', to: 'login', label: 'challenge' },
+    { from: 'login', to: 'back', label: 'code' },
+    { from: 'back', to: 'tokenep', label: '+ verifier' },
+    { from: 'tokenep', to: 'tokens', label: 'issues' },
+    { from: 'tokens', to: 'api', label: 'Bearer token' },
+  ]}
+  steps={[
+    { caption: 'The app makes a random secret, the code verifier, and keeps it. It sends you to Keycloak with only a hash of it: the code challenge.', show: ['app', 'login', 'app->login'], focus: ['app'] },
+    { caption: 'You log in at Keycloak - the only place your password goes. Keycloak redirects your browser back to the app with a short-lived, one-time code.', show: ['back', 'login->back'], focus: ['login', 'back'] },
+    { caption: 'The app trades the code for tokens, sending the original verifier. Keycloak hashes it and compares: a stolen code without the verifier is useless.', show: ['tokenep', 'back->tokenep'], focus: ['tokenep'] },
+    { caption: 'Keycloak issues signed tokens. The ID token tells the app who logged in; the access token is what the app shows to APIs.', show: ['tokens', 'tokenep->tokens'], focus: ['tokens'] },
+    { caption: 'Every API call carries the access token. The API checks it on every request - not just once at the door.', show: ['api', 'tokens->api'], focus: ['api', 'tokens->api'] },
+  ]}
+/>
+
+PKCE ("pixy", RFC 7636) exists because the code travels through your browser's address bar, where other software can sometimes see it. The verifier is 43 to 128 random characters; the challenge is the base64url of its SHA-256 hash. Whoever intercepts the code doesn't have the verifier, so the token endpoint refuses them.
+
+## Two tokens with two jobs
+
+The **ID token** is for the app. OIDC defines it as a JWT "that contains Claims about the Authentication event", with required claims including `iss` (who issued it), `sub` (a stable id for you), `aud` (which app it's for), `exp` and `iat`. The spec says clients **MUST** validate it: the signature, that `iss` is the expected issuer, that `aud` contains the app's own client id, and that it hasn't expired.
+
+The **access token** is for APIs. RFC 9700 says access tokens "SHOULD be audience-restricted to a specific resource server", and that a server receiving a token meant for someone else "MUST refuse to serve the respective request". A valid token for the billing app isn't a ticket into the shop.
+
+## A JWT is signed, not secret
+
+A JSON Web Token is three base64url strings joined by dots: a **header** (which algorithm signed it), a **payload** (the claims), and a **signature** over the first two. Base64url is an *encoding*, not encryption: anyone holding a token can read every claim in it. What they can't do, without the key, is change a claim and produce a matching signature.
+
+Unless the server lets the token decide how it should be checked.
+
+<JwtLab />
+
+<Callout kind="trap" title="alg: none">
+RFC 8725, the JWT best-practice document, describes libraries that "would trust this value and 'validate' the JWT without checking any signature" when an attacker set the header's algorithm to `none`. Its fix is the rule your strict API followed: libraries "MUST enable the caller to specify a supported set of algorithms and MUST NOT use any other algorithms". The token never gets a vote on how it's verified.
+</Callout>
+
+The toy signs with a shared secret (HS256) so the whole thing runs in your browser. Real identity providers usually sign with a private key and publish the public half; the OIDC discovery document at `/.well-known/openid-configuration` lists where, under `jwks_uri`. The rules don't change: pin the algorithms, then check signature, issuer, audience and expiry.
+
+## Zero trust: identity, not location
+
+The old model trusted the network: inside the firewall meant friendly. NIST's zero trust architecture defines the shift as moving defences "from static, network-based perimeters to focus on users, assets, and resources", with "no implicit trust granted to assets or user accounts based solely on their physical or network location".
+
+Everything in this lesson is that idea at small scale. The API didn't care where a request came from; it checked a signed statement of *who* sent it and *who it was for*, every time. The [service mesh](/learn/platform/service-mesh/) lesson applies the same idea to workloads: pods prove their identity to each other with mutual TLS, so "it came from inside the cluster" stops counting as a credential.
+
+<Quiz
+  id="sec-identity-1"
+  q="You can paste a JWT into any decoder and read its claims. What does that tell you?"
+  options={["The token is broken", "Nothing is wrong: JWT payloads are encoded, not encrypted - the signature stops changes, not reading", "The issuer forgot to encrypt it"]}
+  answer={1}
+  explain="Base64url is reversible by anyone. Never put a secret in a claim. The signature's job is integrity: change one character and verification fails."
+/>
+
+<Quiz
+  id="sec-identity-2"
+  q="An attacker intercepts the authorization code on its way back to your app. With PKCE in use, can they get tokens?"
+  options={["Yes, the code is all they need", "No: the token endpoint also needs the code verifier, which never left your app", "Only if the code hasn't expired"]}
+  answer={1}
+  explain="The challenge sent at the start is a hash of the verifier. Only the app that made the verifier can complete the exchange."
+/>
+
+<Quiz
+  id="sec-identity-3"
+  q="Your API receives a correctly signed, unexpired access token from your own Keycloak. Its aud claim names a different app. What should the API do?"
+  options={["Accept it: the signature is valid", "Refuse it: the token was issued for another resource server", "Accept it if the user is an admin"]}
+  answer={1}
+  explain="A valid signature only proves who issued it. RFC 9700 says a resource server must refuse a token whose audience isn't itself, or one app's tokens become keys to every other."
+/>
+
+<DoItForReal id="sec-identity-real" profile="full">
+
+Keycloak needs the `full` profile and its switch in `tilt-config.json`:
+
+```json
+"raw_apps": { "keycloak": { "enabled": true } }
+```
+
+The route is **`https://auth.localhost`** (the platform's own Keycloak page says `keycloak.localhost`, but the deployed route and `KC_HOSTNAME` are `auth.localhost`). The admin login is `admin` / `admin`: a development default, never something to expose. First, the discovery document every OIDC client starts from:
+
+```bash
+curl -s https://auth.localhost/realms/master/.well-known/openid-configuration \
+  | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri}'
+```
+
+Then get a token the quick way the platform docs use - the password grant, which RFC 9700 says apps must never use, but which is fine for poking at your own dev box - and read its payload:
+
+```bash
+TOKEN=$(curl -s https://auth.localhost/realms/master/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=admin-cli -d username=admin -d password=admin \
+  | jq -r .access_token)
+p=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+'); while [ $(( ${#p} % 4 )) -ne 0 ]; do p="$p="; done
+echo "$p" | base64 -d | jq '{iss, aud, azp, exp, preferred_username}'
+```
+
+Find the claims from this lesson: who issued it, who it's for, when it dies. Then, in the admin console, create a realm and a client of your own, and see `iss` change to the new realm.
+
+</DoItForReal>

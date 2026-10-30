@@ -1,0 +1,144 @@
+---
+import '../styles/widgets.css';
+import { INCIDENTS, CONTROLS } from '../lib/supply/chain.ts';
+---
+<div class="widget card supply" data-supply>
+  <div class="widget-head">
+    <strong>Install day</strong>
+    <span class="pill info">toy packages, real failure shapes</span>
+  </div>
+  <div class="sc-grid">
+    <div class="sc-left">
+      <fieldset class="sc-pick">
+        <legend class="eyebrow">What is going wrong upstream</legend>
+        {INCIDENTS.map((i, n) => (
+          <label><input type="radio" name="supply-incident" value={i.id} checked={n === 0} /> {i.title}</label>
+        ))}
+      </fieldset>
+      <p class="sc-story" data-story></p>
+      <fieldset class="sc-controls">
+        <legend class="eyebrow">Your controls</legend>
+        {Object.entries(CONTROLS).map(([id, c]) => (
+          <label title={c.detail}><input type="checkbox" value={id} /> <span><b>{c.label}</b><span class="muted">{c.detail}</span></span></label>
+        ))}
+      </fieldset>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-install>Install</button>
+        <button class="btn small" type="button" data-all>Run all five</button>
+      </div>
+    </div>
+    <div class="sc-right">
+      <div class="sc-verdict" data-verdict aria-live="polite">Pick a problem and your controls, then Install.</div>
+      <ul class="sc-tree" data-tree aria-label="Dependency tree"></ul>
+      <ul class="sc-why" data-why></ul>
+      <table class="sc-all" data-alltable hidden><caption>All five, with these controls</caption><tbody></tbody></table>
+      <div data-mission-panel></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { INCIDENTS, CONTROLS, install, treeFor, type Control, type IncidentId, type Result } from '../lib/supply/chain.ts';
+  import { SUPPLY_MISSION } from '../lib/security/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const WORD = { blocked: 'Blocked', delayed: 'Delayed - not stopped', missed: 'Got in' } as const;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-supply]')) {
+    const state = SUPPLY_MISSION.setup();
+    const q = (s: string) => root.querySelector<HTMLElement>(s)!;
+    const incident = () => root.querySelector<HTMLInputElement>('input[name="supply-incident"]:checked')!.value as IncidentId;
+    const controls = () => [...root.querySelectorAll<HTMLInputElement>('.sc-controls input:checked')].map((i) => i.value as Control);
+    const refresh = mountMission(q('[data-mission-panel]'), SUPPLY_MISSION, () => state, () => {});
+
+    const story = () => { q('[data-story]').textContent = INCIDENTS.find((i) => i.id === incident())!.story; };
+
+    const show = (r: Result) => {
+      const inc = INCIDENTS.find((i) => i.id === r.incident)!;
+      const v = q('[data-verdict]');
+      v.className = `sc-verdict ${r.outcome}`;
+      v.textContent = `${WORD[r.outcome]}: ${inc.target} (${inc.arrives})${r.caughtBy ? ` - ${CONTROLS[r.caughtBy].label}` : r.controls.length ? '' : ' - no controls were on'}`;
+      // The tree as installed: the bad package is marked whatever happened, so
+      // a learner can see what a blocked install would have pulled in.
+      q('[data-tree]').replaceChildren(...treeFor(r.incident).map((row) => {
+        const li = el('li', { class: row.bad ? `bad ${r.outcome}` : '' }, el('code', {}, row.name), el('span', { class: 'muted' }, ` ${row.version}`));
+        li.style.paddingLeft = `${row.depth * 18 + 6}px`;
+        if (row.bad) li.append(el('span', { class: 'sc-tag' }, r.outcome === 'blocked' ? 'refused' : r.outcome === 'delayed' ? 'held back, for now' : 'installed'));
+        return li;
+      }));
+      q('[data-why]').replaceChildren(...(Object.keys(CONTROLS) as Control[]).map((c) => {
+        const o = inc.outcome[c], on = r.controls.includes(c);
+        return el('li', { class: on ? `on ${o.verdict}` : 'off' },
+          el('b', {}, `${CONTROLS[c].label}${on ? '' : ' (off)'}: `),
+          el('span', { class: 'sc-v' }, on ? WORD[o.verdict] : `would have: ${WORD[o.verdict].toLowerCase()}`),
+          el('span', {}, ` ${o.why}`));
+      }));
+    };
+
+    q('[data-install]').addEventListener('click', () => {
+      const r = install(incident(), controls());
+      state.history.push(r);
+      q('[data-alltable]').hidden = true;
+      show(r);
+      refresh();
+    });
+    q('[data-all]').addEventListener('click', () => {
+      const results = INCIDENTS.map((i) => install(i.id, controls()));
+      state.history.push(...results);
+      const t = q('[data-alltable]');
+      t.hidden = false;
+      t.querySelector('tbody')!.replaceChildren(...results.map((r) => el('tr', { class: r.outcome },
+        el('td', {}, INCIDENTS.find((i) => i.id === r.incident)!.title),
+        el('td', {}, WORD[r.outcome]))));
+      const through = results.filter((r) => r.outcome !== 'blocked').length;
+      const v = q('[data-verdict]');
+      v.className = `sc-verdict ${through ? 'missed' : 'blocked'}`;
+      v.textContent = through ? `${through} of 5 got in or were only delayed with these controls.` : 'All five blocked with these controls.';
+      q('[data-tree]').replaceChildren();
+      q('[data-why]').replaceChildren();
+      refresh();
+    });
+    for (const r of root.querySelectorAll<HTMLInputElement>('input[name="supply-incident"]')) r.addEventListener('change', story);
+    story();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: tree rows, reasons and the results table are created by
+     the script, and scoped styles never reach elements Astro did not render. */
+  .supply .sc-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .supply .sc-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); } }
+  .supply .sc-left, .supply .sc-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .supply fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 6px; min-width: 0; }
+  .supply fieldset label { display: flex; gap: 8px; align-items: flex-start; font-size: 0.9rem; cursor: pointer; }
+  .supply fieldset label input { margin-top: 4px; flex: none; }
+  .supply .sc-controls label > span { display: flex; flex-direction: column; }
+  .supply .sc-controls .muted { font-size: 0.8rem; }
+  .supply .sc-story { margin: 0; padding: 10px 12px; background: var(--bg-2); border-radius: 10px; font-size: 0.9rem; }
+  .supply .sc-verdict { padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .supply .sc-verdict.blocked { background: var(--bamboo-soft); color: var(--bamboo); }
+  .supply .sc-verdict.delayed { background: var(--sun-soft); color: var(--sun-text); }
+  .supply .sc-verdict.missed { background: var(--berry-soft); color: var(--berry); }
+  .supply .sc-tree { list-style: none; margin: 0; padding: 6px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 0.86rem; }
+  .supply .sc-tree:empty, .supply .sc-why:empty { display: none; }
+  .supply .sc-tree li { padding: 3px 8px; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+  .supply .sc-tree code { background: none; border: 0; padding: 0; }
+  .supply .sc-tree li.bad { font-weight: 650; }
+  .supply .sc-tree li.bad.missed { background: var(--berry-soft); }
+  .supply .sc-tree li.bad.delayed { background: var(--sun-soft); }
+  .supply .sc-tree li.bad.blocked { background: var(--bamboo-soft); text-decoration: line-through; text-decoration-color: var(--bamboo); }
+  .supply .sc-tag { font: 700 0.7rem var(--sans); text-transform: uppercase; letter-spacing: .04em; margin-left: auto; }
+  .supply .sc-why { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.86rem; }
+  .supply .sc-why li { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); }
+  .supply .sc-why li.off { border-style: dashed; color: var(--ink-2); }
+  .supply .sc-why .sc-v { font-weight: 700; }
+  .supply .sc-why li.on.blocked .sc-v { color: var(--bamboo); }
+  .supply .sc-why li.on.delayed .sc-v { color: var(--sun-text); }
+  .supply .sc-why li.on.missed .sc-v { color: var(--berry); }
+  .supply .sc-all { border-collapse: collapse; font-size: 0.88rem; width: 100%; }
+  .supply .sc-all caption { text-align: left; font-weight: 700; padding-bottom: 4px; }
+  .supply .sc-all td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  .supply .sc-all tr.blocked td:last-child { color: var(--bamboo); font-weight: 650; }
+  .supply .sc-all tr.delayed td:last-child { color: var(--sun-text); font-weight: 650; }
+  .supply .sc-all tr.missed td:last-child { color: var(--berry); font-weight: 650; }
+</style>

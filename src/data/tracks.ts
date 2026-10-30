@@ -71,9 +71,9 @@ export const TRACKS: Track[] = [
       { slug: 'secrets-in-git', title: 'Deleted is not gone', status: 'soon' },
       { slug: 'passwords-and-hashing', title: 'Why slow hashes win', status: 'soon' },
       { slug: 'web-flaws', title: 'When input becomes code', status: 'soon' },
-      { slug: 'supply-chain', title: 'Trusting what you ship', status: 'soon' },
-      { slug: 'cluster-access', title: 'Who can do what in a cluster', status: 'soon' },
-      { slug: 'identity', title: 'Who are you, really?', status: 'soon' },
+      { slug: 'supply-chain', title: 'Trusting what you ship', status: 'ready' },
+      { slug: 'cluster-access', title: 'Who can do what in a cluster', status: 'ready' },
+      { slug: 'identity', title: 'Who are you, really?', status: 'ready' },
     ],
   },
   {

@@ -1,0 +1,87 @@
+---
+import '../styles/widgets.css';
+interface Props { title?: string }
+const { title = 'RBAC sandbox' } = Astro.props;
+---
+<div class="widget card rbac" data-rbac>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info">namespace shop · app runs as shop:reporter</span>
+    <span class="spacer"></span>
+    <button class="btn small" type="button" data-reset>Start over</button>
+  </div>
+  <div class="rb-grid">
+    <div class="rb-left">
+      <div data-term></div>
+      <p class="muted rb-log"><b>App log:</b> <code>configmaps "shop-settings" is forbidden: User "system:serviceaccount:shop:reporter" cannot get resource "configmaps" in API group "" in the namespace "shop"</code></p>
+    </div>
+    <div class="rb-right">
+      <!-- The audit sits above the mission: it is the panel that answers each
+           command, and below a long mission list it scrolled out of view at the
+           moment cluster-admin flipped four checks to OPEN. -->
+      <div class="rb-audit">
+        <div class="eyebrow">Least-privilege audit · re-checked after every command</div>
+        <ul data-audit></ul>
+      </div>
+      <div data-mission-panel></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { kubectlAuth, audit } from '../lib/rbac/rbac.ts';
+  import { RBAC_MISSION, type RbacState } from '../lib/security/missions.ts';
+  import { mountTerminal, mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-rbac]')) {
+    let state: RbacState = RBAC_MISSION.setup();
+    const list = root.querySelector<HTMLElement>('[data-audit]')!;
+    const draw = () => {
+      // A row shows whether the app has that access, and whether that is what
+      // we want - "needed" and "must stay closed" read differently on purpose.
+      list.replaceChildren(...audit(state.authz).map((c) => {
+        const good = c.got === c.want;
+        return el('li', { class: good ? 'good' : 'bad', 'data-check': c.id },
+          el('span', { class: 'rb-mark', 'aria-hidden': 'true' }, good ? '✓' : '✗'),
+          el('span', {}, c.text),
+          el('span', { class: 'rb-state' }, c.want ? (c.got ? 'working' : 'still forbidden') : (c.got ? 'OPEN' : 'closed')));
+      }));
+      refresh();
+    };
+    const term = mountTerminal(root.querySelector<HTMLElement>('[data-term]')!, {
+      prompt: '$',
+      greeting: ['The reporter app cannot read its settings. Find out why, then grant exactly enough.', 'Type kubectl help for every command this sandbox understands.'],
+      onCommand: (line) => {
+        state.history.push(line);
+        const out = kubectlAuth(state.authz, line, 'shop');
+        draw();
+        return out;
+      },
+    });
+    const refresh = mountMission(root.querySelector<HTMLElement>('[data-mission-panel]')!, RBAC_MISSION, () => state, (cmd) => term.type(cmd));
+    root.querySelector('[data-reset]')!.addEventListener('click', () => {
+      state = RBAC_MISSION.setup();
+      term.clear();
+      term.print([{ text: 'Fresh cluster: no roles, no bindings.', kind: 'dim' }]);
+      draw();
+    });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the audit rows are created by the script, and scoped
+     styles never reach elements Astro did not render. */
+  .rbac .rb-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .rbac .rb-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+  .rbac .rb-left, .rbac .rb-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .rbac .rb-log { margin: 0; font-size: 0.82rem; }
+  .rbac .rb-log code { overflow-wrap: anywhere; }
+  .rbac .rb-audit { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .rbac .rb-audit ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; font-size: 0.88rem; }
+  .rbac .rb-audit li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; }
+  .rbac .rb-mark { font-weight: 800; }
+  .rbac .rb-audit li.good .rb-mark { color: var(--bamboo); }
+  .rbac .rb-audit li.bad .rb-mark, .rbac .rb-audit li.bad .rb-state { color: var(--berry); }
+  .rbac .rb-state { font: 600 0.75rem var(--sans); color: var(--muted); white-space: nowrap; }
+</style>
