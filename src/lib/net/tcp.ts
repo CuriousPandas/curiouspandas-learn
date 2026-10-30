@@ -4,6 +4,8 @@
 //   refused    SYN answered by RST - fast "no"           curl exit 7
 //   timeout    SYN, then silence and retransmissions     curl exit 28
 // Retransmits wait 1 s, then double (RFC 6298: initial RTO 1 s, then x2).
+// Linux 6.5+ keeps the first four 1 s apart (tcp_syn_linear_timeouts); the
+// lesson says so, and the sim keeps the classic schedule the RFC describes.
 
 export type Bind = '0.0.0.0' | '127.0.0.1';
 export type Firewall = 'allow' | 'drop' | 'reject';

@@ -49,7 +49,9 @@ import { FACTS } from '../lib/launch/unit.ts';
       const good = r.billing === 'annual' ? r.upfront >= FACTS.cac : r.paysBack && r.paybackMonths <= 12;
       v.className = `pl-verdict ${good ? 'ok' : r.billing === 'monthly' && !r.paysBack ? 'bad' : 'warn'}`;
       const lines: [string, string][] = [
-        ['Gross profit per month', `price - cost to serve = ${$(price)} - ${$(FACTS.costToServe)} = ${$(r.grossPerMonth)}`],
+        ['Gross profit per month', r.billing === 'annual'
+          ? `${FACTS.annualMonths} x ${$(price)} / 12 months - cost to serve = ${$(r.grossPerMonth + FACTS.costToServe)} - ${$(FACTS.costToServe)} = ${$(r.grossPerMonth)}`
+          : `price - cost to serve = ${$(price)} - ${$(FACTS.costToServe)} = ${$(r.grossPerMonth)}`],
         ['Payback', r.grossPerMonth > 0 ? `CAC / gross profit = $${FACTS.cac} / ${$(r.grossPerMonth)} = ${r.paybackMonths.toFixed(1)} months` : 'never - each month loses money'],
         ['Expected lifetime', `1 / monthly churn = 1 / ${FACTS.monthlyChurn * 100}% = ${r.lifetimeMonths.toFixed(0)} months`],
         ['Lifetime value', `gross profit x lifetime = ${$(Math.max(0, r.grossPerMonth))} x ${r.lifetimeMonths.toFixed(0)} = ${$(r.ltv)} (vs $${FACTS.cac} to win them)`],

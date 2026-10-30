@@ -17,7 +17,7 @@ export const ROUTES: Record<Route, string> = {
   primary: 'Send every read to the primary',
   sticky: 'Your own reads go to the primary for a few seconds after you write',
   'wait-lsn': 'The replica read waits until it has replayed your write',
-  sync: 'Commit waits until the replica has applied it (synchronous_commit = remote_apply)',
+  sync: 'Commit waits until the replica has applied it (synchronous_commit = remote_apply, with the replica in synchronous_standby_names)',
 };
 
 export const LAG_MS = 800;

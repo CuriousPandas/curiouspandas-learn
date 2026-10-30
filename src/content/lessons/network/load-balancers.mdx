@@ -31,6 +31,8 @@ Here's the catch. A crashed server that refuses connections instantly never *has
 
 A **health check** probes each backend on a timer and takes failing ones out of rotation until they pass again. Without one, the balancer keeps sending a dead server its share of requests. Real balancers let you tune how many failures it takes: NGINX's passive check marks a server unavailable after `max_fails=1` failure within `fail_timeout=10s` by default. This simulation pulls a backend after two failed checks and lets it back after two good ones.
 
+NGINX's defaults go further: a failed connection is retried on the next server (`proxy_next_upstream error timeout`), and one failure takes a server out for 10 seconds - which would hide a refusing backend from customers. The simulator turns both off, the way a plain layer 4 balancer or a pool with no checks behaves, so you can see what the checks protect you from.
+
 <LbLab mission="net-keep-it-up" />
 
 <Callout kind="trap">
@@ -87,7 +89,7 @@ Kubernetes has a health check of its own. A pod whose **readiness probe** fails 
 
 <DoItForReal id="net-lb-real" lab="02-route-a-hostname">
 
-The tilt platform's front door is an L7 proxy: an Istio-managed Gateway with one listener for `*.localhost`, and an HTTPRoute per app that matches on hostname. Read the rules that route `grafana.localhost` and `prometheus.localhost` to different backends:
+The tilt platform's front door is an L7 proxy: an Istio-managed Gateway listening for `*.localhost` (HTTPS on 443, plus port 80 for the redirect), and an HTTPRoute per app that matches on hostname. Read the rules that route `grafana.localhost` and `prometheus.localhost` to different backends:
 
 ```bash
 kubectl get gateway -n istio-system

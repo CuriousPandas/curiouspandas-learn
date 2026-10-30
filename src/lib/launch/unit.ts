@@ -28,14 +28,21 @@ export type Result = {
 
 export function economics(price: number, billing: Billing = 'monthly'): Result {
   if (!(price > 0)) throw new Error('price must be positive');
-  const grossPerMonth = price - FACTS.costToServe;
+  // An annual customer pays 10 months' price for 12, so every per-month figure
+  // uses that discounted price. The first version used the sticker price here,
+  // and showed $6 annual earning $4.50 a month (really $3.50) and an LTV of $90
+  // (really $70) - the discount applied to the cash and nowhere else.
+  const effective = billing === 'annual' ? (price * FACTS.annualMonths) / 12 : price;
+  const grossPerMonth = effective - FACTS.costToServe;
   const lifetimeMonths = 1 / FACTS.monthlyChurn;
   const paybackMonths = grossPerMonth > 0 ? FACTS.cac / grossPerMonth : Infinity;
   const ltv = Math.max(0, grossPerMonth) * lifetimeMonths;
   const upfront = billing === 'annual' ? price * FACTS.annualMonths : price;
   const paysBack = paybackMonths <= lifetimeMonths;
   const verdict = billing === 'annual'
-    ? upfront >= FACTS.cac ? 'The upfront payment covers acquisition on day one.' : `The upfront payment leaves $${(FACTS.cac - upfront).toFixed(2)} of acquisition unpaid on day one.`
+    ? upfront < FACTS.cac ? `The upfront payment leaves $${(FACTS.cac - upfront).toFixed(2)} of acquisition unpaid on day one.`
+      : grossPerMonth * 12 >= FACTS.cac ? 'The upfront payment covers acquisition on day one, and a year of profit repays it.'
+      : `The upfront payment covers acquisition on day one, but a year at the discounted price earns $${(grossPerMonth * 12).toFixed(2)} after serving them - they repay their $${FACTS.cac} only if they renew.`
     : grossPerMonth <= 0 ? 'Every customer loses money every month. More customers means bigger losses.'
     : !paysBack ? `Never pays back: the average customer leaves after ${lifetimeMonths.toFixed(0)} months, before covering the $${FACTS.cac} it cost to win them.`
     : `Pays back in ${paybackMonths.toFixed(1)} months; the average customer stays ${lifetimeMonths.toFixed(0)}.`;

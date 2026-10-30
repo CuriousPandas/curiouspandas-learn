@@ -31,7 +31,7 @@ export const JOBS: Job[] = [
       { id: 'note', label: 'Add a note to the invoice record', core: true, perTask: 1 },
       { id: 'send', label: 'Email the reminder to the customer', external: true, purpose: true, perTask: 1 },
       { id: 'fee', label: 'Add a late fee', money: true, perTask: 0.2 },
-      { id: 'pause', label: "Pause the customer's account", external: true, irreversible: true, perTask: 0.05 },
+      { id: 'pause', label: "Close the customer's account", external: true, irreversible: true, perTask: 0.05 },
     ],
   },
   {

@@ -64,11 +64,11 @@ A common middle path: write a readable tag *and* the digest, as in `node:22-slim
 <DoItForReal id="ctr-tags-real">
 
 ```bash
-docker pull alpine:3.20
-docker image inspect alpine:3.20 --format '{{index .RepoDigests 0}}'
-docker pull alpine@sha256:<paste the digest from above>
+docker pull alpine:3.24
+docker image inspect alpine:3.24 --format '{{index .RepoDigests 0}}'
+docker pull <paste the reference printed above>     # alpine@sha256:...
 ```
 
-The two pulls give the same image. Run the inspect again in a few months and the tag may well point at a different digest.
+The two pulls give the same image. Run `docker pull alpine:3.24` and the inspect again in a few months, and the tag may well point at a different digest.
 
 </DoItForReal>

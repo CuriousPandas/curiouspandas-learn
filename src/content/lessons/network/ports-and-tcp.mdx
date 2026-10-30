@@ -56,7 +56,7 @@ How the handshake *fails* is the useful part, because each failure has its own s
   ]}
 />
 
-When the SYN gets no answer, the client sends it again. The first retry waits one second, and each wait after that doubles (RFC 6298). By default Linux retries six times and finally gives up after about 131 seconds (kernel `tcp_syn_retries`). That's why a dropped connection without a `--connect-timeout` can hang for two minutes.
+When the SYN gets no answer, the client sends it again. Classic TCP waits one second and doubles each wait after that (RFC 6298), and that is the schedule the simulator above shows. Since Linux 6.5 the first few retries are one second apart and only then start doubling (`tcp_syn_linear_timeouts`, default 4). Either way, with the default `tcp_syn_retries` an attempt to a silent address takes about two minutes to fail (131 seconds on current kernels). That's why a dropped connection without a `--connect-timeout` can hang for two minutes.
 
 ## Works on my machine
 
@@ -74,10 +74,10 @@ Exact timings depend on the operating system. On Linux a refusal comes back in a
 
 <Quiz
   id="net-tcp-1"
-  q="curl fails in 2 ms with exit 7. What do you know?"
+  q="curl fails in 2 ms with exit 7 and 'Connection refused'. What do you know?"
   options={["The network path is broken", "A machine answered, and nothing was accepting connections on that address and port", "DNS failed"]}
   answer={1}
-  explain="A fast refusal is an answer: a reset (or a firewall's port-unreachable) came back. Packets got there and back, so the route is fine. Check the port, whether the program is running, and what address it listens on."
+  explain="A fast refusal is an answer: a reset (or a firewall's port-unreachable) came back. Packets got there and back, so the route is fine. Check the port, whether the program is running, and what address it listens on. (A fast 'No route to host' would be different: then the path is the problem.)"
 />
 
 <Quiz

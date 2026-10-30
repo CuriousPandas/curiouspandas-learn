@@ -24,7 +24,7 @@ export const INTERVIEW_MISSION: Mission<InterviewState> = {
     { text: 'Include a question about money or time they have already spent', hint: '"Have you spent money or time on this?" - spending is the strongest evidence a problem is real', done: cleanSpend },
     { text: 'Decide: how many of the five have this problem today?', hint: 'Count the people whose answers show they already pay or work around it - not the people who said yes', done: (s) => s.decisions.some((d) => d.afterCleanSpend && d.answer === HAVE_PROBLEM) },
   ],
-  debrief: 'All five said yes to the pitch, and four of them have no problem to solve: kindness is not demand. Asking about the last outage, what they do today and what they have spent turned five compliments into two real problems - one person already paying for a workaround, one losing minutes every morning. Two is a smaller number, and it is the one you can build on.',
+  debrief: 'All five said yes to the pitch, and three of them have no problem to solve: kindness is not demand. Asking about the last outage, what they do today and what they have spent turned five compliments into two real problems - one person already paying for a workaround, one losing minutes every morning. Two is a smaller number, and it is the one you can build on.',
 };
 
 // ---- mvp ----------------------------------------------------------------------

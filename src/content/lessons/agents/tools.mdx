@@ -80,7 +80,7 @@ That last sentence decides the design. If you can't reliably stop the model bein
 ## What the widget showed
 
 - **"Gets data." didn't fail. It misfired.** The closest-sounding description belonged to `issue_refund` ("Give an order number…"), so the agent refunded the order it was asked to look up. A precise description fixed it. So does giving a tool that moves money a description nobody could mistake for a lookup.
-- **Read and write are different risks.** `read_inbox`, `get_order` and `search_help` can't hurt anyone. `send_reply` and `issue_refund` act on the world. OWASP's excessive-agency page has the same example: a mail assistant that only needs to read mail, but whose plugin "also contains functions for sending messages". Its fixes are a read-only plugin, a read-only access scope, and a person reviewing every email before it's sent.
+- **Read and write are different risks.** `read_inbox`, `get_order` and `search_help` can't hurt anyone. `send_reply` and `issue_refund` act on the world. OWASP's excessive-agency page has the same example: a mail assistant that only needs to read mail, but whose extension "also contains functions for sending messages". Its fixes are a read-only extension, a read-only access scope, and a person reviewing every email before it's sent.
 - **The approval gate cost you a click per email.** That's the trade. The [business lesson](/learn/agents/business-agents/) puts numbers on it.
 
 <Quiz

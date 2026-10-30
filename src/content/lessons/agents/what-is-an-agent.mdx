@@ -56,7 +56,7 @@ So an agent is three things:
 
 ## Run one
 
-The agent below has three tools and one question about an overdue invoice. Its "model" is **a simulation**: a short set of rules, written out in the next lesson, that picks tools the way a real model does, by reading their descriptions. No AI is called and nothing leaves your browser. What you see is the real shape of the loop, one model call at a time.
+The agent below has three tools and one question about an overdue invoice. Its "model" is **a simulation**: a short set of rules (listed in the next lesson's widget, under "How this simulated model decides"), that picks tools the way a real model does, by reading their descriptions. No AI is called and nothing leaves your browser. What you see is the real shape of the loop, one model call at a time.
 
 <AgentLoop />
 
@@ -162,6 +162,8 @@ for step in range(5):                    # the step limit lives here, in your co
     results = [{"type": "tool_result", "tool_use_id": b.id, "content": json.dumps(find_invoice(**b.input))}
                for b in reply.content if b.type == "tool_use"]
     messages.append({"role": "user", "content": results})
+else:                                    # runs only if the loop never hit break
+    print("stopped by the step limit, not the model")
 ```
 
 Print `reply.usage` inside the loop and watch the input tokens grow each step. This costs money on your own account - a run like this is a fraction of a cent, but check current prices first.

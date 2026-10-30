@@ -67,7 +67,7 @@ Two fixes work:
 - **Store the email already lower-cased,** and compare plain values.
 
 <Callout kind="trap">
-An index isn't free, and it isn't always faster. Every `INSERT` and `UPDATE` must update every index on the table too. And when a query matches a large share of the rows, jumping around an index can lose to just reading the table. For this lesson, a query for all of 2025's orders (66,482 of the 200,000) took **304 ms** through an index on `created_at` and **145 ms** as a full scan. `ANALYZE` gives SQLite's planner the statistics to make that call better.
+An index isn't free, and it isn't always faster. Every `INSERT` and `UPDATE` must update every index on the table too. And when a query matches a large share of the rows, jumping around an index can lose to just reading the table. For this lesson, a query for all of 2025's orders (66,482 of the 200,000) took **304 ms** through an index on `created_at` and **145 ms** as a full scan. `ANALYZE` gives SQLite's planner statistics to decide better, but it isn't guaranteed to change its mind: on this data it still picks the index. `FROM orders NOT INDEXED` forces the scan.
 </Callout>
 
 <Quiz

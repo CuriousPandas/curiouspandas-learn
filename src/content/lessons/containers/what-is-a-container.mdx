@@ -28,7 +28,7 @@ What makes it feel like a separate machine are two Linux kernel features, applie
 | Network | network interfaces, IP addresses, ports |
 | UTS | hostname |
 | IPC | shared memory and message queues |
-| User | user and group IDs (root inside, nobody outside) |
+| User | user and group IDs (root inside can be an unprivileged user outside - but only with a user namespace, which Docker doesn't use by default) |
 | Cgroup | view of the cgroup hierarchy |
 | Time | boot and monotonic clocks |
 
@@ -36,10 +36,10 @@ The **image** is the other half: a bundle of files (a whole minimal Linux userla
 
 <Quiz
   id="ctr-what-1"
-  q="You run `ps aux` on the host while a container is running nginx. What do you see?"
+  q="On a Linux host, you run `ps aux` while a container is running nginx. What do you see?"
   options={["Nothing: containers are invisible to the host", "The nginx processes, as ordinary processes on the host", "A single process called 'docker'"]}
   answer={1}
-  explain="A container's processes are host processes. The host sees them with their real PIDs. Only the process inside the container has the narrowed view: its PID namespace shows it as PID 1, with no neighbours."
+  explain="A container's processes are host processes. The host sees them with their real PIDs. Only the process inside the container has the narrowed view: its PID namespace shows it as PID 1, with no neighbours. (With Docker Desktop on a Mac or Windows they live in its Linux VM, so the laptop's own `ps` won't list them.)"
 />
 
 ## Why the difference matters

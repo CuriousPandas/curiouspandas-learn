@@ -28,17 +28,17 @@ For every action an agent could take, pick one:
 - **Ask a person.** Anything that reaches a customer, moves money or can't be undone. The agent prepares it - the email written, the fee calculated - and a person clicks send.
 - **Never.** Actions where even an approved mistake would be too costly, or where a person should do the whole job anyway.
 
-OWASP's name for getting this wrong is **excessive agency**. It lists three root causes, "excessive functionality", "excessive permissions" and "excessive autonomy", and the fix for the last is to "require a human to approve high-impact actions before they are taken". Its example is a mail assistant whose plugin "also contains functions for sending messages" when it only needed to read. One injected email, and the agent forwards your customers' data to an attacker.
+OWASP's name for getting this wrong is **excessive agency**. It lists three root causes, "excessive functionality", "excessive permissions" and "excessive autonomy", and the fix for the last is to "require a human to approve high-impact actions before they are taken". Its example is a mail assistant whose extension "also contains functions for sending messages" when it only needed to read. One injected email, and the agent forwards your customers' data to an attacker.
 
 <Diagram
   id="agents-trust"
   title="How much each action may do alone"
-  desc="Reading and drafting run alone. Sending to a customer and moving money wait for a person's approval. Irreversible actions such as pausing a customer's account are never done by the agent. A refund under a hard cap enforced in code can run alone."
+  desc="Reading and drafting run alone. Sending to a customer and moving money wait for a person's approval. Irreversible actions such as closing a customer's account are never done by the agent. A refund under a hard cap enforced in code can run alone."
   nodes={[
     { id: 'read', label: 'read, sort', sub: 'alone', x: 0, y: 0, kind: 'ok' },
     { id: 'draft', label: 'draft a reply', sub: 'alone', x: 1, y: 0, kind: 'ok' },
     { id: 'send', label: 'send, charge', sub: 'a person approves', x: 2, y: 0, kind: 'warn' },
-    { id: 'pause', label: 'pause account', sub: 'never by the agent', x: 3, y: 0, kind: 'bad' },
+    { id: 'pause', label: 'close account', sub: 'never by the agent', x: 3, y: 0, kind: 'bad' },
     { id: 'capped', label: 'refund <= EUR 50', sub: 'alone: capped in code', x: 2, y: 1, kind: 'info' },
   ]}
   edges={[
@@ -79,7 +79,7 @@ In the widget, chasing 200 invoices a month on Sonnet 5.5 comes to about $8 in m
 ## Before you switch it on
 
 - **Shadow it first.** Let the agent draft for a few weeks while people keep doing the job, and compare. The drafts that were wrong become your [eval set](/learn/agents/guardrails-and-evals/).
-- **Give it its own narrow accounts.** A read-only login to the invoicing system, a mailbox that can only draft. OWASP's mail example recommends exactly that: a read-only plugin and a read-only access scope.
+- **Give it its own narrow accounts.** A read-only login to the invoicing system, a mailbox that can only draft. OWASP's mail example recommends exactly that: a read-only extension and a read-only access scope.
 - **Know where the data goes.** Customer emails sent to a hosted model leave your building. Read the provider's data terms, or run a local model for the sensitive jobs.
 - **Log every action.** When a customer asks "why did I get this email?", you need the answer.
 
@@ -104,7 +104,7 @@ In the widget, chasing 200 invoices a month on Sonnet 5.5 comes to about $8 in m
   q="For a small business running 200 tasks a month, what usually costs the most?"
   options={["The model's tokens", "People's time reviewing approvals and fixing mistakes", "Hosting the agent"]}
   answer={1}
-  explain="At these volumes the model bill is a few dollars a month. Review time adds up much faster, which is why the 'alone' list - and an eval that lets you trust it - matters more than the cheapest model."
+  explain="At these volumes the model bill is tens of dollars a month at most. Review time adds up much faster, which is why the 'alone' list - and an eval that lets you trust it - matters more than the cheapest model."
 />
 
 <DoItForReal id="agents-business-real" needs="terminal">

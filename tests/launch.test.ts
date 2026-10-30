@@ -83,6 +83,16 @@ test('the lowest prices: $7 monthly pays back within 12 months ($6 does not); $6
   assert.match(economics(5, 'annual').verdict, /unpaid/);
 });
 
+test('annual billing uses the discounted price for profit, payback and LTV, not the sticker price', () => {
+  // The first version showed $6 annual earning $4.50 a month with an LTV of $90:
+  // the discount applied to the cash and nowhere else.
+  const a = economics(6, 'annual');
+  assert.equal(a.grossPerMonth, 3.5);
+  assert.equal(a.ltv, 70);
+  assert.ok(Math.abs(a.paybackMonths - 60 / 3.5) < 1e-9);
+  assert.match(a.verdict, /only if they renew/);
+});
+
 test('pricing mission: any price that pays back is not the lowest one', () => {
   const s = PRICING_MISSION.setup();
   s.results.push(economics(3), economics(20));

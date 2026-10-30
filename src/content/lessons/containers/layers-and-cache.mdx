@@ -19,7 +19,7 @@ An image is built one **Dockerfile instruction** at a time, and each step's resu
 Two rules decide whether a step is a cache hit. Both come straight from Docker's documentation:
 
 - **`RUN` is matched on its command text alone.** The builder doesn't look at what the command would download. Same text, cache hit.
-- **`COPY` is matched on a checksum of the files it copies.** Edit one of those files and the checksum changes.
+- **`COPY` is matched on a checksum of the files it copies** (their contents and metadata such as permissions; a file's timestamp alone doesn't count). Edit one of those files and the checksum changes.
 
 And the rule that makes ordering matter: **once one step misses, every step after it is rebuilt.** In the docs' own words, "Once the cache is invalidated, all subsequent Dockerfile commands generate new images and the cache isn't used."
 
@@ -72,7 +72,7 @@ docker build -t cache-demo .        # first build: everything runs
 docker build -t cache-demo .        # again: every step shows CACHED
 echo "// edit" >> src/server.js
 docker build -t cache-demo .        # which steps rebuilt?
-docker history cache-demo           # one line per layer
+docker history cache-demo           # one line per build step (0B rows changed only metadata)
 ```
 
 Swap your Dockerfile to the package-files-first order and repeat the edit.

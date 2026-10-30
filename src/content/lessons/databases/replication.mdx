@@ -67,7 +67,7 @@ PostgreSQL's documentation says it plainly: WAL "takes some time to arrive from 
 
 - **Route a user's reads to the primary briefly after they write.** Cheap, and everyone else still uses replicas.
 - **Make the replica read wait** until it has replayed the write. The app remembers the write's WAL position and compares it with `pg_last_wal_replay_lsn()` on the replica.
-- **Make commits wait** with `synchronous_commit = remote_apply`, so the commit doesn't return until the standby has applied it. Every write pays for the round trip.
+- **Make commits wait** with `synchronous_commit = remote_apply` **and** the standby listed in `synchronous_standby_names` (without that, `remote_apply` quietly behaves like `on`), so the commit doesn't return until the standby has applied it. Every write pays for the round trip.
 
 More replicas don't help. Each one lags just the same.
 
@@ -76,7 +76,7 @@ More replicas don't help. Each one lags just the same.
 Promoting the replica gives you a server with no `orders` table, because it already replayed the drop. Last night's backup brings back the table as it was at 02:00, without today's orders. Only the backup **plus the WAL archive**, replayed with `recovery_target_time` set before the mistake, brings everything back. By default (`recovery_target_inclusive = on`) PostgreSQL stops just after the target, so the target has to fall before the DROP and after the last order you want.
 
 <Callout kind="trap">
-A database with replicas looks protected, and a backup job that runs every night looks protected. Neither is, until you've restored it. The next track, Resilience, covers testing restores. The short version: a backup you've never restored is a hope, not a backup.
+A database with replicas looks protected, and a backup job that runs every night looks protected. Neither is, until you've restored it. The Resilience track's [Backups that actually restore](/learn/resilience/backups-that-restore/) covers testing restores. The short version: a backup you've never restored is a hope, not a backup.
 </Callout>
 
 <Callout kind="tip">
