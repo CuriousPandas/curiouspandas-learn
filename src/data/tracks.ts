@@ -34,6 +34,8 @@ export const TRACKS: Track[] = [
       { slug: 'conflicts', title: 'Conflicts are honesty', status: 'ready' },
       { slug: 'inside-git', title: 'Look inside .git', status: 'ready' },
       { slug: 'collaborate', title: 'Remotes, pull requests and review', status: 'ready' },
+      { slug: 'branching-strategies', title: 'Git Flow, GitHub Flow and trunk-based', status: 'soon' },
+      { slug: 'merge-rebase-squash', title: 'Merge, rebase or squash', status: 'soon' },
     ],
   },
   {
