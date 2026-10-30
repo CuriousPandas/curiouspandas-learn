@@ -110,11 +110,11 @@ export const TRACKS: Track[] = [
   {
     id: 'resilience', title: 'Resilience: DR & Business Continuity', tagline: 'When the building, the region or the backups fail - what you lose, and how fast you are back.', icon: 'lifebuoy', hue: 345,
     lessons: [
-      { slug: 'rpo-rto', title: 'How much can you lose?', status: 'soon' },
-      { slug: 'backups-that-restore', title: 'Backups that actually restore', status: 'soon' },
-      { slug: 'dr-strategies', title: 'From backup-and-restore to active-active', status: 'soon' },
-      { slug: 'business-continuity', title: 'Keeping the business running', status: 'soon' },
-      { slug: 'incidents', title: 'Incidents and blameless postmortems', status: 'soon' },
+      { slug: 'rpo-rto', title: 'How much can you lose?', status: 'ready' },
+      { slug: 'backups-that-restore', title: 'Backups that actually restore', status: 'ready' },
+      { slug: 'dr-strategies', title: 'From backup-and-restore to active-active', status: 'ready' },
+      { slug: 'business-continuity', title: 'Keeping the business running', status: 'ready' },
+      { slug: 'incidents', title: 'Incidents and blameless postmortems', status: 'ready' },
     ],
   },
   {

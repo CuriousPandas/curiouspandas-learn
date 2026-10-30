@@ -913,6 +913,125 @@ await scenario('release-please', '/learn/delivery/release-automation/', async (p
   await expectText(page, 'header [data-xp]', /^[1-9]/);
 });
 
+// ---- resilience (writer R) ----------------------------------------------
+// Each mission is played as a learner would, and the tempting move is tried
+// first: buying everything, adding more connected copies, active/active for
+// payments, a workaround that needs the broken system, blaming a person.
+
+await scenario('res-rpo', '/learn/resilience/rpo-rto/', async (page) => {
+  const r = '[data-rpo]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const run = async (system, backup, recovery) => {
+    await page.selectOption(`${r} [data-system]`, system);
+    await page.selectOption(`${r} [data-backup]`, backup);
+    await page.selectOption(`${r} [data-recovery]`, recovery);
+    await page.click(`${r} [data-go]`);
+  };
+  await run('orders', 'nightly', 'restore');
+  await expectText(page, `${r} [data-verdict]`, /12 h 50 min of orders lost[\s\S]*Missed RPO 1 h/);
+  await run('orders', 'quarter', 'standby');
+  await expectText(page, `${r} [data-verdict]`, /can cost as little as \$250/);
+  if (await doneSteps(page, r) !== 2) throw new Error('buying every option should meet the targets but not "least money"');
+  await run('orders', 'hourly', 'restore');
+  await expectText(page, `${r} [data-verdict]`, /The least that meets both targets/);
+  await run('payroll', 'quarter', 'standby');
+  if (await doneSteps(page, r) !== 3) throw new Error('orders-grade protection for payroll passed "least money"');
+  await run('payroll', 'nightly', 'rebuild');
+  await expectText(page, `${r} .m-debrief`, /Over-protecting payroll/);
+});
+
+await scenario('res-backups', '/learn/resilience/backups-that-restore/', async (page) => {
+  const r = '[data-backups]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const tick = (c) => page.check(`${r} [data-copy="${c}"]`);
+  const hit = (e) => page.click(`${r} [data-event="${e}"]`);
+  await tick('usb'); await hit('disk');
+  await expectText(page, `${r} [data-log] li:first-child`, /recovered/);
+  await tick('sync'); await tick('cloud');
+  await expectText(page, `${r} [data-321]`, /met on paper/);
+  await hit('ransomware');
+  await expectText(page, `${r} [data-log] li:first-child`, /data lost/);
+  if (await doneSteps(page, r) !== 1) throw new Error('more connected copies survived ransomware');
+  await tick('offline'); await hit('ransomware');
+  await expectText(page, `${r} [data-log] li:first-child`, /Restored from: Offline drive/);
+  await hit('late-delete');
+  await expectText(page, `${r} [data-log] li:first-child`, /data lost/);
+  if (!(await page.locator(`${r} [data-fix]`).isHidden())) throw new Error('fix offered before any drill found the problem');
+  await page.click(`${r} [data-drill]`);
+  await expectText(page, `${r} [data-log]`, /14 March/);
+  await page.click(`${r} [data-fix]`);
+  await hit('late-delete');
+  await expectText(page, `${r} [data-log] li:first-child`, /Restored from: Cloud backup/);
+  await expectText(page, `${r} .m-debrief`, /since March/);
+});
+
+await scenario('res-dr', '/learn/resilience/dr-strategies/', async (page) => {
+  const r = '[data-dr]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const run = async (scenario, pattern, pitr, event) => {
+    await page.selectOption(`${r} [data-scenario]`, scenario);
+    await page.selectOption(`${r} [data-pattern]`, pattern);
+    await page.setChecked(`${r} [data-pitr]`, pitr);
+    await page.click(`${r} [data-event="${event}"]`);
+  };
+  await run('wiki', 'backup', false, 'region');
+  await run('shop', 'pilot', false, 'region');
+  await run('payments', 'active', false, 'region');
+  await expectText(page, `${r} [data-log] li:first-child`, /targets met[\s\S]*A cheaper pattern would also have met/);
+  if (await doneSteps(page, r) !== 2) throw new Error('active/active passed "without overpaying"');
+  await run('payments', 'warm', false, 'region');
+  await run('shop', 'warm', false, 'corruption');
+  await expectText(page, `${r} [data-log] li:first-child`, /targets missed[\s\S]*Both copies are corrupt/);
+  await run('shop', 'pilot', true, 'corruption');
+  await expectText(page, `${r} .m-debrief`, /faithfully copied the corruption/);
+});
+
+await scenario('res-bia', '/learn/resilience/business-continuity/', async (page) => {
+  const r = '[data-bia]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const ids = ['orders', 'shipping', 'payroll', 'suppliers', 'support', 'newsletter'];
+  for (const p of ids) await page.selectOption(`${r} [data-mtd="${p}"]`, 'longer');
+  if (await doneSteps(page, r) !== 0) throw new Error('"longer" for everything passed the impact step');
+  if (await page.locator(`${r} select.wrong`).count() !== 5) throw new Error('wrong estimates are not marked');
+  const right = { orders: '4h', shipping: '1d', payroll: '1d', suppliers: '3d', support: '3d', newsletter: 'longer' };
+  for (const p of ids) await page.selectOption(`${r} [data-mtd="${p}"]`, right[p]);
+  await expectText(page, `${r} [data-order]`, /^Recovery order, least tolerance first: Take orders/);
+  await page.selectOption(`${r} [data-work="orders"]`, 'email-in');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-log]`, /order system is the thing that is down/);
+  if (await doneSteps(page, r) !== 2) throw new Error('a workaround that needs the broken system passed');
+  await page.selectOption(`${r} [data-work="orders"]`, 'phone');
+  await page.selectOption(`${r} [data-work="shipping"]`, 'paper');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-log]`, /the plan holds for two days/);
+  await expectText(page, `${r} .m-debrief`, /paper forms and a phone/);
+});
+
+await scenario('res-incident', '/learn/resilience/incidents/', async (page) => {
+  const r = '[data-incident]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.check(`${r} [data-sev][value="3"]`);
+  await expectText(page, `${r} [data-fb="sev"]`, /Too low/);
+  await page.check(`${r} [data-sev][value="2"]`);
+  const staff = async (ic, resolver, comms, scribe) => {
+    for (const [role, who] of Object.entries({ ic, resolver, comms, scribe })) await page.selectOption(`${r} [data-role="${role}"]`, String(who));
+  };
+  await staff(0, 3, 1, 2);
+  await expectText(page, `${r} [data-fb="staff"]`, /takes your best fixer off the fix/);
+  await staff(2, 0, 1, 3);
+  await page.check(`${r} [data-upd][value="2"]`);
+  await expectText(page, `${r} [data-fb="upd"]`, /Blames a person/);
+  if (await doneSteps(page, r) !== 2) throw new Error('a blaming status update passed');
+  await page.check(`${r} [data-upd][value="1"]`);
+  for (const i of [0, 1, 2, 3]) await page.check(`${r} [data-factor][value="${i}"]`);
+  await page.click(`${r} [data-pm]`);
+  await expectText(page, `${r} [data-fb="pm"]`, /blame, not analysis/);
+  await page.uncheck(`${r} [data-factor][value="1"]`);
+  await page.click(`${r} [data-pm]`);
+  await expectText(page, `${r} .m-debrief`, /instead of one person to blame/);
+  await expectText(page, 'header [data-xp]', /^[1-9]/);
+});
+
 await browser.close();
 server?.kill();
 

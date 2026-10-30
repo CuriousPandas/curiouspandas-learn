@@ -1,0 +1,108 @@
+---
+title: Incidents and blameless postmortems
+summary: When something breaks, a few habits decide how long it stays broken - a declared severity, clear roles, honest updates. Afterwards, one decides whether it breaks again - a postmortem that asks what the system allowed, not who to blame.
+minutes: 15
+xp: 40
+tiers: [browser]
+sources:
+  - title: PagerDuty Incident Response - Severity levels
+    url: https://response.pagerduty.com/before/severity_levels/
+  - title: PagerDuty Incident Response - Different roles
+    url: https://response.pagerduty.com/before/different_roles/
+  - title: Google SRE book - Postmortem Culture, Learning from Failure
+    url: https://sre.google/sre-book/postmortem-culture/
+---
+
+An **incident** is anything that breaks badly enough to need a coordinated response: checkout failing, data going missing, a security alert you can't explain. The technical fix is usually done by one or two people. Whether it takes twenty minutes or three hours often depends on everything around them.
+
+## Declare a severity
+
+Severity levels let everyone agree, quickly, how big this is and who needs to know. PagerDuty publishes the scale it uses for its own incidents; at the top end:
+
+- **SEV-1:** "Critical issue that warrants public notification and liaison with executive teams."
+- **SEV-2:** "Critical system issue actively impacting many customers' ability to use the product."
+- **SEV-3:** "Stability or minor customer-impacting issues that require immediate attention from service owners."
+
+And one rule worth copying exactly: "If you are unsure which level an incident is (e.g. not sure if SEV-2 or SEV-1), treat it as the higher one." Downgrading later is easy. Discovering an hour in that the right people were never called isn't.
+
+## Roles: one person coordinates, others fix
+
+The most common way an incident goes wrong is the best engineer trying to fix it *and* run it. PagerDuty's response guide splits the jobs:
+
+- **Incident commander:** "acts as the single source of truth of what is currently happening". Their rule: "Delegate all repair actions, the Incident Commander is NOT a resolver."
+- **Resolvers** (subject matter experts): the people who investigate and fix.
+- **Customer liaison:** "responsible for interacting with customers, either directly, or via our public communication channels."
+- **Scribe:** "documents the timeline of an incident as it progresses". That timeline becomes the postmortem.
+
+<Diagram
+  id="res-incident-roles"
+  title="Who does what in an incident"
+  desc="The incident commander sits at the centre and coordinates. They delegate the fix to resolvers, have the liaison keep customers updated, and tell the scribe each decision. The scribe's timeline becomes the postmortem."
+  nodes={[
+    { id: 'ic', label: 'commander', sub: 'coordinates, decides', x: 1, y: 0, kind: 'warn' },
+    { id: 'pm', label: 'postmortem', sub: 'learns from it', x: 2, y: 0, kind: 'ok' },
+    { id: 'res', label: 'resolvers', sub: 'investigate and fix', x: 0, y: 1, kind: 'info' },
+    { id: 'liaison', label: 'liaison', sub: 'tells customers', x: 1, y: 1, kind: 'info' },
+    { id: 'scribe', label: 'scribe', sub: 'writes it down', x: 2, y: 1, kind: 'info' },
+  ]}
+  edges={[
+    { from: 'ic', to: 'res', label: 'delegates' },
+    { from: 'ic', to: 'liaison', label: 'updates' },
+    { from: 'ic', to: 'scribe', label: 'decisions' },
+    { from: 'scribe', to: 'pm', label: 'timeline' },
+  ]}
+  steps={[
+    { caption: 'One commander: the single source of truth about what is happening and what happens next. They do not fix anything.', show: ['ic'], focus: ['ic'] },
+    { caption: 'The fix belongs to resolvers - the people who know the system. The commander asks, decides and unblocks.', show: ['res', 'ic->res'], focus: ['res'] },
+    { caption: 'A liaison keeps customers and the rest of the company informed, so the resolvers are not answering the same question twenty times.', show: ['liaison', 'ic->liaison'], focus: ['liaison'] },
+    { caption: 'A scribe records the timeline as it happens. Afterwards, that record is the start of the postmortem.', show: ['scribe', 'pm', 'ic->scribe', 'scribe->pm'], focus: ['scribe', 'scribe->pm'] },
+  ]}
+/>
+
+## Status updates people can use
+
+"We are investigating an issue" tells a customer nothing. A useful update says what's broken and for whom, what you're doing, what still works, and when the next update will come. Promising a fix time you don't know just creates a second broken promise.
+
+## The postmortem, without blame
+
+Google's SRE book defines a postmortem as "a written record of an incident, its impact, the actions taken to mitigate or resolve it", together with its causes and the follow-up actions to stop it happening again. It lists triggers for writing one, including "user-visible downtime or degradation beyond a certain threshold", "data loss of any kind" and "a monitoring failure (which usually implies manual incident discovery)".
+
+The word that matters is **blameless**. A blameless postmortem focuses on "identifying the contributing causes of the incident without indicting any individual or team for bad or inappropriate behavior", and assumes people acted in good faith on the information they had. The reason is practical, not polite: under a culture of finger pointing, the book warns, "people will not bring issues to light for fear of punishment". The near-miss that would have warned you next time goes unreported.
+
+So the question is never "who pushed the bad change?" It's "what allowed a bad change to reach every customer at once, and why did it take 25 minutes to notice?" Those questions have fixes. "Be more careful" doesn't.
+
+Run one incident, start to finish.
+
+<IncidentLab />
+
+<Callout kind="trap">
+Making your most knowledgeable engineer the incident commander feels efficient and is the opposite: they stop fixing to answer questions, or stop coordinating to fix, and either way something important stops. Give the commander role to someone who will not be tempted to open a terminal.
+</Callout>
+
+<Quiz
+  id="res-inc-1"
+  q="You can't tell whether an incident is SEV-2 or SEV-1. What do you do?"
+  options={["Declare SEV-2 and see how it goes", "Declare SEV-1 - when unsure, treat it as the higher level", "Wait until the impact is clearer"]}
+  answer={1}
+  explain="PagerDuty's rule: if you are unsure which level an incident is, treat it as the higher one. You can always step down; calling people in late costs more."
+/>
+
+<Quiz
+  id="res-inc-2"
+  q="Which of these belongs in a blameless postmortem?"
+  options={["\"The engineer should have tested the change\"", "\"Config changes reached all customers at once with no canary, and the error alert fired 25 minutes late\"", "\"Nobody was to blame, so no actions are needed\""]}
+  answer={1}
+  explain="Blameless does not mean actionless. It means describing what the system allowed - and fixing that - instead of pointing at a person, which teaches everyone to hide the next near-miss."
+/>
+
+<Quiz
+  id="res-inc-3"
+  q="Why does the incident commander not fix things themselves?"
+  options={["They are usually not technical", "Coordinating - deciding, delegating, keeping everyone informed - is a full-time job during an incident", "It is a rule from ISO 22301"]}
+  answer={1}
+  explain="PagerDuty: delegate all repair actions; the commander is not a resolver. Someone has to keep the whole picture while others are heads-down."
+/>
+
+<Callout kind="real">
+The roles scale down. In a three-person team, one person can be commander and scribe while two fix - but say out loud who is commanding. The habits matter more than the size: a declared severity, one person in charge, regular updates, and a written, blameless review afterwards.
+</Callout>

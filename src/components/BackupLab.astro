@@ -1,0 +1,81 @@
+---
+import '../styles/widgets.css';
+import { COPIES, EVENTS } from '../lib/resilience/backups.ts';
+---
+<div class="widget card backup-lab" data-backups>
+  <div class="widget-head">
+    <strong>A small office's backups</strong>
+    <span class="pill info">files on one office server</span>
+  </div>
+  <div class="bk-grid">
+    <div class="bk-main">
+      <fieldset class="bk-box">
+        <legend class="eyebrow">Copies you keep</legend>
+        {Object.entries(COPIES).map(([id, c]) => <label><input type="checkbox" data-copy={id} /> {c.label}</label>)}
+      </fieldset>
+      <p class="bk-321" data-321 aria-live="polite"></p>
+      <div class="controls">
+        {Object.entries(EVENTS).map(([id, label]) => <button class="btn small" type="button" data-event={id}>{label}</button>)}
+      </div>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-drill>Restore drill: restore a file from every copy</button>
+        <button class="btn small" type="button" data-fix hidden>Fix the job and alert on any failed run</button>
+      </div>
+      <ul class="bk-log" data-log aria-live="polite"><li>Tick the copies the office keeps, then throw a disaster at it.</li></ul>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { COPIES, EVENTS, type Copy, type Event } from '../lib/resilience/backups.ts';
+  import { BACKUP_MISSION } from '../lib/resilience/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-backups]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = BACKUP_MISSION.setup();
+    const office = state.office;
+    const refresh = mountMission(q('[data-mission-panel]'), BACKUP_MISSION, () => state, () => {});
+    const log = (cls: string, title: string, text: string) => q('[data-log]').prepend(el('li', { class: cls }, el('b', {}, title), ` ${text}`));
+
+    const draw = () => {
+      const r = office.rule321();
+      q('[data-321]').textContent = `3-2-1: ${r.copies} ${r.copies === 1 ? 'copy' : 'copies'} (3 needed), ${r.media} ${r.media === 1 ? 'kind' : 'kinds'} of media (2 needed), ${r.offsite ? 'a copy offsite' : 'nothing offsite'} - ${r.met ? 'met on paper' : 'not met'}.`;
+      q('[data-321]').className = `bk-321 ${r.met ? 'ok' : ''}`;
+      q('[data-fix]').hidden = !office.canFix();
+      refresh();
+    };
+
+    root.querySelectorAll<HTMLInputElement>('[data-copy]').forEach((box) => box.addEventListener('change', () => { office.toggle(box.dataset.copy as Copy, box.checked); draw(); }));
+    root.querySelectorAll<HTMLButtonElement>('[data-event]').forEach((b) => b.addEventListener('click', () => {
+      const e = b.dataset.event as Event;
+      const r = office.hit(e);
+      log(r.survived ? 'ok' : 'bad', `${EVENTS[e]}:`, r.survived ? `recovered. ${r.why}` : `data lost. ${r.why}`);
+      draw();
+    }));
+    q('[data-drill]').addEventListener('click', () => {
+      const lines = office.drill();
+      if (!lines.length) log('bad', 'Restore drill:', 'there is nothing to restore from.');
+      for (const l of [...lines].reverse()) log(l.ok ? 'ok' : 'bad', `Drill - ${COPIES[l.copy].label}:`, l.note + '.');
+      draw();
+    });
+    q('[data-fix]').addEventListener('click', () => { office.fix(); log('ok', 'Fixed:', 'the cloud backup ran tonight, and a failed run now pages someone.'); draw(); });
+    draw();
+  }
+</script>
+
+<style is:global>
+  .backup-lab .bk-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .backup-lab .bk-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); align-items: start; } }
+  .backup-lab .bk-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .backup-lab .bk-box { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 6px; min-width: 0; }
+  .backup-lab .bk-box label { display: flex; gap: 8px; align-items: flex-start; font-size: 0.9rem; cursor: pointer; }
+  .backup-lab .bk-box input { margin-top: 4px; flex: none; }
+  .backup-lab .bk-321 { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--bg-2); font-size: 0.88rem; }
+  .backup-lab .bk-321.ok { background: var(--bamboo-soft); }
+  .backup-lab .bk-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.88rem; max-height: 320px; overflow-y: auto; }
+  .backup-lab .bk-log li { padding: 6px 10px; border-radius: 8px; background: var(--bg-2); }
+  .backup-lab .bk-log li.ok { background: var(--bamboo-soft); }
+  .backup-lab .bk-log li.bad { background: var(--berry-soft); }
+</style>

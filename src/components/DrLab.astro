@@ -1,0 +1,68 @@
+---
+import '../styles/widgets.css';
+import { PATTERNS, SCENARIOS, PITR, fmtMin } from '../lib/resilience/dr.ts';
+---
+<div class="widget card dr-lab" data-dr>
+  <div class="widget-head">
+    <strong>Pick a recovery pattern</strong>
+    <span class="pill info">illustrative monthly prices</span>
+  </div>
+  <div class="controls dr-controls">
+    <label>Workload
+      <select data-scenario>{Object.entries(SCENARIOS).map(([id, s]) => <option value={id}>{s.label} - RTO {fmtMin(s.rtoMin)}, RPO {fmtMin(s.rpoMin)}</option>)}</select>
+    </label>
+    <label>Pattern
+      <select data-pattern>{Object.entries(PATTERNS).map(([id, p]) => <option value={id}>{p.label} - ${p.cost.toLocaleString('en-US')}</option>)}</select>
+    </label>
+    <label><input type="checkbox" data-pitr /> point-in-time backups (+${PITR.cost})</label>
+  </div>
+  <p class="dr-what" data-what></p>
+  <div class="controls">
+    <button class="btn small primary" type="button" data-event="region">Drill: lose the whole region</button>
+    <button class="btn small" type="button" data-event="corruption">Drill: a bad deploy corrupts the data</button>
+  </div>
+  <div class="dr-grid">
+    <ul class="dr-log" data-log aria-live="polite"><li>Pick a workload and a pattern, then run a drill.</li></ul>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { drill, fmtMin, PATTERNS, SCENARIOS, type Pattern, type Scenario, type DrEvent } from '../lib/resilience/dr.ts';
+  import { DR_MISSION } from '../lib/resilience/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-dr]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = DR_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), DR_MISSION, () => state, () => {});
+    const pattern = () => q<HTMLSelectElement>('[data-pattern]').value as Pattern;
+    const what = () => { q('[data-what]').textContent = PATTERNS[pattern()].what; };
+    q('[data-pattern]').addEventListener('change', what);
+    what();
+
+    root.querySelectorAll<HTMLButtonElement>('[data-event]').forEach((b) => b.addEventListener('click', () => {
+      const scenario = q<HTMLSelectElement>('[data-scenario]').value as Scenario;
+      const r = drill(scenario, pattern(), q<HTMLInputElement>('[data-pitr]').checked, b.dataset.event as DrEvent);
+      state.results.push(r);
+      const t = SCENARIOS[scenario];
+      q('[data-log]').prepend(el('li', { class: r.met ? 'ok' : 'bad' },
+        el('b', {}, `${t.label}, ${PATTERNS[r.pattern].label}${r.pitr ? ' + point-in-time backups' : ''}: ${r.met ? 'targets met' : 'targets missed'}.`),
+        ` ${r.note} Needed: back within ${fmtMin(t.rtoMin)}, losing at most ${fmtMin(t.rpoMin)}. $${r.cost.toLocaleString('en-US')} a month.`,
+        r.met && !r.cheapestPattern ? el('span', { class: 'dr-note' }, ' A cheaper pattern would also have met these targets.') : ''));
+      refresh();
+    }));
+  }
+</script>
+
+<style is:global>
+  .dr-lab .dr-controls label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .dr-lab .dr-what { margin: 10px 0; padding: 8px 12px; border-radius: 10px; background: var(--sky-soft); font-size: 0.9rem; }
+  .dr-lab .dr-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .dr-lab .dr-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); align-items: start; } }
+  .dr-lab .dr-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.88rem; align-content: start; min-width: 0; max-height: 360px; overflow-y: auto; }
+  .dr-lab .dr-log li { padding: 8px 10px; border-radius: 8px; background: var(--bg-2); }
+  .dr-lab .dr-log li.ok { background: var(--bamboo-soft); }
+  .dr-lab .dr-log li.bad { background: var(--berry-soft); }
+  .dr-lab .dr-note { font-weight: 650; color: var(--sun-text); }
+</style>

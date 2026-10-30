@@ -1,0 +1,101 @@
+---
+import '../styles/widgets.css';
+import { BACKUPS, RECOVERIES, SYSTEMS } from '../lib/resilience/rpo.ts';
+---
+<div class="widget card rpo-lab" data-rpo>
+  <div class="widget-head">
+    <strong>One disaster, two numbers</strong>
+    <span class="pill info">illustrative monthly prices</span>
+  </div>
+  <div class="controls rp-controls">
+    <label>System
+      <select data-system>{Object.entries(SYSTEMS).map(([id, s]) => <option value={id}>{s.label}</option>)}</select>
+    </label>
+    <label>Backups
+      <select data-backup>{Object.entries(BACKUPS).map(([id, b]) => <option value={id} selected={id === 'nightly'}>{b.label} - ${b.cost}</option>)}</select>
+    </label>
+    <label>Recovery
+      <select data-recovery>{Object.entries(RECOVERIES).map(([id, r]) => <option value={id} selected={id === 'restore'}>{r.label} - ${r.cost}</option>)}</select>
+    </label>
+    <label>Disaster on Wednesday at <output data-at-label>14:50</output>
+      <input type="range" min="0" max="23.8334" step="0.16667" value="14.8333" data-at aria-label="Time of the disaster" />
+    </label>
+    <button class="btn small primary" type="button" data-go>Disaster strikes</button>
+  </div>
+  <p class="rp-targets" data-targets></p>
+  <div class="rp-grid">
+    <div class="rp-main">
+      <div class="rp-track" aria-hidden="true">
+        <span class="rp-kept" data-kept></span><span class="rp-lost" data-lost-bar></span><span class="rp-down" data-down-bar></span>
+      </div>
+      <div class="rp-legend"><span><i class="k"></i>safe in the last backup</span><span><i class="l"></i>lost since it</span><span><i class="d"></i>down while recovering</span></div>
+      <ul class="rp-verdict" data-verdict aria-live="polite"><li>Pick a system and a setup, then let the disaster hit.</li></ul>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { disaster, hm, clock, SYSTEMS, cheapestCost, type Backup, type Recovery, type SystemId } from '../lib/resilience/rpo.ts';
+  import { RPO_MISSION } from '../lib/resilience/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-rpo]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = RPO_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), RPO_MISSION, () => state, () => {});
+    const sys = () => q<HTMLSelectElement>('[data-system]').value as SystemId;
+    const at = () => Number(q<HTMLInputElement>('[data-at]').value);
+
+    const showTargets = () => {
+      const s = SYSTEMS[sys()];
+      q('[data-targets]').textContent = `${s.label}: the business says lose at most ${hm(s.rpoH)} of data (RPO) and be back within ${hm(s.rtoH)} (RTO). ${s.why}`;
+    };
+    q('[data-system]').addEventListener('change', showTargets);
+    q('[data-at]').addEventListener('input', () => { q('[data-at-label]').textContent = clock(at()); });
+    showTargets();
+
+    q('[data-go]').addEventListener('click', () => {
+      const o = disaster(sys(), q<HTMLSelectElement>('[data-backup]').value as Backup, q<HTMLSelectElement>('[data-recovery]').value as Recovery, at());
+      state.outcomes.push(o);
+      const s = SYSTEMS[o.system];
+      // The track spans the backup interval before the disaster and the recovery
+      // after it, so both bars stay visible whatever the scale.
+      const span = Math.max(o.worstLostH, o.lostH) + o.downH;
+      q('[data-kept]').style.width = `${((Math.max(o.worstLostH, o.lostH) - o.lostH) / span) * 100}%`;
+      q('[data-lost-bar]').style.width = `${(o.lostH / span) * 100}%`;
+      q('[data-down-bar]').style.width = `${(o.downH / span) * 100}%`;
+      const lostUnits = Math.round(o.lostH * s.perHour);
+      const line = (ok: boolean, text: string) => el('li', { class: ok ? 'ok' : 'bad' }, el('b', {}, ok ? 'Met' : 'Missed'), ` ${text}`);
+      q('[data-verdict]').replaceChildren(
+        el('li', {}, `This disaster: ${hm(o.lostH)} of ${s.unit} lost (about ${lostUnits}), then ${hm(o.downH)} down.`),
+        line(o.rpoMet, `RPO ${hm(s.rpoH)}: with this schedule the worst case loses ${hm(o.worstLostH)}.`),
+        line(o.rtoMet, `RTO ${hm(s.rtoH)}: recovery takes ${hm(o.downH)}.`),
+        el('li', { class: o.cheapest ? 'ok' : '' }, `Costs $${o.cost} a month.${o.rpoMet && o.rtoMet ? (o.cheapest ? ' The least that meets both targets.' : ` Meeting both can cost as little as $${cheapestCost(o.system)}.`) : ''}`),
+      );
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  .rpo-lab .rp-controls label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rpo-lab .rp-controls output { font-variant-numeric: tabular-nums; font-weight: 650; }
+  .rpo-lab .rp-targets { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--sky-soft); font-size: 0.92rem; }
+  .rpo-lab .rp-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .rpo-lab .rp-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); align-items: start; } }
+  .rpo-lab .rp-main { min-width: 0; }
+  .rpo-lab .rp-track { display: flex; height: 22px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line-2); background: var(--bg-2); }
+  .rpo-lab .rp-track span { display: block; height: 100%; transition: width .3s; }
+  .rpo-lab .rp-kept, .rpo-lab .rp-legend .k { background: var(--bamboo); }
+  .rpo-lab .rp-lost, .rpo-lab .rp-legend .l { background: var(--berry); }
+  .rpo-lab .rp-down, .rpo-lab .rp-legend .d { background: var(--sun); }
+  .rpo-lab .rp-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--muted); margin: 6px 0 10px; }
+  .rpo-lab .rp-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .rpo-lab .rp-verdict { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.92rem; }
+  .rpo-lab .rp-verdict li { padding: 6px 10px; border-radius: 8px; background: var(--bg-2); }
+  .rpo-lab .rp-verdict li.ok { background: var(--bamboo-soft); }
+  .rpo-lab .rp-verdict li.bad { background: var(--berry-soft); }
+  .rpo-lab .rp-verdict li.ok b { color: var(--bamboo); }
+  .rpo-lab .rp-verdict li.bad b { color: var(--berry); }
+</style>

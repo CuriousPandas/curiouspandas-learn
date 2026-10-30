@@ -1,0 +1,102 @@
+---
+import '../styles/widgets.css';
+import { SITUATION, SEVERITIES, ROLES, PEOPLE, UPDATES, FACTORS } from '../lib/resilience/incident.ts';
+---
+<div class="widget card incident-lab" data-incident>
+  <div class="widget-head">
+    <strong>Incident: checkout is failing</strong>
+    <span class="pill warn">14:09, Wednesday</span>
+  </div>
+  <p class="in-situation">{SITUATION}</p>
+  <div class="in-grid">
+    <div class="in-main">
+      <fieldset class="in-box">
+        <legend class="eyebrow">1. Declare a severity</legend>
+        {Object.entries(SEVERITIES).map(([n, d]) => <label><input type="radio" name="in-sev" value={n} data-sev /> <b>SEV-{n}</b> {d}</label>)}
+        <p class="in-fb" data-fb="sev" aria-live="polite"></p>
+      </fieldset>
+      <fieldset class="in-box">
+        <legend class="eyebrow">2. Staff the incident</legend>
+        {Object.entries(ROLES).map(([r, d]) => (
+          <label class="in-role">{d}
+            <select data-role={r}><option value="">choose...</option>{PEOPLE.map((p, i) => <option value={i}>{p}</option>)}</select>
+          </label>
+        ))}
+        <p class="in-fb" data-fb="staff" aria-live="polite"></p>
+      </fieldset>
+      <fieldset class="in-box">
+        <legend class="eyebrow">3. Post a status update</legend>
+        {UPDATES.map((u, i) => <label><input type="radio" name="in-upd" value={i} data-upd /> "{u.text}"</label>)}
+        <p class="in-fb" data-fb="upd" aria-live="polite"></p>
+      </fieldset>
+      <fieldset class="in-box">
+        <legend class="eyebrow">4. Postmortem: why?</legend>
+        {FACTORS.map((f, i) => <label><input type="checkbox" value={i} data-factor /> {f.text}</label>)}
+        <button class="btn small" type="button" data-pm>File the postmortem</button>
+        <p class="in-fb" data-fb="pm" aria-live="polite"></p>
+      </fieldset>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { sevOk, staffing, UPDATES, postmortem, type Sev, type Role } from '../lib/resilience/incident.ts';
+  import { INCIDENT_MISSION } from '../lib/resilience/missions.ts';
+  import { mountMission } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-incident]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = INCIDENT_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), INCIDENT_MISSION, () => state, () => {});
+    const fb = (k: string, ok: boolean, text: string) => { const p = q(`[data-fb="${k}"]`); p.textContent = text; p.className = `in-fb ${ok ? 'ok' : 'bad'}`; };
+
+    root.querySelectorAll<HTMLInputElement>('[data-sev]').forEach((r) => r.addEventListener('change', () => {
+      state.sev = Number(r.value) as Sev;
+      fb('sev', sevOk(state.sev), sevOk(state.sev)
+        ? 'Right call. Many customers cannot pay: that is SEV-2, and if you are unsure whether it is SEV-1, treat it as the higher.'
+        : 'Too low. 4 in 10 customers cannot pay - that is "actively impacting many customers". When unsure, pick the higher level.');
+      refresh();
+    }));
+    const roles: Partial<Record<Role, number>> = {};
+    root.querySelectorAll<HTMLSelectElement>('[data-role]').forEach((s) => s.addEventListener('change', () => {
+      const r = s.dataset.role as Role;
+      if (s.value === '') delete roles[r]; else roles[r] = Number(s.value);
+      const v = staffing(roles);
+      state.staffing = v;
+      fb('staff', v.ok, v.why);
+      refresh();
+    }));
+    root.querySelectorAll<HTMLInputElement>('[data-upd]').forEach((r) => r.addEventListener('change', () => {
+      state.update = Number(r.value);
+      const u = UPDATES[state.update];
+      fb('upd', u.ok, u.why);
+      refresh();
+    }));
+    q('[data-pm]').addEventListener('click', () => {
+      const chosen = [...root.querySelectorAll<HTMLInputElement>('[data-factor]:checked')].map((c) => Number(c.value));
+      const v = postmortem(chosen);
+      state.pm = v;
+      fb('pm', v.ok, v.why);
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  .incident-lab .in-situation { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--berry-soft); font-size: 0.92rem; }
+  .incident-lab .in-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .incident-lab .in-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); align-items: start; } }
+  .incident-lab .in-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .incident-lab .in-box { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 6px; min-width: 0; }
+  .incident-lab .in-box > label { display: flex; gap: 8px; align-items: flex-start; font-size: 0.88rem; cursor: pointer; }
+  .incident-lab .in-box > label input { margin-top: 4px; flex: none; }
+  .incident-lab .in-box > label b { white-space: nowrap; }
+  .incident-lab .in-box > label.in-role { display: grid; gap: 4px; cursor: default; }
+  .incident-lab .in-box select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; }
+  .incident-lab .in-box .btn { justify-self: start; }
+  .incident-lab .in-fb { margin: 0; font-size: 0.88rem; }
+  .incident-lab .in-fb:empty { display: none; }
+  .incident-lab .in-fb.ok { padding: 6px 10px; border-radius: 8px; background: var(--bamboo-soft); }
+  .incident-lab .in-fb.bad { padding: 6px 10px; border-radius: 8px; background: var(--berry-soft); }
+</style>
