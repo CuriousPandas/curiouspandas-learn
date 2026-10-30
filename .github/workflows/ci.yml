@@ -15,7 +15,11 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: Ubuntu 26.04 replaced GNU coreutils with
+    # uutils (Rust), whose error wording differs ("mkdir: d: File exists"), and
+    # the shell parity test is defined against GNU coreutils - the tools the
+    # Linux lessons teach. ubuntu-latest moved to 26.04 under us and failed it.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -59,7 +63,7 @@ jobs:
   deploy:
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pages: write
       id-token: write

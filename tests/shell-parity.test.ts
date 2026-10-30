@@ -73,6 +73,14 @@ test('text tools, redirection and exit codes match real bash and coreutils', () 
   } finally { t.done(); }
 });
 
+test('the reference tools are GNU coreutils', () => {
+  // Parity is defined against GNU coreutils. Ubuntu 26.04 ships uutils instead,
+  // whose messages differ; comparing against it failed CI with a confusing
+  // word-by-word diff. Say what is wrong instead.
+  const v = spawnSync('bash', ['-c', 'mkdir --version'], { encoding: 'utf8' }).stdout ?? '';
+  assert.match(v, /GNU coreutils/, `parity needs GNU coreutils as the reference; this machine's mkdir reports: ${v.split(/\n/)[0] || '(nothing)'}`);
+});
+
 test('error messages from the file tools match coreutils word for word', () => {
   const t = twin();
   try {
