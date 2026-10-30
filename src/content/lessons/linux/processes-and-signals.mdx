@@ -82,7 +82,7 @@ SIGKILL always works, which is exactly why it is tempting and exactly why it is 
 
 A container is a process too, and Kubernetes stops one the way you just did. To shut a pod down, the kubelet has the container runtime send **SIGTERM** to process 1 in each container, then waits a grace period - **30 seconds** unless the pod says otherwise. Anything still running after that gets **SIGKILL**.
 
-So when [the restarts lesson](/learn/kubernetes/restarts/) shows a container with exit code 137, you now know what happened, if not yet why. Something sent signal 9: the kernel's out-of-memory killer, or Kubernetes itself after the process ignored SIGTERM or ran out of grace period. Exit code 143 means it received SIGTERM and did not handle it.
+So when [the restarts lesson](/learn/kubernetes/restarts/) shows a container with exit code 137, you now know what happened, if not yet why. Something sent signal 9: the kernel's out-of-memory killer, or Kubernetes itself after the process ignored SIGTERM or ran out of grace period. Exit code 143 means it ended because of SIGTERM - either it didn't handle it, or (like the JVM) it cleaned up and then reported the signal.
 
 <Quiz
   id="linux-signals-2"
@@ -114,7 +114,9 @@ Then write a program that catches SIGTERM. `trap` runs a command when a signal a
 
 ```bash
 bash -c 'trap "echo saving...; exit 0" TERM; while true; do sleep 1; done' &
-kill %1   # prints "saving..." and exits 0
+sleep 1   # give it a moment to set the trap, or the signal can beat it
+kill %1   # prints "saving..."
+wait %1; echo $?   # 0: it handled the signal
 ```
 
 </DoItForReal>

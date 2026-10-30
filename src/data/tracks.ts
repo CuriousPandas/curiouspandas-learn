@@ -52,7 +52,7 @@ export const TRACKS: Track[] = [
     lessons: [
       { slug: 'request-journey', title: 'What happens when you press Enter', status: 'ready' },
       { slug: 'status-codes-lie', title: 'A 200 can still be broken', status: 'ready' },
-      { slug: 'tls-trust', title: 'Two TLS errors, one message', status: 'ready' },
+      { slug: 'tls-trust', title: 'Two TLS errors, one exit code', status: 'ready' },
     ],
   },
   {

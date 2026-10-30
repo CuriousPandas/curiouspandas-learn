@@ -52,3 +52,10 @@ test('event handlers and javascript: links are flagged; plain formatting is not'
 test('as text, nothing is markup', () => {
   assert.deepEqual(asText('<img src=x onerror=steal()>'), [{ text: '<img src=x onerror=steal()>' }]);
 });
+
+test('a script tag is marked inert: innerHTML never runs it, so it cannot count as code running', () => {
+  // The widget once drew it as "<script> runs here" and ticked the "turn a
+  // comment into code" goal, while the lesson rightly said it stays inert.
+  assert.equal(dangersOf(tag('script', [], [{ text: 'x()' }]))[0].inert, true);
+  assert.ok(!dangersOf(tag('img', [['onerror', 'x()']]))[0].inert, 'event handlers still run');
+});

@@ -20,7 +20,7 @@ The idea underneath is simpler than its reputation:
 2. When you have something worth keeping, you put those changes in the **staging area** (`git add`).
 3. Then you take a **snapshot** of everything staged (`git commit`). The snapshot is permanent, and it gets a name.
 
-That name is the interesting part. Git doesn't number snapshots 1, 2, 3. It runs the snapshot's exact contents through a hash function called SHA-1 and uses the 40-character result as the name. Same contents, same name, on every computer in the world. Change one letter and you get a completely different name.
+That name is the interesting part. Git doesn't number snapshots 1, 2, 3. It runs the snapshot - your files plus the author, time, message and parent - through a hash function called SHA-1 and uses the 40-character result as the name. Same files, same author, same moment: same name on every computer in the world. Change one letter and you get a completely different name.
 
 <Callout kind="tip">
 The three boxes under the terminal are the three places a file can be: your working tree, the staging area, and the last commit. Watch your file move from box to box as you go.
@@ -70,7 +70,9 @@ On your own machine, with [git installed](https://git-scm.com/downloads):
 
 ```bash
 mkdir panda && cd panda
-git init
+git config --global user.name "Your Name"         # once per machine
+git config --global user.email "you@example.com"
+git init -b main
 echo "hello, panda" > hello.txt
 git add hello.txt
 git commit -m "my first commit"

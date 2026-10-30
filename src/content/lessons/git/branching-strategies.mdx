@@ -115,7 +115,7 @@ The obvious objection: how do you merge a feature to trunk every day when it tak
 
 Pro Git calls a topic branch "a short-lived branch that you create and use for a single particular feature or related work". The longer one lives, the more the rest of the team changes underneath it, and every file both sides touched has to be reconciled when you finally merge - usually long after you remember why you changed it.
 
-Try it. In this model, you and the team each change a few files every day for two weeks. A merge has to reconcile every file both sides changed since you last integrated. Merging less often never removes that work; it piles it up.
+Try it. In this model, you and the team each change a few files every day for two weeks. A merge has to reconcile every file both sides changed since you last integrated. Merging less often doesn't just batch that work, it adds to it: changes that would have gone in one after another now collide.
 
 <BranchLab />
 
@@ -150,9 +150,9 @@ The model counts files both sides changed. Real git merges different lines of th
 <Quiz
   id="git-strat-3"
   q="In the two-week model, why did merging every day mean less pain than merging once at the end?"
-  options={["Daily merges skip conflicting files", "Each merge only had the few files both sides changed that day, reconciled while the change was fresh", "Git resolves conflicts automatically on small merges"]}
+  options={["Daily merges skip conflicting files", "Each merge had at most a file or two to reconcile, while the change was fresh", "Git resolves conflicts automatically on small merges"]}
   answer={1}
-  explain="The total work is similar; the batch size isn't. Small merges reconcile one file while you still remember it. One big merge reconciles eight, two weeks later."
+  explain="Daily merges had almost nothing to reconcile - one file in two weeks. One big merge reconciles eight at once, two weeks later, when nobody remembers why."
 />
 
 <DoItForReal id="git-strategies-real" needs="terminal">

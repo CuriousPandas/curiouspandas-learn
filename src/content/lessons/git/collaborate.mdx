@@ -61,7 +61,7 @@ Pro Git describes the everyday collision: if you and someone else clone at the s
   ]}
 />
 
-Here is exactly what git 2.54 printed when the second push lost the race against a real remote:
+Here is the heart of what git 2.54 printed when the second push lost the race against a real remote:
 
 ```text
  ! [rejected]        main -> main (fetch first)
@@ -153,6 +153,6 @@ git pull --no-rebase --no-edit && git push origin main               # merged, a
 git log --oneline --graph
 ```
 
-Then open a real pull request in [CuriousPandas/practice](https://github.com/CuriousPandas/practice), a repository that exists for exactly this: fork it, add `visitors/<your-username>.md` on a branch, push, and open a pull request against its `main`. Its `visitor-file` check is your status check - if it goes red, read why, fix it on the same branch and push again. Its `main` is protected like the quiz above: one approval and a green check. Practice pull requests are closed after 14 days; that is not a rejection.
+Then open a real pull request in [CuriousPandas/practice](https://github.com/CuriousPandas/practice), a repository that exists for exactly this: fork it, add `visitors/<your-username>.md` (any letter case works) on a branch, push, and open a pull request against its `main`. Its `visitor-file` check is your status check - if it goes red, read why, fix it on the same branch and push again. Its `main` is protected like the quiz above: one approval and a green check. Practice pull requests are closed after 14 days; that is not a rejection.
 
 </DoItForReal>

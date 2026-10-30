@@ -29,7 +29,7 @@ So you fix the check to look at the status code. Now it catches the 500, and it 
 Every check above is *configured*. It runs, it reports green, and it checks nothing that matters. A check that can't fail is worse than having no check, because it reads as proof.
 </Callout>
 
-## Three checks, ten ways to fail
+## Three checks, nine ways to fail
 
 Try each failure and watch the scoreboard. A check is **fooled** when it says "fine" about a broken site, or "broken" about a fine one.
 
@@ -49,7 +49,7 @@ Only one check is right every time: **does the body contain something that only 
 
 Two failures look the same in a test log: "request failed". They mean opposite things.
 
-- A **401** is an answer from the application. Your request crossed the network, got through TLS, reached the code, was read, and was refused for lack of credentials. Whatever is guarding that door is working.
+- A **401** is an HTTP answer: something that read your request - usually the application, sometimes an auth proxy in front of it - refused it. Your request crossed the network, got through TLS, reached the code, was read, and was refused for lack of credentials. Whatever is guarding that door is working.
 - A **connection reset** (curl exit 56) means something on the path tore the connection down. The application may never have seen your request. If you were testing that a firewall blocks you, a reset might be the firewall doing its job. If you were testing the application's own login check, the reset proves nothing about it.
 
 When you test that something is refused, check **how** it was refused. "It failed" isn't evidence. "It failed at the layer I meant to test" is.
@@ -83,6 +83,8 @@ curl -s -o /dev/null -w "%{http_code}\n" https://hello.localhost/nope ; echo "ex
 curl -sf -o /dev/null https://hello.localhost/nope ; echo "exit=$?"
 curl -s https://hello.localhost/ | grep -q "Hello from the platform" && echo "really up"
 ```
+
+On macOS, if these fail with exit 60 while the browser works, your curl is using a different trust store than the browser: pass the platform's CA with `--cacert` (the platform's `labs/lib.sh` shows how).
 
 The hello app is podinfo. Its message, "Hello from the platform", is set in `examples/hello-world/deployment.yaml`, so that string is something only a working page contains.
 

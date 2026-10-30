@@ -85,7 +85,7 @@ Linux presents far more than documents as files. **Devices** live under `/dev`. 
 The most famous is `/dev/null`. Anything written to it is thrown away, and reading it gives you nothing at all. It's where you send output you don't want: `noisy-command > /dev/null`.
 
 <Callout kind="real">
-The sandbox has the shape of a real system but only a few of its files: no `/proc`, no real devices beyond `/dev/null`, and `ls` prints no colours. A real `ls -l` also shows hard-link counts and dates that come from your clock. On your own machine, `ls /proc` lists a numbered folder for every running process.
+The sandbox has the shape of a real system but only a few of its files: no `/proc`, no real devices beyond `/dev/null`, and `ls` prints no colours. A real `ls -l` shows dates from your clock. On your own machine, `ls /proc` lists a numbered folder for every running process.
 </Callout>
 
 <DoItForReal id="linux-paths-real" needs="terminal" xp={20}>

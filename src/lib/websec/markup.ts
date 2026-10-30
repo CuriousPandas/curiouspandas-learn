@@ -5,7 +5,10 @@
 // live page as HTML.
 
 export type MNode = { text: string } | { tag: string; attrs: [string, string][]; children: MNode[] };
-export type Danger = { what: string; why: string };
+// inert: dangerous in a server-rendered page, but not when inserted with
+// innerHTML. The widget first drew a script tag as "<script> runs here" and
+// counted it as code running, contradicting the lesson's own (correct) claim.
+export type Danger = { what: string; why: string; inert?: boolean };
 
 // Formatting a comment may legitimately carry. Anything else is shown as a
 // labelled box rather than recreated.
@@ -17,7 +20,7 @@ export function dangersOf(node: MNode): Danger[] {
   if ('text' in node) return [];
   const out: Danger[] = [];
   const tag = node.tag.toLowerCase();
-  if (tag === 'script') out.push({ what: '<script>', why: 'runs when a server puts it in the page. (Inserted later with innerHTML it stays inert - which is why attackers use the next kind instead.)' });
+  if (tag === 'script') out.push({ what: '<script>', why: 'runs when a server puts it in the page. (Inserted later with innerHTML it stays inert - which is why attackers use the next kind instead.)', inert: true });
   for (const [name, value] of node.attrs) {
     const n = name.toLowerCase();
     if (n.startsWith('on')) out.push({ what: `<${tag} ${n}>`, why: 'is an event handler: its text runs as JavaScript, however the HTML got into the page.' });

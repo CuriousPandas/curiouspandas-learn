@@ -92,7 +92,7 @@ const PRESETS: [string, string][] = [
         } else {
           const chip = document.createElement('span');
           chip.className = `xl-chip${bad.length ? ' bad' : ''}`;
-          chip.textContent = bad.length ? `${bad[0].what} runs here` : `<${n.tag}>`;
+          chip.textContent = !bad.length ? `<${n.tag}>` : bad[0].inert ? `${bad[0].what} - inert via innerHTML` : `${bad[0].what} runs here`;
           into.append(chip);
           preview(n.children.filter((c) => n.tag !== 'script' || !('text' in c)), into);
         }
@@ -123,7 +123,8 @@ const PRESETS: [string, string][] = [
       if (asHtml && dangers.length) {
         v.className = 'xl-verdict bad';
         v.replaceChildren(...dangers.map((d) => { const s = document.createElement('p'); s.append(Object.assign(document.createElement('code'), { textContent: d.what }), ` ${d.why}`); return s; }));
-        goal('run');
+        // Only something that actually runs from innerHTML completes the goal.
+        if (dangers.some((d) => !d.inert)) goal('run');
       } else if (!asHtml && wouldBe.length) {
         v.className = 'xl-verdict ok';
         v.textContent = 'Defused. The same characters are on screen, but the browser never read them as tags - so nothing in them can run.';

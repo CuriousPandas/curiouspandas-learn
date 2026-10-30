@@ -57,7 +57,7 @@ Committing a file that still has `<<<<<<<` markers in it is easy. Git only check
 <DoItForReal id="git-conflict-real" needs="terminal">
 
 ```bash
-git init menu && cd menu
+git init -b main menu && cd menu
 printf "bamboo\nleaves\nshoots\n" > menu.txt && git add . && git commit -m menu
 git branch snack
 sed -i.bak 's/leaves/apples/' menu.txt && git commit -am apples

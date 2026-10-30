@@ -51,6 +51,8 @@ If `main` *had* moved, both branches would hold work the other lacks. Then git d
 <DoItForReal id="git-branch-real" needs="terminal">
 
 ```bash
+git init -b main notes-demo && cd notes-demo    # name and email set? see the first git lesson
+echo "# Bamboo notes" > notes.md && git add . && git commit -m "start notes"
 git switch -c idea
 echo "bamboo can grow 90cm in a day" >> notes.md
 git commit -am "add a fact"

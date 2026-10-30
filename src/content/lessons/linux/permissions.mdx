@@ -83,7 +83,7 @@ Each letter is a bit: **r** = 4, **w** = 2, **x** = 1. Add them per group and yo
 
 On a **directory**, `r` lets you list the names in it, `w` lets you create, delete and rename entries in it, and `x` lets you go into it and reach anything inside.
 
-That gives one surprise worth remembering: **deleting a file needs write permission on the folder, not on the file.** A read-only file in your own folder can still be deleted by you. A file you could rewrite completely can't be deleted if its folder isn't yours.
+That gives one surprise worth remembering: **deleting a file needs write permission on the folder, not on the file.** A read-only file in your own folder can still be deleted by you. A file you could rewrite completely can't be deleted if you lack write permission on its folder.
 
 <Quiz
   id="linux-perms-2"
@@ -94,7 +94,7 @@ That gives one surprise worth remembering: **deleting a file needs write permiss
 />
 
 <Callout kind="real">
-Real systems add more than the nine bits: `root` skips most checks, `sudo` lets you act as root, a `umask` trims the permissions new files are born with, and special bits like setuid and the sticky bit on `/tmp` (anyone may create files there, but only the owner may delete them) change the rules in specific places. The sandbox has none of these, so it can show the nine bits on their own.
+Real systems add more than the nine bits: `root` skips most checks, `sudo` lets you act as root, a `umask` trims the permissions new files are born with, and special bits like setuid and the sticky bit on `/tmp` (anyone may create files there, but only a file's owner (or the directory's owner, or root) may delete it) change the rules in specific places. The sandbox has none of these, so it can show the nine bits on their own.
 </Callout>
 
 <DoItForReal id="linux-perms-real" needs="terminal" xp={20}>
@@ -103,7 +103,7 @@ On Linux, a Mac or WSL:
 
 ```bash
 printf 'echo it runs\n' > hello.sh
-ls -l hello.sh        # -rw-r--r--: nobody may run it
+ls -l hello.sh        # -rw-r--r-- (or -rw-rw-r--): no x, nobody may run it
 ./hello.sh            # Permission denied
 echo $?               # 126: found, but not executable
 bash hello.sh         # runs: bash only needs to READ the file

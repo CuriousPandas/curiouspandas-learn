@@ -1,6 +1,6 @@
 ---
-title: Two TLS errors, one message
-summary: A wrong name and an untrusted issuer look identical in a browser and in curl. One verify code tells them apart, and they have opposite fixes.
+title: Two TLS errors, one exit code
+summary: A wrong name and an untrusted issuer share a browser warning page and a curl exit code (60). The error text and one verify code tell them apart, and they have opposite fixes.
 minutes: 15
 xp: 40
 tiers: [browser, machine]
@@ -49,7 +49,7 @@ During the TLS stage the server hands over a **certificate**. It says, roughly, 
   ]}
 />
 
-Fail either one and you get the same scary browser page and the same curl exit code: **60**. That sameness is the trap. The two failures have opposite fixes, and fixing the wrong one wastes an afternoon.
+Fail either one and you get the same scary browser page and the same curl exit code: **60**. The small print differs - curl's message and the browser's error code name the cause - but the headline is identical, and that's all most people read. That sameness is the trap. The two failures have opposite fixes, and fixing the wrong one wastes an afternoon.
 
 ## Same symptom, different code
 
@@ -85,7 +85,7 @@ Codes 18 to 21 are the family of trust failures. 18, for example, is a self-sign
 </Callout>
 
 <Callout kind="real">
-The playground shows certificates as one tidy line each. Real chains usually have an **intermediate** certificate between the server and the root, and a server that forgets to send it produces code 20 on some clients and not others, depending on what each client has cached. Also, in TLS 1.3 the certificate itself is encrypted on the wire, so you inspect it with `openssl s_client` or the browser's padlock, not by sniffing packets.
+The playground shows certificates as one tidy line each. Real chains usually have an **intermediate** certificate between the server and the root, and a server that forgets to send it produces a trust error (OpenSSL reports 21, 'unable to verify the first certificate') on some clients and not others, depending on what each client has cached. Also, in TLS 1.3 the certificate itself is encrypted on the wire, so you inspect it with `openssl s_client` or the browser's padlock, not by sniffing packets.
 </Callout>
 
 <DoItForReal id="web-tls-real" lab="04-break-tls">

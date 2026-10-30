@@ -25,10 +25,10 @@ The pipe, `|`, rewires that. In `a | b`, everything `a` writes to standard outpu
 <Diagram
   id="linux-a-pipeline"
   title="Who failed most? One line, five tools"
-  desc="access.log flows into grep, which keeps only lines ending in 500. cut keeps the first column, the client address. sort puts identical addresses next to each other, uniq -c collapses each run into a count, and sort -rn puts the biggest count first. head -1 keeps the top line, and > saves it to noisy.txt. Error messages go to the terminal, not down the pipe."
+  desc="access.log flows into grep, which keeps only lines ending in 500. cut -d ' ' keeps the first space-separated field, the client address. sort puts identical addresses next to each other, uniq -c collapses each run into a count, and sort -rn puts the biggest count first. head -1 keeps the top line, and > saves it to noisy.txt. Error messages go to the terminal, not down the pipe."
   nodes={[
     { id: 'grep', label: "grep ' 500$'", sub: 'keep failures', x: 0, y: 0, kind: 'info' },
-    { id: 'cut', label: 'cut -f 1', sub: 'keep the address', x: 1, y: 0 },
+    { id: 'cut', label: "cut -d ' ' -f 1", sub: 'keep the address', x: 1, y: 0 },
     { id: 'sort', label: 'sort', sub: 'line twins up', x: 2, y: 0 },
     { id: 'uniq', label: 'uniq -c', sub: 'count each run', x: 3, y: 0 },
     { id: 'rank', label: 'sort -rn', sub: 'biggest first', x: 3, y: 1 },
@@ -47,7 +47,7 @@ The pipe, `|`, rewires that. In `a | b`, everything `a` writes to standard outpu
   ]}
   steps={[
     { caption: 'grep reads the log and writes out only the lines that end in 500.', show: ['grep'], focus: ['grep'] },
-    { caption: 'Each | hands one tool\'s output to the next tool\'s input. cut keeps the first column: the client\'s address.', show: ['cut', 'grep->cut'], focus: ['cut'] },
+    { caption: 'Each | hands one tool\'s output to the next tool\'s input. cut -d \' \' keeps the first space-separated field: the client\'s address. Plain cut splits on tabs, and this log has none.', show: ['cut', 'grep->cut'], focus: ['cut'] },
     { caption: 'uniq only merges identical lines that sit next to each other - so sort goes first and lines the twins up.', show: ['sort', 'uniq', 'cut->sort', 'sort->uniq'], focus: ['sort', 'uniq'] },
     { caption: 'sort -rn ranks the counts biggest first, head -1 keeps the top line, and > saves it to a file instead of the screen.', show: ['rank', 'head', 'file', 'uniq->rank', 'rank->head', 'head->file'], focus: ['file'] },
     { caption: 'Error messages travel on standard error, which a pipe does not carry. They still reach your screen, so a failing step cannot hide.', show: ['tty', 'grep->tty'], focus: ['tty', 'grep->tty'] },
@@ -78,7 +78,7 @@ Pipes connect programs. **Redirection** connects a program to a file:
 - `2> file` sends standard error to a file. `2> /dev/null` throws errors away.
 
 <Callout kind="trap" title="cat notes.txt > notes.txt empties the file">
-The shell sets up `>` before the command starts, and `>` begins by truncating the file to nothing. By the time `cat` opens `notes.txt` to read it, it's already empty. Write to a new file and rename it, or append with `>>`.
+The shell sets up `>` before the command starts, and `>` begins by truncating the file to nothing. By the time `cat` opens `notes.txt` to read it, it's already empty. Write to a new file, then rename it over the old one: `sort notes.txt > notes.tmp && mv notes.tmp notes.txt`.
 </Callout>
 
 <Quiz

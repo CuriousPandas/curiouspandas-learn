@@ -108,6 +108,8 @@ curl -v http://127.0.0.1:9/                 # stage 2 fails: exit 7
 echo $?                                     # the exit code of the last command
 ```
 
+On macOS, if this fails with exit 60 while the browser works, your curl is using a different trust store than the browser: pass the platform's CA with `--cacert` (the platform's `labs/lib.sh` shows how).
+
 Names ending in `.localhost` point at your own machine (RFC 6761), and that's how the platform gets real hostnames with no DNS setup. Lab 02 then has you route a second hostname.
 
 </DoItForReal>
