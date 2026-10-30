@@ -137,4 +137,4 @@ request a certificate (`https_certificate` stays null and HTTPS serves the
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT, copyright [Sallux](https://sallux.dev). See [LICENSE](LICENSE).
