@@ -588,6 +588,109 @@ await scenario('jwt-forge', '/learn/security/identity/', async (page) => {
   await expectText(page, `${r} .m-debrief`, /someone else's app/);
 });
 
+// ---- network (writer N)
+// Each widget: play its mission the way a learner would, and check that the
+// tempting wrong move (a /16 rule, opening the firewall, least connections,
+// switching the old server off early) does not pass.
+
+const goalDone = (page, r, g) => page.locator(`${r} [data-goal="${g}"].done`).count();
+
+await scenario('net-subnet', '/learn/network/ip-and-subnets/', async (page) => {
+  const r = '[data-subnet-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  if (await page.locator(`${r} [data-bits] i`).count() !== 32) throw new Error('the calculator does not draw 32 bits');
+  if (await goalDone(page, r, 'find')) throw new Error('the first goal was ticked before anyone typed');
+  await page.fill(`${r} [data-cidr]`, '172.32.0.1/12');
+  await expectText(page, `${r} [data-facts]`, /public: routable/);
+  await page.fill(`${r} [data-cidr]`, '10.244.1.37/24');
+  await expectText(page, `${r} [data-facts]`, /10\.244\.1\.0\/24[\s\S]*255\.255\.255\.0[\s\S]*254/);
+  if (await page.locator(`${r} [data-bits] i.net`).count() !== 24) throw new Error('a /24 should mark 24 network bits');
+  await page.fill(`${r} [data-rule]`, '10.244.0.0/16');
+  await expectText(page, `${r} [data-verdict]`, /lets in more than it should/);
+  if (await goalDone(page, r, 'exact')) throw new Error('a /16 rule passed the least-privilege goal');
+  await page.fill(`${r} [data-rule]`, '10.244.1.0/24');
+  await expectText(page, `${r} [data-verdict]`, /Exactly worker's pods/);
+  if (await page.locator(`${r} [data-goal].done`).count() !== 3) throw new Error('subnet mission did not tick all three goals');
+  await expectText(page, 'header [data-xp]', /^[1-9]/);
+});
+
+await scenario('net-tcp', '/learn/network/ports-and-tcp/', async (page) => {
+  const r = '[data-tcp-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // Starts broken: bound to loopback, a teammate on another machine is refused.
+  await expectText(page, `${r} [data-curl]`, /curl: \(7\) Failed to connect to 10\.0\.0\.5 port 8080 after \d+ ms: Could not connect to server/);
+  await expectText(page, `${r} [data-ss]`, /LISTEN .*127\.0\.0\.1:8080/);
+  await page.selectOption(`${r} [data-from]`, 'same');
+  await page.click(`${r} [data-go]`);
+  await expectText(page, `${r} [data-packets]`, /SYN, ACK/);
+  await page.selectOption(`${r} [data-from]`, 'other');
+  await page.selectOption(`${r} [data-firewall]`, 'drop');
+  await page.click(`${r} [data-go]`);
+  await expectText(page, `${r} [data-curl]`, /\(28\) Connection timed out after 5002 milliseconds/);
+  // The wrong fix: the firewall was never the problem.
+  await page.selectOption(`${r} [data-firewall]`, 'allow');
+  await page.click(`${r} [data-go]`);
+  await expectText(page, `${r} [data-curl]`, /\(7\)/);
+  if (await goalDone(page, r, 'fixed')) throw new Error('allowing the firewall passed the fix goal');
+  await page.selectOption(`${r} [data-bind]`, '0.0.0.0');
+  await page.click(`${r} [data-go]`);
+  await expectText(page, `${r} [data-curl]`, /Connected to 10\.0\.0\.5/);
+  if (await page.locator(`${r} [data-goal].done`).count() !== 3) throw new Error('tcp mission did not tick all three goals');
+});
+
+await scenario('net-dns', '/learn/network/dns-deep/', async (page) => {
+  const r = '[data-dns-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-lookup]`);
+  await expectText(page, `${r} [data-trace]`, /Asked 3 servers: a root server/);
+  await page.click(`${r} [data-wait="60"]`);
+  await page.click(`${r} [data-lookup]`);
+  await expectText(page, `${r} [data-trace] li:first-child`, /From cache, nobody asked/);
+  await page.click(`${r} [data-move]`);
+  await page.click(`${r} [data-lookup]`);
+  await expectText(page, `${r} [data-trace] li:first-child`, /the OLD address/);
+  // Switching off right after the move strands an hour of caches.
+  await page.click(`${r} [data-off]`);
+  await expectText(page, `${r} [data-trace] li:first-child`, /cached answers still pointing at it/);
+  if (await goalDone(page, r, 'safe')) throw new Error('an early switch-off passed');
+  await page.click(`${r} [data-reset]`);
+  await page.click(`${r} [data-ttl]`);
+  await page.click(`${r} [data-wait="3600"]`);
+  await page.click(`${r} [data-move]`);
+  await expectText(page, `${r} [data-old]`, /still needed: caches may send people here for 1 min/);
+  await page.click(`${r} [data-wait="60"]`);
+  await page.click(`${r} [data-off]`);
+  await expectText(page, `${r} [data-trace] li:first-child`, /Nobody noticed/);
+  if (await page.locator(`${r} [data-goal].done`).count() !== 3) throw new Error('dns mission did not tick all three goals');
+});
+
+await scenario('net-lb', '/learn/network/load-balancers/', async (page) => {
+  const r = '[data-lb-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-send]`);
+  await expectText(page, `${r} [data-summary]`, /^10 of 30 requests failed \(33%\)/);
+  await page.selectOption(`${r} [data-algo]`, 'least-conn');
+  await page.click(`${r} [data-send]`);
+  const worse = await expectText(page, `${r} [data-summary]`, /web-2 was sent \d+%/);
+  if (Number(worse.match(/web-2 was sent (\d+)%/)[1]) <= 50) throw new Error(`least connections should favour the crashed backend: ${worse}`);
+  if (await goalDone(page, r, 'healed')) throw new Error('least connections alone passed the heal goal');
+  await page.check(`${r} [data-health]`);
+  await page.click(`${r} [data-send]`);
+  await page.click(`${r} [data-send]`);
+  await expectText(page, `${r} [data-summary]`, /^0 of 30 requests failed/);
+  await expectText(page, `${r} [data-backends]`, /pulled from the pool/);
+  await page.click(`${r} [data-scenario="routes"]`);
+  await page.click(`${r} [data-send]`);
+  await expectText(page, `${r} [data-summary]`, /^[1-9]\d* of 30 requests failed/);
+  await page.check(`${r} [data-rule]`);
+  await expectText(page, `${r} [data-note]`, /This rule does nothing here/);
+  await page.selectOption(`${r} [data-layer]`, 'L7');
+  await page.click(`${r} [data-send]`);
+  await expectText(page, `${r} [data-summary]`, /^0 of 30 requests failed/);
+  if (await page.locator(`${r} [data-goal].done`).count() !== 4) throw new Error('lb mission did not tick all four goals');
+  await expectText(page, 'header [data-xp]', /^[1-9]/);
+});
+
 await browser.close();
 server?.kill();
 

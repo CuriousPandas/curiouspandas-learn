@@ -1,0 +1,152 @@
+---
+import '../styles/widgets.css';
+import { CLUSTER } from '../lib/net/cidr.ts';
+interface Props { mission?: string; start?: string }
+// Not a worker pod address: the mission's first goal is typing one in.
+const { mission = '', start = '192.168.1.10/24' } = Astro.props;
+---
+<div class="widget card subnet-lab" data-subnet-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>Subnet calculator</strong>
+    <span class="pill info">IPv4, worked out in this page</span>
+  </div>
+  <div class="controls">
+    <label>Address / prefix <input type="text" spellcheck="false" autocomplete="off" data-cidr value={start} /></label>
+  </div>
+  <div class="sn-bits" data-bits aria-label="The 32 bits of the address"></div>
+  <dl class="sn-facts" data-facts aria-live="polite"></dl>
+
+  <div class="sn-mission" data-mission-box hidden>
+    <span class="eyebrow">Mission · a firewall rule for one node · +40 XP</span>
+    <p class="small">A database should accept connections from pods on <strong>worker</strong> only. Pods get addresses from their node's slice of the cluster's pod range ({CLUSTER.podRange}).</p>
+    <table class="sn-pods">
+      <caption class="sr-only">Pods by node</caption>
+      <thead><tr><th scope="col">node</th><th scope="col">pod addresses</th><th scope="col">rule says</th></tr></thead>
+      <tbody data-pods></tbody>
+    </table>
+    <div class="controls">
+      <label>Allow from <input type="text" spellcheck="false" autocomplete="off" data-rule value="" placeholder="e.g. 10.0.0.0/8" /></label>
+    </div>
+    <p class="sn-verdict" data-verdict aria-live="polite"></p>
+    <ul class="sn-goals">
+      <li data-goal="find">Find worker's slice: put one of its pod addresses in the calculator with its node prefix</li>
+      <li data-goal="cover">Write a rule that lets every worker pod in</li>
+      <li data-goal="exact">...and keeps every other pod out</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { parseCidr, formatIp, classify, bits, checkRule, contains, parseIp, cidrText, CLUSTER } from '../lib/net/cidr.ts';
+  import { award } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-subnet-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const input = q<HTMLInputElement>('[data-cidr]');
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    if (mission) q('[data-mission-box]').hidden = false;
+
+    const goal = (g: string, on: boolean) => {
+      if (on) seen.add(g);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 3) award('missions', mission, 40, 'Allowed one node and nothing else');
+    };
+
+    const fact = (k: string, v: string, cls = '') => {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd'); dd.textContent = v; if (cls) dd.className = cls;
+      return [dt, dd];
+    };
+
+    const calc = () => {
+      const facts = q('[data-facts]'), bitsBox = q('[data-bits]');
+      let b;
+      try { b = parseCidr(input.value); } catch (e) {
+        bitsBox.replaceChildren();
+        facts.replaceChildren(...fact('Problem', (e as Error).message, 'bad'));
+        return;
+      }
+      const ip = parseIp(input.value.split('/')[0]);
+      bitsBox.replaceChildren(...[0, 1, 2, 3].map((byte) => {
+        const g = document.createElement('span'); g.className = 'byte';
+        for (const x of bits(ip, b.prefix).slice(byte * 8, byte * 8 + 8)) {
+          const s = document.createElement('i'); s.textContent = x.bit; s.className = x.network ? 'net' : 'host'; g.append(s);
+        }
+        const dec = document.createElement('small'); dec.textContent = String((ip >>> (24 - byte * 8)) & 255); g.append(dec);
+        return g;
+      }));
+      const c = classify(ip);
+      facts.replaceChildren(
+        ...fact('Network', cidrText(b)),
+        ...fact('Mask', formatIp(b.mask)),
+        ...fact('Addresses', b.size.toLocaleString('en')),
+        ...fact('Usable hosts', b.prefix >= 31 ? `${b.usable} (no network/broadcast pair at /31 and /32)` : `${b.usable.toLocaleString('en')} (first is the network, last the broadcast)`),
+        ...fact('Range', `${formatIp(b.first)} - ${formatIp(b.last)}`),
+        ...fact('This address is', `${c.note}${c.rfc ? ` · ${c.rfc}` : ''}`, c.kind === 'public' ? 'warn' : ''),
+      );
+      if (mission) goal('find', cidrText(b) === '10.244.1.0/24');
+    };
+
+    const rule = () => {
+      const r = checkRule(q<HTMLInputElement>('[data-rule]').value);
+      q('[data-pods]').replaceChildren(...CLUSTER.nodes.map((n) => {
+        const tr = document.createElement('tr');
+        const name = document.createElement('th'); name.scope = 'row'; name.textContent = n.name;
+        const ips = document.createElement('td'); ips.textContent = n.pods.join(', ');
+        const verdict = document.createElement('td');
+        const allowed = r.block ? n.pods.filter((p) => contains(r.block!, parseIp(p))).length : 0;
+        verdict.textContent = !r.block ? '-' : allowed === n.pods.length ? 'allowed' : allowed ? `${allowed} of ${n.pods.length} allowed` : 'blocked';
+        const wanted = n.name === 'worker';
+        verdict.className = !r.block ? '' : (wanted ? allowed === n.pods.length : allowed === 0) ? 'ok' : 'bad';
+        tr.append(name, ips, verdict);
+        return tr;
+      }));
+      const v = q('[data-verdict]');
+      const empty = !q<HTMLInputElement>('[data-rule]').value.trim();
+      v.textContent = empty ? 'Type a CIDR block above.'
+        : r.error ? r.error
+        : !r.coversTarget ? 'Some worker pods are blocked - the database refuses them.'
+        : r.leaks.length ? `Every worker pod gets in - and so do ${r.leaks.join(', ')}. It works, and it lets in more than it should.`
+        : 'Exactly worker\'s pods, nothing else. Same answer the node\'s podCIDR gives.';
+      v.className = `sn-verdict ${r.error || (!empty && !r.coversTarget) || r.leaks.length ? 'bad' : !empty ? 'ok' : ''}`;
+      if (!r.error && !empty) { goal('cover', r.coversTarget); goal('exact', r.coversTarget && !r.leaks.length); }
+    };
+
+    input.addEventListener('input', calc);
+    q('[data-rule]').addEventListener('input', rule);
+    calc();
+    if (mission) rule();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: bits, facts and table rows are
+     built by the script, and scoped styles never reach them. */
+  .subnet-lab input[type="text"] { font: 14px var(--mono); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); width: 13em; max-width: 100%; min-width: 0; }
+  .subnet-lab .sn-bits { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 12px 0; font: 600 15px var(--mono); }
+  .subnet-lab .sn-bits .byte { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 1px; }
+  .subnet-lab .sn-bits i { font-style: normal; width: 1.05em; text-align: center; border-radius: 3px; }
+  .subnet-lab .sn-bits i.net { background: var(--sky-soft); color: var(--ink); }
+  .subnet-lab .sn-bits i.host { background: var(--bg-2); color: var(--ink-2); }
+  .subnet-lab .sn-bits small { margin-left: 4px; color: var(--muted); font: 12px var(--sans); }
+  .subnet-lab .sn-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 0.92rem; }
+  .subnet-lab .sn-facts dt { color: var(--muted); }
+  .subnet-lab .sn-facts dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+  .subnet-lab .sn-facts dd.bad { color: var(--berry); font-family: var(--sans); }
+  .subnet-lab .sn-facts dd.warn { color: var(--sun-text); }
+  .subnet-lab .sn-mission { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
+  .subnet-lab .small { font-size: 0.9rem; margin: 6px 0 10px; }
+  .subnet-lab .sn-pods { border-collapse: collapse; width: 100%; font-size: 0.86rem; margin-bottom: 10px; }
+  .subnet-lab .sn-pods th, .subnet-lab .sn-pods td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .subnet-lab .sn-pods td:nth-child(2) { font-family: var(--mono); overflow-wrap: anywhere; }
+  .subnet-lab .sn-pods td.ok { color: var(--bamboo); font-weight: 650; }
+  .subnet-lab .sn-pods td.bad { color: var(--berry); font-weight: 650; }
+  .subnet-lab .sn-verdict { min-height: 1.5em; font-size: 0.92rem; margin: 8px 0; }
+  .subnet-lab .sn-verdict.bad { color: var(--berry); }
+  .subnet-lab .sn-verdict.ok { color: var(--bamboo); font-weight: 650; }
+  .subnet-lab .sn-goals { margin: 4px 0 0; padding-left: 20px; font-size: 0.92rem; }
+  .subnet-lab .sn-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .subnet-lab .sn-goals li.done::marker { content: "✓ "; }
+  .subnet-lab .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>

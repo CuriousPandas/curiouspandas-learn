@@ -1,0 +1,130 @@
+---
+import '../styles/widgets.css';
+import { NAME, OLD_IP, NEW_IP } from '../lib/net/dns.ts';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card dns-lab" data-dns-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>Moving {NAME}</strong>
+    <span class="pill info">simulated clock</span>
+    <span class="spacer"></span>
+    <span class="pill" data-clock>t = 0 s</span>
+  </div>
+  <div class="dl-state">
+    <div class="dl-panel"><span class="eyebrow">The zone says</span><div data-zone></div></div>
+    <div class="dl-panel"><span class="eyebrow">The resolver remembers</span><div data-cache></div></div>
+    <div class="dl-panel"><span class="eyebrow">Old server {OLD_IP}</span><div data-old></div></div>
+  </div>
+  <div class="controls">
+    <button class="btn small primary" type="button" data-lookup>Look up {NAME}</button>
+    <button class="btn small" type="button" data-wait="60">Wait 1 minute</button>
+    <button class="btn small" type="button" data-wait="3600">Wait 1 hour</button>
+  </div>
+  <div class="controls">
+    <button class="btn small" type="button" data-ttl>Lower the TTL to 60 s</button>
+    <button class="btn small" type="button" data-move>Point the record at {NEW_IP}</button>
+    <button class="btn small" type="button" data-off>Switch off the old server</button>
+    <button class="btn small" type="button" data-reset>Start over</button>
+  </div>
+  <ol class="dl-trace" data-trace aria-live="polite"></ol>
+  <div class="dl-goals" data-goals hidden>
+    <span class="eyebrow">Mission · a move nobody notices · +40 XP</span>
+    <ul>
+      <li data-goal="cache">See a lookup answered from cache, with nobody asked</li>
+      <li data-goal="stale">See the old address come back after the record changed</li>
+      <li data-goal="safe">Move to the new server and switch the old one off without stranding a single cached visitor</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { Dns, OLD_IP, NEW_IP } from '../lib/net/dns.ts';
+  import { award } from '../lib/ui.ts';
+
+  const dur = (s: number) => (s >= 3600 && s % 3600 === 0 ? `${s / 3600} h` : s >= 60 && s % 60 === 0 ? `${s / 60} min` : `${s} s`);
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-dns-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    if (mission) q('[data-goals]').hidden = false;
+    let d = new Dns();
+
+    const goal = (g: string) => {
+      seen.add(g);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 3) award('missions', mission, 40, 'Moved a site without stranding anyone');
+    };
+    const trace = (kind: string, ...parts: (string | Node)[]) => {
+      const li = document.createElement('li');
+      li.className = kind;
+      const t = document.createElement('span'); t.className = 't'; t.textContent = `t=${dur(d.now)}`;
+      li.append(t, ' ', ...parts);
+      const list = q('[data-trace]');
+      list.prepend(li);
+      while (list.children.length > 8) list.lastElementChild!.remove();
+    };
+    const draw = () => {
+      q('[data-clock]').textContent = `t = ${dur(d.now)}`;
+      q('[data-zone]').textContent = `A ${d.zone.ip} · TTL ${d.zone.ttl} s`;
+      const c = d.cache;
+      const fresh = c && c.expires > d.now;
+      q('[data-cache]').textContent = fresh ? `${c!.ip} for ${dur(c!.expires - d.now)} more` : 'nothing (or expired)';
+      const w = d.staleWindow();
+      q('[data-old]').textContent = !d.oldServerUp ? 'switched off'
+        : w === Infinity ? 'serving everyone'
+        : w > 0 ? `still needed: caches may send people here for ${dur(w)}`
+        : 'no cache can point here any more';
+      q<HTMLButtonElement>('[data-off]').disabled = !d.oldServerUp;
+      q<HTMLButtonElement>('[data-ttl]').disabled = d.zone.ttl === 60;
+      q<HTMLButtonElement>('[data-move]').disabled = d.zone.ip === NEW_IP;
+    };
+
+    q('[data-lookup]').addEventListener('click', () => {
+      const l = d.lookup();
+      const answer = Object.assign(document.createElement('code'), { textContent: l.answer });
+      if (l.fromCache) trace(l.stale ? 'stale' : 'hit', 'From cache, nobody asked: ', answer, ` (${dur(l.ttlLeft)} left)`, l.stale ? ' - the OLD address; the record changed, the cache does not know' : '');
+      else trace('walk', `Asked ${l.hops.length} servers: ${l.hops.map((h) => `${h.server} said "${h.said}"`).join('; ')}.`);
+      const dead = l.answer === OLD_IP && !d.oldServerUp;
+      if (dead) trace('bad', 'That address is switched off: this visitor gets a connection error.');
+      if (l.fromCache) goal('cache');
+      if (l.stale) goal('stale');
+      draw();
+    });
+    root.querySelectorAll<HTMLButtonElement>('[data-wait]').forEach((b) => b.addEventListener('click', () => { d.wait(Number(b.dataset.wait)); draw(); }));
+    q('[data-ttl]').addEventListener('click', () => { d.setTtl(60); trace('note', 'TTL lowered to 60 s. Answers already cached keep the 1 h they were given.'); draw(); });
+    q('[data-move]').addEventListener('click', () => { d.moveTo(NEW_IP); trace('note', `Record now points at ${NEW_IP}. Only the zone changed; caches have not heard.`); draw(); });
+    q('[data-off]').addEventListener('click', () => {
+      const r = d.shutDownOld();
+      if (r.safe) { trace('ok', 'Old server off, and no cache anywhere can still point at it. Nobody noticed.'); if (mission) goal('safe'); }
+      else if (d.changedAt === null) trace('bad', 'Old server off - and the record still points at it. Everyone is down. Start over.');
+      else trace('bad', `Old server off with up to ${dur(r.stillCached)} of cached answers still pointing at it. Some visitors get errors until then. Start over and try again.`);
+      draw();
+    });
+    q('[data-reset]').addEventListener('click', () => { d = new Dns(); q('[data-trace]').replaceChildren(); draw(); });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: trace rows are built by the script. */
+  .dns-lab .dl-state { display: grid; gap: 8px; margin-bottom: 10px; }
+  @media (min-width: 700px) { .dns-lab .dl-state { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .dns-lab .dl-panel { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--bg); font: 13.5px var(--mono); overflow-wrap: anywhere; }
+  .dns-lab .dl-panel .eyebrow { display: block; font-family: var(--sans); margin-bottom: 2px; }
+  .dns-lab .controls { margin-bottom: 8px; }
+  .dns-lab .btn[disabled] { cursor: default; }
+  .dns-lab .dl-trace { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: 0.88rem; min-height: 2em; }
+  .dns-lab .dl-trace li { padding: 6px 10px; border-radius: 8px; background: var(--bg-2); border-left: 4px solid var(--line-2); overflow-wrap: anywhere; }
+  .dns-lab .dl-trace li.hit { border-left-color: var(--bamboo); }
+  .dns-lab .dl-trace li.walk { border-left-color: var(--sky); }
+  .dns-lab .dl-trace li.stale { border-left-color: var(--sun); background: var(--sun-soft); }
+  .dns-lab .dl-trace li.bad { border-left-color: var(--berry); background: var(--berry-soft); }
+  .dns-lab .dl-trace li.ok { border-left-color: var(--bamboo); background: var(--bamboo-soft); }
+  .dns-lab .dl-trace .t { font: 12px var(--mono); color: var(--muted); }
+  .dns-lab .dl-goals { margin-top: 12px; font-size: 0.92rem; }
+  .dns-lab .dl-goals ul { margin: 4px 0 0; padding-left: 20px; }
+  .dns-lab .dl-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .dns-lab .dl-goals li.done::marker { content: "✓ "; }
+</style>

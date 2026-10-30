@@ -1,0 +1,99 @@
+---
+title: Load balancers and proxies
+summary: One address, many servers. Watch round robin feed a crashed backend, watch least connections make it worse, then fix it with health checks - and learn why only an L7 proxy can route by path.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+tiltLab: 02-route-a-hostname
+sources:
+  - title: NGINX - ngx_http_upstream_module (round robin, least_conn, max_fails)
+    url: https://nginx.org/en/docs/http/ngx_http_upstream_module.html
+  - title: Kubernetes Gateway API - HTTPRoute
+    url: https://gateway-api.sigs.k8s.io/reference/api-types/httproute/
+  - title: Kubernetes - Liveness, Readiness and Startup Probes
+    url: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+  - title: RFC 9110 - HTTP Semantics (Host, request target)
+    url: https://www.rfc-editor.org/rfc/rfc9110
+---
+
+A popular site isn't one server. It's one **address** in front of many servers, with a load balancer or reverse proxy deciding which server gets each request. Clients never see the decision. That's the point, and it's also why a bad decision is so hard to spot from outside.
+
+A balancer makes two choices for every request: *which servers are allowed* to take it, and *which one of those* gets it.
+
+## Which one: the algorithm
+
+**Round robin** takes turns: 1, 2, 3, 1, 2, 3. It's NGINX's default. **Least connections** sends each request "to the server with the least number of active connections" (NGINX docs). That sounds smarter, because busy servers get a rest.
+
+Here's the catch. A crashed server that refuses connections instantly never *has* an active connection, so least connections thinks it's the least busy server in the pool and keeps choosing it.
+
+## Which are allowed: health checks
+
+A **health check** probes each backend on a timer and takes failing ones out of rotation until they pass again. Without one, the balancer keeps sending a dead server its share of requests. Real balancers let you tune how many failures it takes: NGINX's passive check marks a server unavailable after `max_fails=1` failure within `fail_timeout=10s` by default. This simulation pulls a backend after two failed checks and lets it back after two good ones.
+
+<LbLab mission="net-keep-it-up" />
+
+<Callout kind="trap">
+The tempting fix for "one in three requests fails" is a smarter algorithm. Here it made things worse: least connections sent the crashed backend most of the traffic. No algorithm fixes a pool with a dead member in it. Only taking that member out does.
+</Callout>
+
+## What a balancer can see
+
+<Diagram
+  id="net-l4-l7"
+  title="What each kind of balancer can read"
+  desc="A layer 4 balancer forwards TCP connections and sees only addresses and ports, so it can spread connections but not route by what is asked for. A layer 7 proxy ends the connection, reads the HTTP request - host and path - and can send /api to one service and everything else to another."
+  nodes={[
+    { id: 'client', label: 'client', sub: 'GET /api/orders', x: 0, y: 0 },
+    { id: 'l4', label: 'L4 balancer', sub: 'sees IP and port', x: 1, y: 0, kind: 'warn' },
+    { id: 'pool', label: 'any backend', sub: 'chosen blind', x: 2, y: 0 },
+    { id: 'l7', label: 'L7 proxy', sub: 'reads host + path', x: 1, y: 1, kind: 'ok' },
+    { id: 'api', label: 'api-1', sub: 'serves /api/*', x: 2, y: 1, kind: 'info' },
+  ]}
+  edges={[
+    { from: 'client', to: 'l4', label: 'TCP' },
+    { from: 'l4', to: 'pool', label: 'bytes' },
+    { from: 'client', to: 'l7', label: 'HTTP' },
+    { from: 'l7', to: 'api', label: 'path /api' },
+  ]}
+  steps={[
+    { caption: 'A request for /api/orders leaves the client. Which server can answer it depends on the path.', show: ['client'], focus: ['client'] },
+    { caption: 'An L4 balancer forwards the TCP connection. The path is inside bytes it never reads - and inside TLS, it could not read them - so it picks a backend blind.', show: ['l4', 'pool', 'client->l4', 'l4->pool'], focus: ['l4'] },
+    { caption: 'An L7 proxy ends the connection and reads the HTTP request: the Host header and the path. Now /api can go to the API and / to the web servers.', show: ['l7', 'api', 'client->l7', 'l7->api'], focus: ['l7', 'l7->api'] },
+  ]}
+/>
+
+That's why routing by hostname or path, as in "`grafana.localhost` goes to Grafana" or "`/api` goes to the API", is a layer 7 job. In Kubernetes, the Gateway API's **HTTPRoute** describes exactly those rules: hostnames, path matches and the backends they go to.
+
+<Quiz
+  id="net-lb-1"
+  q="One of three backends crashed and refuses connections. Which change stops customers seeing errors?"
+  options={["Switch from round robin to least connections", "Turn on health checks so the crashed backend is taken out of rotation", "Add a fourth backend"]}
+  answer={1}
+  explain="Least connections favours the crashed backend, because it never holds a connection. A fourth backend only dilutes the errors to one in four. Health checks remove the dead member, which is the only change that gets errors to zero while it stays broken."
+/>
+
+<Quiz
+  id="net-lb-2"
+  q="You need /api to reach a different service from /. What must the balancer be able to do?"
+  options={["Count active connections", "Read the HTTP request (layer 7)", "Use a shorter health-check interval"]}
+  answer={1}
+  explain="The path is part of the HTTP request. A layer 4 balancer passes the connection's bytes along without reading them, so a path rule means nothing to it. Only a layer 7 proxy that parses the request can match on the path."
+/>
+
+<Callout kind="real">
+Kubernetes has a health check of its own. A pod whose **readiness probe** fails is removed from its Service's endpoints, so traffic stops going to it while it keeps running. A failing **liveness probe** restarts it instead. The [restarts lesson](/learn/kubernetes/restarts/) shows what happens when the two get mixed up.
+</Callout>
+
+<DoItForReal id="net-lb-real" lab="02-route-a-hostname">
+
+The tilt platform's front door is an L7 proxy: an Istio-managed Gateway with one listener for `*.localhost`, and an HTTPRoute per app that matches on hostname. Read the rules that route `grafana.localhost` and `prometheus.localhost` to different backends:
+
+```bash
+kubectl get gateway -n istio-system
+kubectl get httproute -A
+kubectl get httproute grafana -n monitoring -o yaml   # hostnames, matches, backendRefs
+```
+
+Lab 02 then has you route a second hostname yourself.
+
+</DoItForReal>

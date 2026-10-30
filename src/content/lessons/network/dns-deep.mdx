@@ -1,0 +1,102 @@
+---
+title: How a name becomes an address
+summary: A resolver walks from the root to the one server that knows the answer, then remembers it for exactly as long as the TTL says. Move a site to a new server without stranding anyone in a cache.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: RFC 1034 - Domain Names, Concepts and Facilities
+    url: https://www.rfc-editor.org/rfc/rfc1034
+  - title: RFC 1035 - Domain Names, Implementation and Specification
+    url: https://www.rfc-editor.org/rfc/rfc1035
+  - title: resolv.conf(5) manual page (search, ndots)
+    url: https://man7.org/linux/man-pages/man5/resolv.conf.5.html
+  - title: Kubernetes - DNS for Services and Pods
+    url: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/
+  - title: BIND 9 manual - dig, DNS lookup utility
+    url: https://bind9.readthedocs.io/en/latest/manpages.html#dig-dns-lookup-utility
+---
+
+[What happens when you press Enter](/learn/web/request-journey/) treated DNS as one step: name in, address out (or exit 6). Inside that step is a small treasure hunt, and a cache that decides how fast any change you make reaches everyone else.
+
+## The walk
+
+Your laptop doesn't know where `shop.bamboo.example` lives, and neither does any single server on the internet. DNS is a tree, and each level only knows who's in charge of the level below (RFC 1034):
+
+<Diagram
+  id="net-dns-walk"
+  title="One lookup, from the root down"
+  desc="Your laptop asks a recursive resolver. With an empty cache, the resolver asks a root server, which refers it on to the .example servers, which refer it on to ns1.bamboo.example, the zone's own server. That server gives the answer and a TTL, and the resolver keeps the answer in its cache for that many seconds."
+  nodes={[
+    { id: 'laptop', label: 'your laptop', sub: 'stub resolver', x: 0, y: 0 },
+    { id: 'res', label: 'resolver', sub: 'recursive, caching', x: 1, y: 0, kind: 'info' },
+    { id: 'root', label: 'root server', sub: 'knows the TLDs', x: 2, y: 0 },
+    { id: 'tld', label: '.example servers', sub: 'know the zones', x: 3, y: 0 },
+    { id: 'cache', label: 'cache', sub: 'answer + TTL', x: 1, y: 1, kind: 'warn' },
+    { id: 'auth', label: 'zone server', sub: 'ns1.bamboo.example', x: 3, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'laptop', to: 'res', label: 'A?' },
+    { from: 'res', to: 'root', label: 'asks' },
+    { from: 'root', to: 'tld', label: 'refers on', dashed: true },
+    { from: 'tld', to: 'auth', label: 'refers on', dashed: true },
+    { from: 'res', to: 'cache', label: 'stores' },
+  ]}
+  steps={[
+    { caption: 'Your laptop sends one question to a recursive resolver - your router, your ISP, or a public one like 1.1.1.1.', show: ['laptop', 'res', 'laptop->res'], focus: ['res'] },
+    { caption: 'With an empty cache, the resolver asks a root server. The root does not know the answer, only who runs .example.', show: ['root', 'res->root'], focus: ['root'] },
+    { caption: 'The resolver asks the .example servers. They do not know either - only that bamboo.example is served by ns1.bamboo.example.', show: ['tld', 'root->tld'], focus: ['tld'] },
+    { caption: 'The resolver asks ns1.bamboo.example itself, which answers: an address, and a TTL - how many seconds that answer may be kept.', show: ['auth', 'tld->auth'], focus: ['auth'] },
+    { caption: 'The resolver keeps the answer for exactly that long. Until it expires, nobody else is asked - including after you change the record.', show: ['cache', 'res->cache'], focus: ['cache', 'res->cache'] },
+  ]}
+/>
+
+The **TTL** is "the time interval (in seconds) that the resource record may be cached" (RFC 1035). It makes DNS fast: a popular name is looked up once, then answered from memory thousands of times. It also makes DNS slow to change. When you edit a record, you change only the zone's server. Every cache that already holds the old answer keeps using it until its copy expires, and you can't reach out and clear other people's caches.
+
+## Move a site
+
+The shop is moving from `203.0.113.10` to `203.0.113.20`, and the record has a one-hour TTL. Your job is to switch off the old server without a single visitor being sent to it. The resolver here stands in for the thousands out there, each of which filled its cache at a different moment.
+
+<DnsLab mission="net-dns-move" />
+
+<Callout kind="trap">
+Lowering the TTL *and* moving at the same moment doesn't help. Caches that fetched the record before you lowered it still hold the old one-hour TTL. Lower it first, wait out the **old** TTL, then move, and keep the old server running for one **new** TTL after that.
+</Callout>
+
+<Quiz
+  id="net-dns-1"
+  q="You changed an A record five minutes ago. Your laptop still gets the old address; a colleague gets the new one. Why?"
+  options={["DNS is broken for you", "Your resolver cached the old answer and its TTL hasn't run out; your colleague's resolver didn't have it cached", "The change only applies to new domains"]}
+  answer={1}
+  explain="Every resolver caches independently. Yours fetched the record before the change and may keep it for the full TTL. Your colleague's resolver asked after the change and got the new answer. Both are working correctly."
+/>
+
+<Quiz
+  id="net-dns-2"
+  q="A record's TTL is 86400. You need to move it with almost no stale traffic. When do you lower the TTL to 60?"
+  options={["At the moment you change the address", "At least a day before the move", "A minute before the move"]}
+  answer={1}
+  explain="Caches keep whatever TTL they were given. To make sure nobody is still holding a 24-hour answer when you switch, the short TTL has to have been the only one handed out for at least 86400 seconds."
+/>
+
+<Callout kind="real">
+Inside Kubernetes, a pod's `/etc/resolv.conf` lists search domains such as `<namespace>.svc.cluster.local` and sets `options ndots:5`. A name with fewer dots than `ndots` is tried with each search domain first (resolv.conf(5)). So a pod looking up `api.example.com` (two dots) first asks for `api.example.com.<namespace>.svc.cluster.local` and the other search domains, and gets NXDOMAIN for each, before trying the real name. Writing the name with a trailing dot, `api.example.com.`, skips the search list.
+</Callout>
+
+<DoItForReal id="net-dns-real">
+
+`dig` shows the TTL counting down in a real cache, and `+trace` does the root-to-zone walk itself:
+
+```bash
+dig example.com A +noall +answer          # note the TTL column
+sleep 10; dig example.com A +noall +answer   # same answer, TTL about 10 lower: cached
+dig example.com A +trace                  # root -> .com -> the zone's own servers
+```
+
+With the tilt platform up, look at the search list a pod really gets:
+
+```bash
+kubectl run dnsprobe --rm -it --image=busybox:1.36 --restart=Never -- cat /etc/resolv.conf
+```
+
+</DoItForReal>
