@@ -17,7 +17,13 @@ const paths: Record<string, string> = {
   flame: 'M12 3c1 4 6 5 6 11a6 6 0 0 1-12 0c0-3 2-4 3-6 1 2 2 2 3 2-1-3 0-5 0-7z',
   star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.5 2.9 1-6.1L3.2 9.5l6.1-.9z',
   cpu: 'M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4',
+  terminal: 'M4 5h16v14H4zM8 9l3 3-3 3M13 15h4',
+  network: 'M12 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM5 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 7v5M12 12l-6 5M12 12l6 5',
+  send: 'M4 12l16-8-6 16-2-6zM12 14l8-10',
 };
-const d = paths[name] ?? paths.spark;
+// An unknown name used to fall back to the spark icon, so a typo shipped the
+// wrong picture silently. Fail the build instead.
+const d = paths[name];
+if (!d) throw new Error(`Icon "${name}" does not exist; known: ${Object.keys(paths).join(', ')}`);
 ---
 <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={d} /></svg>

@@ -18,13 +18,31 @@ export type Track = { id: string; title: string; tagline: string; icon: string; 
 
 export const TRACKS: Track[] = [
   {
-    id: 'git', title: 'Terminal & Git', tagline: 'Save every version of everything, and never fear an experiment again.', icon: 'branch', hue: 150,
+    id: 'linux', title: 'Linux & the Shell', tagline: 'Files, processes and pipes - the ground every other tool stands on.', icon: 'terminal', hue: 90,
+    lessons: [
+      { slug: 'files-and-paths', title: 'Everything is a file', status: 'soon' },
+      { slug: 'processes-and-signals', title: 'Processes, signals and exit codes', status: 'soon' },
+      { slug: 'permissions', title: 'Who may touch this file', status: 'soon' },
+      { slug: 'pipes', title: 'Small tools, joined by pipes', status: 'soon' },
+    ],
+  },
+  {
+    id: 'git', title: 'Git', tagline: 'Save every version of everything, and never fear an experiment again.', icon: 'branch', hue: 150,
     lessons: [
       { slug: 'what-is-git', title: 'Snapshots with names', status: 'ready' },
       { slug: 'branches', title: 'Branches are just names', status: 'ready' },
       { slug: 'conflicts', title: 'Conflicts are honesty', status: 'ready' },
       { slug: 'inside-git', title: 'Look inside .git', status: 'ready' },
       { slug: 'collaborate', title: 'Remotes, pull requests and review', status: 'soon' },
+    ],
+  },
+  {
+    id: 'network', title: 'Networking', tagline: 'Addresses, ports and handshakes - how machines find and talk to each other.', icon: 'network', hue: 240,
+    lessons: [
+      { slug: 'ip-and-subnets', title: 'Addresses and subnets', status: 'soon' },
+      { slug: 'ports-and-tcp', title: 'Ports, sockets and the handshake', status: 'soon' },
+      { slug: 'dns-deep', title: 'How a name becomes an address', status: 'soon' },
+      { slug: 'load-balancers', title: 'Load balancers and proxies', status: 'soon' },
     ],
   },
   {
@@ -51,6 +69,14 @@ export const TRACKS: Track[] = [
       { slug: 'restarts', title: 'Why did it restart?', status: 'ready' },
       { slug: 'admission', title: 'The pods that were never born', status: 'ready' },
       { slug: 'rollouts', title: 'A typo is not an outage', status: 'ready' },
+    ],
+  },
+  {
+    id: 'delivery', title: 'Delivery: CI/CD & IaC', tagline: 'From a pushed commit to running in production - and back out again safely.', icon: 'send', hue: 300,
+    lessons: [
+      { slug: 'pipelines', title: 'A pipeline on every push', status: 'soon' },
+      { slug: 'infrastructure-as-code', title: 'Plan, apply, drift', status: 'soon' },
+      { slug: 'release-strategies', title: 'Canary, blue-green and the rollback', status: 'soon' },
     ],
   },
   {
