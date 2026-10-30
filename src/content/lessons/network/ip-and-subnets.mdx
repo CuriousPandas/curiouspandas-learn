@@ -1,0 +1,113 @@
+---
+title: Addresses and subnets
+summary: An IPv4 address is 32 bits, and "/24" says how many of them name the network. Read a CIDR block bit by bit, then write a firewall rule that lets in one node's pods and nothing else.
+minutes: 15
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: RFC 791 - Internet Protocol
+    url: https://www.rfc-editor.org/rfc/rfc791
+  - title: RFC 4632 - Classless Inter-domain Routing (CIDR)
+    url: https://www.rfc-editor.org/rfc/rfc4632
+  - title: RFC 1918 - Address Allocation for Private Internets
+    url: https://www.rfc-editor.org/rfc/rfc1918
+  - title: RFC 6890 - Special-Purpose IP Address Registries
+    url: https://www.rfc-editor.org/rfc/rfc6890
+  - title: RFC 3021 - Using 31-Bit Prefixes on IPv4 Point-to-Point Links
+    url: https://www.rfc-editor.org/rfc/rfc3021
+  - title: kind - Configuration (default pod and service subnets)
+    url: https://kind.sigs.k8s.io/docs/user/configuration/
+  - title: kube-controller-manager reference (--node-cidr-mask-size)
+    url: https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/
+---
+
+An IPv4 address like `10.244.1.37` looks like four numbers. It's really one 32-bit number, written a byte at a time so people can read it (RFC 791). Each of the four parts is 8 bits, so each runs from 0 to 255. That's why `10.244.1.256` isn't an address.
+
+Routers don't look at addresses one by one. They look at **prefixes**: the first few bits, which say which network an address belongs to. CIDR notation writes the prefix length after a slash (RFC 4632):
+
+- `10.244.1.0/24` means "every address whose first 24 bits match `10.244.1`". The last 8 bits are free, so that's 256 addresses.
+- `10.244.0.0/16` fixes 16 bits and frees 16: 65,536 addresses.
+- `/32` is exactly one address. `/0` is all of them.
+
+Each bit you take off the prefix **doubles** the block. A /23 is two /24s side by side, which is why `10.244.0.0/23` covers both `10.244.0.x` and `10.244.1.x`.
+
+<Diagram
+  id="net-cluster-ranges"
+  title="How a cluster splits its addresses"
+  desc="A kind cluster gives pods addresses from 10.244.0.0/16 and hands each node its own /24 slice: control-plane gets 10.244.0.0/24, worker gets 10.244.1.0/24, worker2 gets 10.244.2.0/24. Services get addresses from a separate range, 10.96.0.0/16, that never overlaps the pods."
+  nodes={[
+    { id: 'svc', label: 'Service range', sub: '10.96.0.0/16', x: 0, y: 0, kind: 'info' },
+    { id: 'pods', label: 'pod range', sub: '10.244.0.0/16', x: 1, y: 0, kind: 'ok' },
+    { id: 'cp', label: 'control-plane', sub: '10.244.0.0/24', x: 0, y: 1 },
+    { id: 'w1', label: 'worker', sub: '10.244.1.0/24', x: 1, y: 1, kind: 'warn' },
+    { id: 'w2', label: 'worker2', sub: '10.244.2.0/24', x: 2, y: 1 },
+  ]}
+  edges={[
+    { from: 'pods', to: 'cp', label: '/24 each' },
+    { from: 'pods', to: 'w1' },
+    { from: 'pods', to: 'w2' },
+  ]}
+  steps={[
+    { caption: 'The cluster owns one big pod range. kind uses 10.244.0.0/16 by default: 65,536 addresses.', show: ['pods'], focus: ['pods'] },
+    { caption: 'Each node gets its own /24 slice of it - 256 addresses. Every pod on worker has an address starting 10.244.1.', show: ['cp', 'w1', 'w2', 'pods->cp', 'pods->w1', 'pods->w2'], focus: ['w1'] },
+    { caption: 'Services get a separate range that never overlaps the pods. An address alone tells you whether it is a pod or a Service.', show: ['svc'], focus: ['svc'] },
+  ]}
+/>
+
+## Read the bits
+
+Type any address with a prefix. The blue bits are the network part, the grey bits are free for hosts. Try `10.244.1.37/24`, then change only the prefix to `/23` and `/25` and watch the range grow and shrink.
+
+<SubnetLab mission="net-one-node" />
+
+<Callout kind="trap">
+"Usable hosts" is two fewer than the block size. The first address names the network itself and the last is the broadcast address, so a /24 has 254 hosts, not 256. Point-to-point links are the exception: a /31 uses both of its addresses (RFC 3021).
+</Callout>
+
+## Private, public and the odd ones
+
+Three ranges are set aside for private networks. They're never routed on the public internet, so every home, office and cluster can reuse them (RFC 1918):
+
+| Range | Size | Where you'll see it |
+|---|---|---|
+| `10.0.0.0/8` | 16.7 million | clusters, corporate networks, kind's pods |
+| `172.16.0.0/12` | 1 million | container and cloud networks - and the one people misremember |
+| `192.168.0.0/16` | 65,536 | most home routers |
+
+The middle one catches people out: `/12` covers `172.16.x.x` to `172.31.x.x` only. `172.32.0.1` is a public address.
+
+A few more show up often enough to recognise on sight (RFC 6890 keeps the full list). `127.0.0.0/8` is loopback, this machine talking to itself. `169.254.0.0/16` is link-local, which usually means "no DHCP server answered", though cloud providers also put their metadata service at `169.254.169.254`. `100.64.0.0/10` is shared address space used for carrier-grade NAT.
+
+<Quiz
+  id="net-subnets-1"
+  q="Which address is NOT private?"
+  options={["10.200.3.4", "172.20.1.1", "172.40.1.1", "192.168.50.2"]}
+  answer={2}
+  explain="172.16.0.0/12 covers 172.16 to 172.31 only. 172.40.1.1 is outside it, so it's a public address. The other three are inside 10/8, 172.16/12 and 192.168/16."
+/>
+
+<Quiz
+  id="net-subnets-2"
+  q="A firewall rule allows 10.244.0.0/23. Which pods can get through?"
+  options={["Only pods on the node with 10.244.0.0/24", "Pods on the nodes with 10.244.0.0/24 and 10.244.1.0/24", "Every pod in 10.244.0.0/16"]}
+  answer={1}
+  explain="One bit fewer than /24 doubles the block: a /23 starting at 10.244.0.0 is the two /24s 10.244.0.x and 10.244.1.x. That's two nodes' worth of pods, which is why a rule one bit too short quietly lets in a neighbour."
+/>
+
+<Callout kind="real">
+Real clusters vary. kind gives pods `10.244.0.0/16` and Services `10.96.0.0/16`. The controller manager hands each node a /24 of the pod range by default (`--node-cidr-mask-size`). Cloud clusters often give pods addresses straight from the VPC instead. Check yours before you write a rule that relies on it.
+</Callout>
+
+<DoItForReal id="net-subnets-real">
+
+With the tilt platform up, read the real slices off your own cluster:
+
+```bash
+kubectl get nodes -o custom-columns=NODE:.metadata.name,PODCIDR:.spec.podCIDR
+kubectl get pods -A -o wide | head -20      # the IP column: which node's slice?
+kubectl get svc -A | head -10               # Service addresses: a different range
+```
+
+Each pod's address falls inside its node's `podCIDR`, and every Service address sits outside the pod range entirely.
+
+</DoItForReal>

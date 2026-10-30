@@ -1,0 +1,109 @@
+---
+title: Ports, sockets and the handshake
+summary: A program listens on an address and a port, and TCP opens a connection in three packets. Learn to tell a fast "refused" from a slow timeout, and fix the classic "works on my machine" bind.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: RFC 9293 - Transmission Control Protocol (TCP)
+    url: https://www.rfc-editor.org/rfc/rfc9293
+  - title: RFC 6298 - Computing TCP's Retransmission Timer
+    url: https://www.rfc-editor.org/rfc/rfc6298
+  - title: Linux kernel docs - ip-sysctl (tcp_syn_retries)
+    url: https://www.kernel.org/doc/html/latest/networking/ip-sysctl.html
+  - title: iptables-extensions - REJECT target
+    url: https://ipset.netfilter.org/iptables-extensions.man.html
+  - title: libcurl error codes
+    url: https://curl.se/libcurl/c/libcurl-errors.html
+  - title: ss(8) manual page
+    url: https://man7.org/linux/man-pages/man8/ss.8.html
+---
+
+An address gets a packet to a machine. A **port** gets it to one program on that machine. A port is a 16-bit number, 0 to 65535. A web server usually listens on 443, a Postgres database on 5432, and the app you just wrote on whatever you told it.
+
+A program that wants connections opens a **listening socket**: an address, a port, and a promise to answer. Two details decide who can reach it:
+
+- **The port.** Connect to 8081 when the program listens on 8080 and you reach nobody.
+- **The address it listens on.** `0.0.0.0` means every address this machine has. `127.0.0.1` means loopback only, so only programs on the same machine can connect. Many development servers default to `127.0.0.1`, deliberately, so a half-finished app isn't exposed to the whole network.
+
+## Three packets
+
+TCP opens a connection with a three-way handshake (RFC 9293). The client sends **SYN** ("let's talk"). The server replies **SYN, ACK** ("yes, and let's talk"), and the client sends **ACK**. Only then does any real data flow.
+
+How the handshake *fails* is the useful part, because each failure has its own shape:
+
+<Diagram
+  id="net-tcp-outcomes"
+  title="Three ways a SYN can end"
+  desc="A client sends a SYN. If a program is listening, the server answers SYN-ACK and the connection opens; curl exits 0. If nothing listens on that address and port, the server answers at once with a reset; curl exits 7, fast. If a firewall drops the SYN, nothing answers; the client retries and finally gives up; curl exits 28, slowly."
+  nodes={[
+    { id: 'syn', label: 'client sends SYN', sub: 'to address:port', x: 0, y: 1, kind: 'info' },
+    { id: 'ok', label: 'connected', sub: 'exit 0 · 1 round trip', x: 1, y: 0, kind: 'ok' },
+    { id: 'rst', label: 'refused', sub: 'exit 7 · fast', x: 1, y: 1, kind: 'bad' },
+    { id: 'drop', label: 'timed out', sub: 'exit 28 · slow', x: 1, y: 2, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'syn', to: 'ok', label: 'SYN, ACK' },
+    { from: 'syn', to: 'rst', label: 'RST' },
+    { from: 'syn', to: 'drop', label: 'nothing', dashed: true },
+  ]}
+  steps={[
+    { caption: 'Every connection starts the same way: the client sends a SYN to an address and a port.', show: ['syn'], focus: ['syn'] },
+    { caption: 'A program is listening there: SYN, ACK comes back and the connection opens after one round trip.', show: ['ok', 'syn->ok'], focus: ['ok'] },
+    { caption: 'Nothing listens on that address and port: the machine answers at once with a reset. A fast "no" means the network worked.', show: ['rst', 'syn->rst'], focus: ['rst'] },
+    { caption: 'Nothing answers at all - usually a firewall dropping the packet. The client retries, waits, and finally gives up. Slowness is the clue.', show: ['drop', 'syn->drop'], focus: ['drop'] },
+  ]}
+/>
+
+When the SYN gets no answer, the client sends it again. The first retry waits one second, and each wait after that doubles (RFC 6298). By default Linux retries six times and finally gives up after about 131 seconds (kernel `tcp_syn_retries`). That's why a dropped connection without a `--connect-timeout` can hang for two minutes.
+
+## Works on my machine
+
+The app runs, and `ss -tln` on the server shows it listening. A teammate on another machine still gets "Could not connect to server". Find out why, and fix it properly.
+
+<TcpLab mission="net-works-on-my-machine" />
+
+<Callout kind="trap">
+"Connection refused" doesn't always mean the program is down. A firewall REJECT rule answers SYNs with an ICMP "port unreachable" by default (iptables `--reject-with`), and the client reports that as refused too. Look at *which* machine answered before you restart the app.
+</Callout>
+
+<Callout kind="tip">
+Exact timings depend on the operating system. On Linux a refusal comes back in about one round trip. On Windows, curl 8.19 took **2,014 ms** to report a refused connection to `127.0.0.1` port 9, because Windows retries a refused SYN before giving up (measured for this lesson on Windows 11). A dropped SYN with `--connect-timeout 3` took 3,007 ms. Fast and slow are still clearly apart.
+</Callout>
+
+<Quiz
+  id="net-tcp-1"
+  q="curl fails in 2 ms with exit 7. What do you know?"
+  options={["The network path is broken", "A machine answered, and nothing was accepting connections on that address and port", "DNS failed"]}
+  answer={1}
+  explain="A fast refusal is an answer: a reset (or a firewall's port-unreachable) came back. Packets got there and back, so the route is fine. Check the port, whether the program is running, and what address it listens on."
+/>
+
+<Quiz
+  id="net-tcp-2"
+  q="ss -tln on the server shows LISTEN 127.0.0.1:8080. Other machines get refused. What's the fix?"
+  options={["Open port 8080 in the firewall", "Make the program listen on 0.0.0.0 (or the machine's address)", "Move the program to port 80"]}
+  answer={1}
+  explain="The program only accepts connections arriving on loopback. Opening the firewall doesn't help, because the refusal comes from the empty port on the external address, not from a filter. Changing the port keeps the same bind problem."
+/>
+
+<Callout kind="real">
+The same bug shows up in containers. A process listening on `127.0.0.1` inside a container can't be reached through a published port or a Kubernetes Service, because that traffic arrives on the container's own network interface, not on loopback. The usual fix is configuration, such as a `--host 0.0.0.0` flag or a `HOST` variable, not networking.
+</Callout>
+
+<DoItForReal id="net-tcp-real">
+
+On any Linux machine or WSL, watch the three outcomes for real:
+
+```bash
+python3 -m http.server 8080 --bind 127.0.0.1 &   # listening on loopback only
+ss -tln | grep 8080                               # LISTEN 127.0.0.1:8080
+curl -sS http://127.0.0.1:8080/ -o /dev/null; echo "exit $?"    # 0
+curl -sS http://127.0.0.1:8081/; echo "exit $?"                 # 7, instant
+curl -sS --connect-timeout 3 http://10.255.255.1:8080/; echo "exit $?"   # 28, after 3 s
+kill %1
+```
+
+`10.255.255.1` is a private address that nothing on most networks answers, so it stands in for a dropped packet.
+
+</DoItForReal>

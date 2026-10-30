@@ -39,10 +39,10 @@ export const TRACKS: Track[] = [
   {
     id: 'network', title: 'Networking', tagline: 'Addresses, ports and handshakes - how machines find and talk to each other.', icon: 'network', hue: 240,
     lessons: [
-      { slug: 'ip-and-subnets', title: 'Addresses and subnets', status: 'soon' },
-      { slug: 'ports-and-tcp', title: 'Ports, sockets and the handshake', status: 'soon' },
-      { slug: 'dns-deep', title: 'How a name becomes an address', status: 'soon' },
-      { slug: 'load-balancers', title: 'Load balancers and proxies', status: 'soon' },
+      { slug: 'ip-and-subnets', title: 'Addresses and subnets', status: 'ready' },
+      { slug: 'ports-and-tcp', title: 'Ports, sockets and the handshake', status: 'ready' },
+      { slug: 'dns-deep', title: 'How a name becomes an address', status: 'ready' },
+      { slug: 'load-balancers', title: 'Load balancers and proxies', status: 'ready' },
     ],
   },
   {

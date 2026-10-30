@@ -1,0 +1,147 @@
+---
+import '../styles/widgets.css';
+import { SERVER_IP } from '../lib/net/tcp.ts';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card tcp-lab" data-tcp-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>One connection, packet by packet</strong>
+    <span class="pill info">simulated network</span>
+  </div>
+  <div class="tl-grid">
+    <fieldset class="tl-box">
+      <legend>Server {SERVER_IP}</legend>
+      <label><input type="checkbox" data-running checked /> program running</label>
+      <label>listens on
+        <select data-bind>
+          <option value="127.0.0.1">127.0.0.1 (this machine only)</option>
+          <option value="0.0.0.0">0.0.0.0 (every address)</option>
+        </select>
+      </label>
+      <label>port <input type="number" min="1" max="65535" value="8080" data-port /></label>
+      <label>host firewall
+        <select data-firewall>
+          <option value="allow">allows the port</option>
+          <option value="drop">DROPs the port</option>
+          <option value="reject">REJECTs the port</option>
+        </select>
+      </label>
+      <span class="eyebrow">ss -tln on the server</span>
+      <pre class="tl-ss" data-ss tabindex="0" aria-label="ss -tln output"></pre>
+    </fieldset>
+    <fieldset class="tl-box">
+      <legend>Client</legend>
+      <label>runs on
+        <select data-from>
+          <option value="other">another machine</option>
+          <option value="same">the server itself</option>
+        </select>
+      </label>
+      <label>connects to port <input type="number" min="1" max="65535" value="8080" data-target /></label>
+      <button class="btn small primary" type="button" data-go>curl --connect-timeout 5</button>
+      <ol class="tl-packets" data-packets aria-label="Packets"></ol>
+      <pre class="tl-curl" data-curl aria-live="polite"></pre>
+      <p class="tl-why" data-why></p>
+    </fieldset>
+  </div>
+  <div class="tl-goals" data-goals hidden>
+    <span class="eyebrow">Mission · works on my machine · +40 XP</span>
+    <p class="small">The app is running and <code>ss</code> shows it listening. Teammates on other machines get "Could not connect to server".</p>
+    <ul>
+      <li data-goal="local">Show that it really does work - from the server itself</li>
+      <li data-goal="slow">Make a connection fail slowly instead of fast, and see why that is a different problem</li>
+      <li data-goal="fixed">Let other machines connect on port 8080, without opening anything you don't need</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { connect, ssListen, type Bind, type Firewall, type From } from '../lib/net/tcp.ts';
+  import { award } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-tcp-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    if (mission) q('[data-goals]').hidden = false;
+    const server = () => ({
+      running: q<HTMLInputElement>('[data-running]').checked,
+      bind: q<HTMLSelectElement>('[data-bind]').value as Bind,
+      port: Number(q<HTMLInputElement>('[data-port]').value),
+      firewall: q<HTMLSelectElement>('[data-firewall]').value as Firewall,
+    });
+    const goal = (g: string) => {
+      seen.add(g);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 3) award('missions', mission, 40, 'Fixed "works on my machine"');
+    };
+    const showSs = () => { q('[data-ss]').textContent = ssListen(server()).join('\n'); };
+
+    const go = () => {
+      const s = server();
+      const from = q<HTMLSelectElement>('[data-from]').value as From;
+      const port = Number(q<HTMLInputElement>('[data-target]').value);
+      const a = connect(s, from, port, 5);
+      q('[data-packets]').replaceChildren(...a.packets.map((p) => {
+        const li = document.createElement('li');
+        li.className = p.dir;
+        const t = document.createElement('span'); t.className = 't'; t.textContent = `${p.t >= 1000 ? `${p.t / 1000} s` : `${p.t} ms`}`;
+        const arrow = document.createElement('span'); arrow.className = 'dir'; arrow.textContent = p.dir === 'out' ? 'client → server' : 'client ← server';
+        const f = document.createElement('code'); f.textContent = p.flags;
+        li.append(t, arrow, f);
+        if (p.note) li.append(` ${p.note}`);
+        return li;
+      }));
+      const curl = q('[data-curl]');
+      curl.textContent = `${a.curl}\nexit code ${a.exit} · ${a.ms >= 1000 ? `${(a.ms / 1000).toFixed(1)} s` : `${a.ms} ms`}`;
+      curl.className = `tl-curl ${a.outcome}`;
+      q('[data-why]').textContent = a.why;
+      if (!mission) return;
+      if (from === 'same' && a.outcome === 'connected') goal('local');
+      if (a.outcome === 'timeout') goal('slow');
+      // The fix has a shape: listening on every address, same port, nothing
+      // else needed. Moving the port or touching the firewall cannot pass.
+      if (from === 'other' && a.outcome === 'connected' && port === 8080 && s.bind === '0.0.0.0') goal('fixed');
+    };
+
+    root.querySelectorAll('[data-running], [data-bind], [data-port], [data-firewall]').forEach((e) => e.addEventListener('change', showSs));
+    q('[data-port]').addEventListener('input', showSs);
+    q('[data-go]').addEventListener('click', go);
+    showSs();
+    go();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: packet rows are built by the
+     script, and scoped styles never reach them. */
+  .tcp-lab .tl-grid { display: grid; gap: 12px; }
+  @media (min-width: 760px) { .tcp-lab .tl-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }
+  .tcp-lab .tl-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+  .tcp-lab .tl-box legend { font-weight: 700; padding: 0 6px; }
+  .tcp-lab .tl-box label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--ink-2); max-width: 100%; }
+  .tcp-lab select, .tcp-lab input[type="number"] { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); max-width: 100%; min-width: 0; }
+  .tcp-lab input[type="number"] { width: 6.5em; }
+  .tcp-lab .btn { align-self: flex-start; }
+  .tcp-lab pre { margin: 0; font-size: 0.8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* ss is a table: wrapping scrambled its columns, so it scrolls instead. */
+  .tcp-lab .tl-ss { white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+  .tcp-lab .tl-packets { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 0.86rem; }
+  .tcp-lab .tl-packets li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 4px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }
+  .tcp-lab .tl-packets li.in { border-left: 4px solid var(--sky); }
+  .tcp-lab .tl-packets li.out { border-left: 4px solid var(--line-2); }
+  .tcp-lab .tl-packets .t { font: 12px var(--mono); color: var(--muted); min-width: 4.2em; }
+  .tcp-lab .tl-packets .dir { color: var(--ink-2); }
+  /* The site styles every pre as a dark terminal, so these use the terminal's
+     own colours: --berry on --term-bg failed contrast in light mode. */
+  .tcp-lab .tl-curl.connected { color: var(--term-ok); }
+  .tcp-lab .tl-curl.refused { color: var(--term-err); }
+  .tcp-lab .tl-curl.timeout { color: var(--term-hint); }
+  .tcp-lab .tl-why { margin: 0; font-size: 0.9rem; }
+  .tcp-lab .tl-goals { margin-top: 12px; font-size: 0.92rem; }
+  .tcp-lab .tl-goals .small { margin: 4px 0; }
+  .tcp-lab .tl-goals ul { margin: 4px 0 0; padding-left: 20px; }
+  .tcp-lab .tl-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .tcp-lab .tl-goals li.done::marker { content: "✓ "; }
+</style>

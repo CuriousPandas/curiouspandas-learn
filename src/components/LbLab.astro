@@ -1,0 +1,165 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card lb-lab" data-lb-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>Load balancer</strong>
+    <span class="pill info">simulated traffic</span>
+  </div>
+  <div class="controls" role="group" aria-label="Scenario">
+    <span class="muted">Scenario:</span>
+    <button class="btn small" type="button" data-scenario="dead" aria-pressed="true">A backend crashed</button>
+    <button class="btn small" type="button" data-scenario="routes" aria-pressed="false">One address, two apps</button>
+  </div>
+  <p class="lb-brief" data-brief></p>
+  <div class="controls">
+    <label>Algorithm
+      <select data-algo>
+        <option value="round-robin">round robin</option>
+        <option value="least-conn">least connections</option>
+      </select>
+    </label>
+    <label><input type="checkbox" data-health /> health checks</label>
+    <label data-only="routes">Layer
+      <select data-layer>
+        <option value="L4">L4 - sees IP and port</option>
+        <option value="L7">L7 - reads the HTTP request</option>
+      </select>
+    </label>
+    <label data-only="routes"><input type="checkbox" data-rule /> route <code>/api/*</code> to api-1</label>
+  </div>
+  <p class="lb-note" data-note></p>
+  <button class="btn small primary" type="button" data-send>Send 30 requests</button>
+  <div class="lb-summary" data-summary aria-live="polite"></div>
+  <ul class="lb-backends" data-backends></ul>
+  <ol class="lb-log" data-log aria-label="Last requests"></ol>
+  <div class="lb-goals" data-goals hidden>
+    <span class="eyebrow">Mission · keep the site up · +45 XP</span>
+    <ul>
+      <li data-goal="errors">Crashed backend: see what customers see</li>
+      <li data-goal="trap">Try least connections first - and watch who gets the traffic</li>
+      <li data-goal="healed">Get a batch with no errors while web-2 is still broken</li>
+      <li data-goal="routed">Two apps: get a batch where every request reaches an app that can answer it</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { Balancer, errorRate, share, type Algo } from '../lib/net/lb.ts';
+  import { award } from '../lib/ui.ts';
+
+  const BRIEF = {
+    dead: 'web-2 crashed and refuses every connection. It will not be back today. Customers are seeing errors.',
+    routes: 'One public address now serves the shop (web-1, web-2) and its API (api-1). The web servers have no /api; the API has no home page.',
+  };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-lb-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    if (mission) q('[data-goals]').hidden = false;
+    let scenario: 'dead' | 'routes' = 'dead';
+    let lb = new Balancer(scenario);
+
+    const goal = (g: string) => {
+      seen.add(g);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 4) award('missions', mission, 45, 'Kept the site up');
+    };
+
+    const sync = () => {
+      lb.algo = q<HTMLSelectElement>('[data-algo]').value as Algo;
+      lb.healthChecks = q<HTMLInputElement>('[data-health]').checked;
+      lb.layer = q<HTMLSelectElement>('[data-layer]').value as 'L4' | 'L7';
+      lb.apiRule = q<HTMLInputElement>('[data-rule]').checked;
+      root.querySelectorAll<HTMLElement>('[data-only]').forEach((e) => { e.hidden = e.dataset.only !== scenario; });
+      q('[data-brief]').textContent = BRIEF[scenario];
+      q('[data-note]').textContent = scenario === 'routes' && lb.layer === 'L4' && lb.apiRule
+        ? 'An L4 balancer forwards a TCP connection; the path is inside the bytes it never reads (and inside TLS, it could not). This rule does nothing here.'
+        : '';
+    };
+
+    const backendsView = () => q('[data-backends]').replaceChildren(...lb.backends.map((b) => {
+      const li = document.createElement('li');
+      const state = b.crashed ? (lb.healthChecks && b.down ? 'crashed · pulled from the pool' : 'crashed') : lb.healthChecks && b.down ? 'pulled' : 'up';
+      li.className = b.crashed ? (b.down && lb.healthChecks ? 'pulled' : 'crashed') : 'up';
+      const name = Object.assign(document.createElement('strong'), { textContent: b.name });
+      const tag = Object.assign(document.createElement('span'), { className: 'tag', textContent: state });
+      const nums = Object.assign(document.createElement('span'), { className: 'nums', textContent: `${b.served} requests · ${b.errors} failed` });
+      li.append(name, tag, nums);
+      return li;
+    }));
+
+    const reset = () => {
+      lb = new Balancer(scenario);
+      sync();
+      q('[data-summary]').textContent = 'Nothing sent yet.';
+      q('[data-log]').replaceChildren();
+      backendsView();
+    };
+
+    q('[data-send]').addEventListener('click', () => {
+      sync();
+      for (const b of lb.backends) { b.served = 0; b.errors = 0; }
+      const rs = lb.batch(30, scenario);
+      const bad = rs.filter((r) => r.status !== 200);
+      const sum = q('[data-summary]');
+      sum.className = `lb-summary ${bad.length ? 'bad' : 'ok'}`;
+      sum.textContent = `${bad.length} of ${rs.length} requests failed (${Math.round(errorRate(rs) * 100)}%).`
+        + (scenario === 'dead' ? ` web-2 was sent ${Math.round(share(rs, 'web-2') * 100)}% of them.` : '');
+      backendsView();
+      q('[data-log]').replaceChildren(...rs.slice(-8).map((r) => {
+        const li = document.createElement('li');
+        li.className = r.status === 200 ? 'ok' : 'bad';
+        li.textContent = `${r.at.toFixed(1)} s  ${r.path.padEnd(12)} -> ${r.backend}  ${r.status === 'refused' ? 'connection refused' : r.status}`;
+        return li;
+      }));
+      if (!mission) return;
+      if (scenario === 'dead') {
+        if (bad.length) goal('errors');
+        if (lb.algo === 'least-conn' && !lb.healthChecks && share(rs, 'web-2') > 0.5) goal('trap');
+        // Fix-shape: web-2 is still crashed, so the only way to a clean batch
+        // is taking it out of rotation. Least connections alone makes it worse.
+        if (!bad.length && lb.backends[1].crashed) goal('healed');
+      } else if (!bad.length) goal('routed');
+    });
+
+    root.querySelectorAll<HTMLButtonElement>('[data-scenario]').forEach((b) => b.addEventListener('click', () => {
+      scenario = b.dataset.scenario as 'dead' | 'routes';
+      root.querySelectorAll<HTMLButtonElement>('[data-scenario]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      reset();
+    }));
+    root.querySelectorAll('select, input').forEach((e) => e.addEventListener('change', () => { sync(); backendsView(); }));
+    reset();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: backend rows and the log are built
+     by the script, and scoped styles never reach them. */
+  .lb-lab .btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .lb-lab .lb-brief { margin: 4px 0 10px; font-size: 0.93rem; }
+  .lb-lab .lb-note { margin: 4px 0; font-size: 0.88rem; color: var(--sun-text); min-height: 0; }
+  .lb-lab .lb-note:empty { display: none; }
+  .lb-lab [hidden] { display: none !important; }
+  .lb-lab .lb-summary { margin: 10px 0 6px; font-weight: 650; }
+  .lb-lab .lb-summary.bad { color: var(--berry); }
+  .lb-lab .lb-summary.ok { color: var(--bamboo); }
+  .lb-lab .lb-backends { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  @media (min-width: 640px) { .lb-lab .lb-backends { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .lb-lab .lb-backends li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); border-left: 5px solid var(--bamboo); font-size: 0.9rem; }
+  .lb-lab .lb-backends li.crashed { border-left-color: var(--berry); background: var(--berry-soft); }
+  .lb-lab .lb-backends li.pulled { border-left-color: var(--sun); background: var(--sun-soft); }
+  .lb-lab .lb-backends .tag { font-size: 0.8rem; color: var(--ink-2); }
+  .lb-lab .lb-backends .nums { font: 12.5px var(--mono); color: var(--ink-2); }
+  .lb-lab .lb-log { list-style: none; margin: 10px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--term-bg); color: var(--term-ink); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .lb-lab .lb-log:empty { display: none; }
+  .lb-lab .lb-log li.bad { color: var(--term-err); }
+  .lb-lab .lb-log li.ok { color: var(--term-ok); }
+  .lb-lab .lb-goals { margin-top: 12px; font-size: 0.92rem; }
+  .lb-lab .lb-goals ul { margin: 4px 0 0; padding-left: 20px; }
+  .lb-lab .lb-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .lb-lab .lb-goals li.done::marker { content: "✓ "; }
+</style>
