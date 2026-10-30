@@ -1,0 +1,176 @@
+---
+title: Commit messages that cut releases
+summary: A version number is a promise to everyone who depends on you. Write commits the way Conventional Commits asks, let release-please turn them into versions and changelogs - and watch one wrong word ship a breaking change as a patch.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: Conventional Commits 1.0.0 - specification and examples
+    url: https://www.conventionalcommits.org/en/v1.0.0/
+  - title: Semantic Versioning 2.0.0
+    url: https://semver.org/spec/v2.0.0.html
+  - title: googleapis/release-please - README
+    url: https://github.com/googleapis/release-please
+  - title: release-please - manifest releaser options (bump-minor-pre-major)
+    url: https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md
+  - title: googleapis/release-please-action - README
+    url: https://github.com/googleapis/release-please-action
+  - title: conventional-changelog-conventionalcommits - default commit types and sections
+    url: https://github.com/conventional-changelog/conventional-changelog/tree/master/packages/conventional-changelog-conventionalcommits
+  - title: release-please's own CHANGELOG (a real "BREAKING CHANGES" section, v17.0.0)
+    url: https://github.com/googleapis/release-please/blob/main/CHANGELOG.md
+  - title: node-semver - caret ranges
+    url: https://github.com/npm/node-semver#caret-ranges-123-025-004
+  - title: npm docs - save-prefix (default "^")
+    url: https://docs.npmjs.com/cli/v11/using-npm/config#save-prefix
+  - title: commitlint
+    url: https://commitlint.js.org/
+---
+
+A version number looks like decoration. It's a promise. [Semantic Versioning](https://semver.org/spec/v2.0.0.html) spells it out: bump the **MAJOR** version "when you make incompatible API changes", the **MINOR** version "when you add functionality in a backward compatible manner", and the **PATCH** version "when you make backward compatible bug fixes".
+
+People's tools act on that promise without asking. When you `npm install` a package, npm writes the dependency with a `^` in front by default. And `^1.4.2` means `>=1.4.2 <2.0.0`: every minor and patch release is accepted automatically, on the next install, by every project that depends on you. A major release is the only kind nobody gets by accident.
+
+So the question that matters at release time is: *is anything in here breaking?* Answering it by hand, for every release, from memory, is how breaking changes ship as patches.
+
+## Say it in the commit
+
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) moves the answer to the moment you know it best: when you write the change. Every commit message starts with a type:
+
+```text
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+- `fix:` patches a bug. It lines up with a PATCH release.
+- `feat:` adds a feature. It lines up with a MINOR release.
+- A `!` after the type or scope, or a `BREAKING CHANGE:` footer, marks a breaking API change. It lines up with MAJOR - whatever the type.
+- Other types - `docs:`, `chore:`, `refactor:`, `test:`, `ci:` and so on - are allowed and "have no implicit effect in Semantic Versioning (unless they include a BREAKING CHANGE)".
+
+Straight from the spec's examples:
+
+```text
+feat(api)!: send an email to the customer when a product is shipped
+
+feat: allow provided config object to extend other configs
+
+BREAKING CHANGE: `extends` key in config file is now used for extending other config files
+```
+
+Types aren't case-sensitive, but `BREAKING CHANGE` must be uppercase (`BREAKING-CHANGE` means the same thing). This site's own repository is a real example: run `git log --oneline` in it and nearly every commit starts with `feat:`, `fix:`, `docs:` or `chore:` - the rest are merge commits.
+
+## Let a robot read them
+
+[release-please](https://github.com/googleapis/release-please) reads those messages on your main branch and keeps a **release PR** open: a pull request that bumps the version and adds a CHANGELOG entry for everything since the last release. Each push updates it. When you merge it, release-please tags the commit and creates a GitHub release. Publishing - to npm, a registry, an app store - stays your job, triggered by that release.
+
+<Diagram
+  id="delivery-release-please"
+  title="From commit messages to a release"
+  desc="Commits land on main with conventional messages. release-please reads them and keeps one release PR up to date with the next version and a changelog. When you merge that PR, it tags the commit and creates a GitHub release, which can trigger your own publish job."
+  nodes={[
+    { id: 'commits', label: 'commits on main', sub: 'fix: feat: feat!:', x: 0, y: 0, kind: 'info' },
+    { id: 'rp', label: 'release-please', sub: 'reads the messages', x: 1, y: 0 },
+    { id: 'pr', label: 'release PR', sub: 'version + CHANGELOG', x: 2, y: 0, kind: 'warn' },
+    { id: 'merge', label: 'you merge it', sub: 'when you choose', x: 3, y: 0 },
+    { id: 'tag', label: 'tag + release', sub: 'v1.5.0 on GitHub', x: 3, y: 1, kind: 'ok' },
+    { id: 'publish', label: 'your publish job', sub: 'npm, images, ...', x: 2, y: 1 },
+  ]}
+  edges={[
+    { from: 'commits', to: 'rp', label: 'on push' },
+    { from: 'rp', to: 'pr', label: 'updates' },
+    { from: 'pr', to: 'merge', label: 'review' },
+    { from: 'merge', to: 'tag', label: 'tags' },
+    { from: 'tag', to: 'publish', label: 'triggers', dashed: true },
+  ]}
+  steps={[
+    { caption: 'You push commits to main as usual. Their first lines say what kind of change each one is.', show: ['commits'], focus: ['commits'] },
+    { caption: 'release-please reads only the messages - never the code - and works out the next version: breaking beats feat, feat beats fix.', show: ['rp', 'commits->rp'], focus: ['rp'] },
+    { caption: 'It keeps one release PR open and up to date: the new version number and the CHANGELOG entry, ready to review.', show: ['pr', 'rp->pr'], focus: ['pr'] },
+    { caption: 'Nothing is released until you merge it. Then it tags the commit and creates a GitHub release.', show: ['merge', 'tag', 'pr->merge', 'merge->tag'], focus: ['merge', 'tag'] },
+    { caption: 'Publishing stays yours: a workflow that runs on the new release does the upload.', show: ['publish', 'tag->publish'], focus: ['publish'] },
+  ]}
+/>
+
+Its defaults follow the spec: `fix` proposes a patch, `feat` a minor, and anything marked breaking a major. The releasable units are feat, fix and deps commits (the README adds `docs` for Java and Python), so in most projects a week of `chore:` and `docs:` commits opens no release PR at all. In the CHANGELOG, breaking changes get their own section at the top - release-please's own changelog shows one under `### ⚠ BREAKING CHANGES` - followed by Features and Bug Fixes.
+
+## Try it
+
+Your package is at **v1.4.2**, and your users installed it with `^1.4.2`. Make four changes, write a message for each, and merge the release PRs. The release PR below only ever reads what you type.
+
+<ReleasePleaseSim />
+
+<Callout kind="trap">
+Renaming a field because the old name was wrong *feels* like a fix. To everyone whose code reads that field, it's a breaking change. Written as `fix:`, release-please does exactly what it was told: a patch, which every `^1.x` range installs on its next build. One `!` - `feat(api)!:` or `fix(api)!:` - and the same code ships as 2.0.0, with the break written at the top of the changelog.
+</Callout>
+
+<Quiz
+  id="delivery-relauto-1"
+  q="Since the last release (v2.3.1) main has: 'fix: handle empty carts', 'feat: CSV export', 'docs: update README'. What does the release PR propose?"
+  options={["2.3.2 - the fix is the most recent", "2.4.0 - a feat makes it a minor, and the patch resets", "3.0.0 - three commits is a big release"]}
+  answer={1}
+  explain="The biggest bump wins: feat means MINOR, and SemVer resets the patch to 0 when the minor goes up. The docs commit has no effect on the version."
+/>
+
+<Quiz
+  id="delivery-relauto-2"
+  q="Which commit makes release-please propose a MAJOR version?"
+  options={["chore: remove the old /v1 endpoint", "feat!: remove the old /v1 endpoint", "fix: remove the old /v1 endpoint, sorry"]}
+  answer={1}
+  explain="Only the ! (or a BREAKING CHANGE: footer) marks a breaking change. The type alone - even 'chore' - says nothing about compatibility, and release-please believes the message, not the diff."
+/>
+
+<Quiz
+  id="delivery-relauto-3"
+  q="Someone merges 'Fixed stuff' to main. What does release-please do with it?"
+  options={["Guesses it's a fix and proposes a patch", "Nothing - it isn't a conventional commit, so it doesn't count toward a release", "Fails the build"]}
+  answer={1}
+  explain="A message without a type isn't something release-please can classify, so it's left out of the version and the changelog. A linter such as commitlint in CI is how teams stop these from landing in the first place."
+/>
+
+## Details that bite
+
+- **Squash merges.** The release-please README highly recommends squash-merging for a linear history, and both squash and merge commits work. With a squash, the one commit that lands is the one release-please reads - so that message has to be conventional, not just the commits inside the PR.
+- **Overriding the number.** A commit with `Release-As: 2.0.0` in its body opens a release PR for exactly that version.
+- **Before 1.0.0.** SemVer says "Major version zero (0.y.z) is for initial development. Anything MAY change at any time." By default a breaking change still takes release-please from 0.x to 1.0.0; its `bump-minor-pre-major` option (off unless you set it) keeps breaking changes as minor bumps while you're below 1.0.0. And note that npm's `^0.2.3` only accepts `0.2.x` - caret ranges are already cautious below 1.0.
+- **This site doesn't use it.** A website has no one pinning `^1.4` - visitors always get the latest page. Release automation pays off when other code depends on yours: libraries, CLIs, APIs, Helm charts.
+
+<Callout kind="real">
+By default the action uses the workflow's built-in `GITHUB_TOKEN`, and GitHub doesn't start new workflow runs for events that token creates - so your CI won't run on the release PR. The release-please-action README suggests a Personal Access Token stored as a secret if you need checks on it. You may also need to enable "Allow GitHub Actions to create and approve pull requests" under Settings > Actions > General.
+</Callout>
+
+<DoItForReal id="delivery-relauto-real" needs="terminal">
+
+In a GitHub repository of your own, add `.github/workflows/release-please.yml`, following the [release-please-action README](https://github.com/googleapis/release-please-action):
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+name: release-please
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: simple
+```
+
+Then push a conventional commit and watch the release PR appear:
+
+```bash
+git commit --allow-empty -m "feat: first release-please release"
+git push
+```
+
+Merge the PR it opens, then look at the new tag and GitHub release. For a monorepo or more control, the README covers the manifest files (`release-please-config.json` and `.release-please-manifest.json`).
+
+</DoItForReal>
