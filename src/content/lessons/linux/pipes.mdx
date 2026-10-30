@@ -1,0 +1,109 @@
+---
+title: Small tools, joined by pipes
+summary: Each tool does one thing to lines of text. Join them with | and they answer real questions - like which client is hammering your site with failing requests.
+minutes: 16
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: Bash Reference Manual - Pipelines
+    url: https://www.gnu.org/software/bash/manual/html_node/Pipelines.html
+  - title: pipe(7) - overview of pipes and FIFOs
+    url: https://man7.org/linux/man-pages/man7/pipe.7.html
+  - title: uniq(1) - filter adjacent matching lines
+    url: https://man7.org/linux/man-pages/man1/uniq.1.html
+  - title: sort(1) - the locale affects sort order; LC_ALL=C sorts by bytes
+    url: https://man7.org/linux/man-pages/man1/sort.1.html
+  - title: GNU coreutils - uniq invocation
+    url: https://www.gnu.org/software/coreutils/manual/html_node/uniq-invocation.html
+---
+
+Every program starts with three streams already open: **standard input** (where it reads), **standard output** (where it writes its results) and **standard error** (where it writes complaints). In a terminal, input is your keyboard and both outputs are your screen.
+
+The pipe, `|`, rewires that. In `a | b`, everything `a` writes to standard output becomes `b`'s standard input. Neither program knows; each just reads and writes lines. So tools that each do one small job - keep matching lines, cut out a column, sort, count - combine into answers none of them could give alone.
+
+<Diagram
+  id="linux-a-pipeline"
+  title="Who failed most? One line, five tools"
+  desc="access.log flows into grep, which keeps only lines ending in 500. cut keeps the first column, the client address. sort puts identical addresses next to each other, uniq -c collapses each run into a count, and sort -rn puts the biggest count first. head -1 keeps the top line, and > saves it to noisy.txt. Error messages go to the terminal, not down the pipe."
+  nodes={[
+    { id: 'grep', label: "grep ' 500$'", sub: 'keep failures', x: 0, y: 0, kind: 'info' },
+    { id: 'cut', label: 'cut -f 1', sub: 'keep the address', x: 1, y: 0 },
+    { id: 'sort', label: 'sort', sub: 'line twins up', x: 2, y: 0 },
+    { id: 'uniq', label: 'uniq -c', sub: 'count each run', x: 3, y: 0 },
+    { id: 'rank', label: 'sort -rn', sub: 'biggest first', x: 3, y: 1 },
+    { id: 'head', label: 'head -1', sub: 'keep the top', x: 2, y: 1 },
+    { id: 'file', label: 'noisy.txt', sub: '> saves it', x: 1, y: 1, kind: 'ok' },
+    { id: 'tty', label: 'your terminal', sub: 'standard error', x: 0, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'grep', to: 'cut', label: '|' },
+    { from: 'cut', to: 'sort', label: '|' },
+    { from: 'sort', to: 'uniq', label: '|' },
+    { from: 'uniq', to: 'rank', label: '|' },
+    { from: 'rank', to: 'head', label: '|' },
+    { from: 'head', to: 'file', label: '>' },
+    { from: 'grep', to: 'tty', label: 'errors', dashed: true },
+  ]}
+  steps={[
+    { caption: 'grep reads the log and writes out only the lines that end in 500.', show: ['grep'], focus: ['grep'] },
+    { caption: 'Each | hands one tool\'s output to the next tool\'s input. cut keeps the first column: the client\'s address.', show: ['cut', 'grep->cut'], focus: ['cut'] },
+    { caption: 'uniq only merges identical lines that sit next to each other - so sort goes first and lines the twins up.', show: ['sort', 'uniq', 'cut->sort', 'sort->uniq'], focus: ['sort', 'uniq'] },
+    { caption: 'sort -rn ranks the counts biggest first, head -1 keeps the top line, and > saves it to a file instead of the screen.', show: ['rank', 'head', 'file', 'uniq->rank', 'rank->head', 'head->file'], focus: ['file'] },
+    { caption: 'Error messages travel on standard error, which a pipe does not carry. They still reach your screen, so a failing step cannot hide.', show: ['tty', 'grep->tty'], focus: ['tty', 'grep->tty'] },
+  ]}
+/>
+
+## Find the noisy client
+
+Your shop's access log has one line per request: the client's address first, the status code last. Something is failing a lot. Find out who.
+
+<ShellPlayground mission="linux-pipes" title="Twenty-eight requests" />
+
+<Quiz
+  id="linux-pipes-1"
+  q="Why does the pipeline sort before uniq -c?"
+  options={["uniq only collapses identical lines that are next to each other", "sort makes uniq faster but the result is the same", "uniq -c only works on numbers"]}
+  answer={0}
+  explain="uniq compares each line with the one before it. Unsorted, the same address appears in several separate runs and gets counted several times, in pieces. Sorting first makes every copy adjacent."
+/>
+
+## Redirection: where the output goes
+
+Pipes connect programs. **Redirection** connects a program to a file:
+
+- `> file` writes output to a file, **replacing** what was there.
+- `>> file` **appends** to the end.
+- `< file` feeds a file in as input.
+- `2> file` sends standard error to a file. `2> /dev/null` throws errors away.
+
+<Callout kind="trap" title="cat notes.txt > notes.txt empties the file">
+The shell sets up `>` before the command starts, and `>` begins by truncating the file to nothing. By the time `cat` opens `notes.txt` to read it, it's already empty. Write to a new file and rename it, or append with `>>`.
+</Callout>
+
+<Quiz
+  id="linux-pipes-2"
+  q="grep pattern missing.txt | wc -l prints 0, plus 'grep: missing.txt: No such file or directory' on screen. Why did the error not get counted?"
+  options={["wc ignores lines that start with grep:", "Errors go to standard error, and a pipe only carries standard output", "The error was printed after wc had already finished"]}
+  answer={1}
+  explain="A pipe connects standard output to standard input and nothing else. The error went to standard error, which still points at your terminal - so you see it, and wc never does."
+/>
+
+<Callout kind="real">
+Real `sort` and `ls` order text by your **locale**, so `B` may come before or after `a` depending on your settings. The sandbox orders by raw bytes, like `LC_ALL=C sort`. Its text tools are checked against GNU coreutils on every change, and the counts and spacing you see here (`uniq -c` pads its numbers to seven characters) are the real ones.
+</Callout>
+
+<DoItForReal id="linux-pipes-real" needs="terminal" xp={20}>
+
+Your own shell keeps a history. Ask it which commands you use most:
+
+```bash
+history | cut -c 8- | sort | uniq -c | sort -rn | head
+```
+
+Then the classic "which files are biggest here?":
+
+```bash
+du -a . 2>/dev/null | sort -rn | head -5
+```
+
+</DoItForReal>

@@ -1,0 +1,119 @@
+---
+title: Processes, signals and exit codes
+summary: Every running program is a process with a number. Ask one to stop, force one that won't, and learn to read the exit code it leaves behind - the same 137 you'll meet in Kubernetes.
+minutes: 16
+xp: 35
+tiers: [browser, machine]
+sources:
+  - title: signal(7) - overview of signals
+    url: https://man7.org/linux/man-pages/man7/signal.7.html
+  - title: kill(1) - send a signal to a process
+    url: https://man7.org/linux/man-pages/man1/kill.1.html
+  - title: Bash Reference Manual - Exit Status
+    url: https://www.gnu.org/software/bash/manual/html_node/Exit-Status.html
+  - title: Kubernetes docs - Pod lifecycle, termination of Pods
+    url: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
+---
+
+A program on disk is just a file. Start it and you get a **process**: a running copy with its own number, the **PID**, and an owner. Your shell is a process. So is every command you type, for as long as it runs. `ps` lists them.
+
+Processes don't get told what to do by being edited. They get sent **signals**: small numbered messages, delivered by the kernel. Four matter most:
+
+| Signal | Number | Meaning | Can the program ignore it? |
+|---|---|---|---|
+| `SIGTERM` | 15 | "Please stop." What `kill` sends by default. | Yes - and good programs catch it, save their work and exit |
+| `SIGINT` | 2 | What Ctrl+C sends to the program in front of you. | Yes |
+| `SIGHUP` | 1 | "Your terminal went away." | Yes |
+| `SIGKILL` | 9 | Not a message to the program at all. The kernel ends it. | **No.** It can't be caught, blocked or ignored |
+
+<Diagram
+  id="linux-two-ways-to-stop"
+  title="Asking versus forcing"
+  desc="kill -TERM delivers a signal to the process itself, which can run its own handler, save its work and exit with status 0. kill -KILL goes to the kernel, which removes the process without running any of its code; the shell then reports exit status 137, which is 128 plus 9."
+  nodes={[
+    { id: 'term', label: 'kill -TERM', sub: 'the polite default', x: 0, y: 0, kind: 'info' },
+    { id: 'proc', label: 'the process', sub: 'runs its handler', x: 1, y: 0 },
+    { id: 'clean', label: 'saved, exited', sub: 'exit 0', x: 2, y: 0, kind: 'ok' },
+    { id: 'kill', label: 'kill -KILL', sub: 'kill -9', x: 0, y: 1, kind: 'warn' },
+    { id: 'kernel', label: 'the kernel', sub: 'no handler runs', x: 1, y: 1 },
+    { id: 'gone', label: 'gone mid-write', sub: 'exit 137 = 128 + 9', x: 2, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'term', to: 'proc', label: 'signal 15' },
+    { from: 'proc', to: 'clean', label: 'cleans up' },
+    { from: 'kill', to: 'kernel', label: 'signal 9' },
+    { from: 'kernel', to: 'gone', label: 'ends it' },
+  ]}
+  steps={[
+    { caption: 'kill with no options sends SIGTERM: a request, delivered to the process itself.', show: ['term', 'proc', 'term->proc'], focus: ['proc'] },
+    { caption: 'A well-written program catches it, finishes or saves what it was doing, and exits cleanly.', show: ['clean', 'proc->clean'], focus: ['clean'] },
+    { caption: 'kill -9 sends SIGKILL. The process is never told: the kernel removes it, and none of its code runs again.', show: ['kill', 'kernel', 'kill->kernel'], focus: ['kernel'] },
+    { caption: 'Whatever it was writing stays half-written. Your shell reports 137: 128 plus the signal number, 9.', show: ['gone', 'kernel->gone'], focus: ['gone'] },
+  ]}
+/>
+
+## Exit codes: the number every process leaves behind
+
+When a process ends it leaves an **exit status**, and your shell keeps the last one in `$?`. Zero means success. Anything else is some kind of failure, and a few values are worth knowing by sight:
+
+- **127**: command not found. **126**: found, but not allowed to run.
+- **128 + N**: killed by signal N. So **143** is SIGTERM (128 + 15), **130** is SIGINT (Ctrl+C) and **137** is SIGKILL.
+
+## Stop two programs
+
+Two processes are running on this machine. `orders` is holding three orders it hasn't saved yet. `stuck` was written to ignore polite requests. The process table on the right updates as you go.
+
+<ShellPlayground mission="linux-signals" title="Two ways to stop a program" procs />
+
+<Callout kind="trap" title="kill -9 is not the first thing to try">
+SIGKILL always works, which is exactly why it is tempting and exactly why it is dangerous. The program gets no chance to finish a write, release a lock, delete its temporary files or tell its clients it is going. Send SIGTERM, give it a moment, and force it only if it is still there.
+</Callout>
+
+<Quiz
+  id="linux-signals-1"
+  q="A process was ended and your shell shows exit status 137. What does that tell you?"
+  options={["The program returned the error code 137 itself", "It was killed by signal 9, SIGKILL: 128 + 9", "It exited normally after 137 seconds"]}
+  answer={1}
+  explain="Bash reports a process killed by signal N as 128 + N. 137 means SIGKILL: something ended it from outside, and the program had no say."
+/>
+
+## The same numbers in Kubernetes
+
+A container is a process too, and Kubernetes stops one the way you just did. To shut a pod down, the kubelet has the container runtime send **SIGTERM** to process 1 in each container, then waits a grace period - **30 seconds** unless the pod says otherwise. Anything still running after that gets **SIGKILL**.
+
+So when [the restarts lesson](/learn/kubernetes/restarts/) shows a container with exit code 137, you now know what happened, if not yet why. Something sent signal 9: the kernel's out-of-memory killer, or Kubernetes itself after the process ignored SIGTERM or ran out of grace period. Exit code 143 means it received SIGTERM and did not handle it.
+
+<Quiz
+  id="linux-signals-2"
+  q="Your app needs 45 seconds to finish its in-flight work after SIGTERM, and runs with the default settings in Kubernetes. What happens on every deploy?"
+  options={["Kubernetes waits for it, however long it takes", "After 30 seconds it gets SIGKILL, mid-work, and exits 137", "Kubernetes sends SIGKILL first and SIGTERM second"]}
+  answer={1}
+  explain="The default grace period is 30 seconds. After that the kubelet sends SIGKILL, so the last 15 seconds of work are lost on every rollout. Either finish faster after SIGTERM, or raise terminationGracePeriodSeconds."
+/>
+
+<Callout kind="real">
+The sandbox's processes are simulated: time doesn't pass, so `sleep 300 &` runs until you stop it, and `wait` on a running job tells you so instead of hanging. Real `ps` shows more columns (CPU, memory, start time), and a real interactive shell reports a finished job at the next prompt.
+</Callout>
+
+<DoItForReal id="linux-signals-real" needs="terminal" xp={20}>
+
+Watch the numbers for yourself. In bash or zsh:
+
+```bash
+sleep 300 &
+kill %1          # SIGTERM
+wait %1; echo $?  # 143
+
+sleep 300 &
+kill -9 %1       # SIGKILL
+wait %1; echo $?  # 137
+```
+
+Then write a program that catches SIGTERM. `trap` runs a command when a signal arrives:
+
+```bash
+bash -c 'trap "echo saving...; exit 0" TERM; while true; do sleep 1; done' &
+kill %1   # prints "saving..." and exits 0
+```
+
+</DoItForReal>

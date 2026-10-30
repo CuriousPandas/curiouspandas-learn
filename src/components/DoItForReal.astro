@@ -2,8 +2,11 @@
 // The bridge from the sandbox to TemplateMechanics/tilt. The badge is
 // self-reported and says so: the site cannot see your machine and does not
 // want to. Faking it costs nobody anything except the learning.
-interface Props { id: string; lab?: string; profile?: string; xp?: number }
-const { id, lab, profile = 'minimal', xp = 50 } = Astro.props;
+// needs="terminal": the exercise needs only a shell on the learner's own
+// computer. Without it, every box told Linux learners they needed Docker, kind
+// and Tilt plus 15 GB of disk to run ls.
+interface Props { id: string; lab?: string; profile?: string; xp?: number; needs?: 'tilt' | 'terminal' }
+const { id, lab, profile = 'minimal', xp = 50, needs = 'tilt' } = Astro.props;
 const labUrl = lab ? `https://github.com/TemplateMechanics/tilt/tree/main/labs/${lab}` : 'https://github.com/TemplateMechanics/tilt';
 // Our setup lesson once it is written; the platform's own guide until then.
 const { curriculum } = await import('../lib/curriculum.ts');
@@ -12,12 +15,16 @@ const setupUrl = setupReady ? '/learn/platform/bring-it-home/' : 'https://github
 ---
 <section class="real card" data-real={id} data-xp={xp}>
   <div class="r-head"><span class="eyebrow">Do it for real · your machine</span><span class="pill gold">+{xp} XP bonus</span></div>
-  <p>Everything above ran in your browser. Now do it on a real cluster with
-    {lab ? <> <a href={labUrl}>tilt lab <code>{lab}</code></a> (profile <code>{profile}</code>)</> : <a href={labUrl}>the tilt platform</a>}.
-    You need Docker, kind and Tilt, about 15 GB of free disk and 8 GB of spare RAM. <a href={setupUrl}>Setup guide</a> · <a href="/machine/">Can my machine run it?</a></p>
+  {needs === 'terminal' ? (
+    <p>Everything above ran in your browser. Now try it in a real terminal: any Linux machine, a Mac's Terminal app, or Windows with <a href="https://learn.microsoft.com/windows/wsl/install">WSL</a>. Nothing to install beyond that.</p>
+  ) : (
+    <p>Everything above ran in your browser. Now do it on a real cluster with
+      {lab ? <> <a href={labUrl}>tilt lab <code>{lab}</code></a> (profile <code>{profile}</code>)</> : <a href={labUrl}>the tilt platform</a>}.
+      You need Docker, kind and Tilt, about 15 GB of free disk and 8 GB of spare RAM. <a href={setupUrl}>Setup guide</a> · <a href="/machine/">Can my machine run it?</a></p>
+  )}
   <slot />
   <div class="r-foot">
-    <button class="btn small" type="button" data-claim>I passed the check on my machine</button>
+    <button class="btn small" type="button" data-claim>{needs === 'terminal' ? 'I tried it on my machine' : 'I passed the check on my machine'}</button>
     <span class="muted small">Self-reported. We can't see your machine, and we don't want to. This is a bonus, never required.</span>
   </div>
 </section>

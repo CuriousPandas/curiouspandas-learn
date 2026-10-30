@@ -1,0 +1,116 @@
+---
+import '../styles/widgets.css';
+// procs: show the process table beside the terminal (the signals lesson).
+interface Props { mission?: string; title?: string; procs?: boolean }
+const { mission, title = 'Shell playground', procs = false } = Astro.props;
+---
+<div class="widget card shell-pg" data-shell-pg data-mission={mission ?? ''} data-procs={procs ? '1' : ''}>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info">a toy Linux in your browser</span>
+    <span class="spacer"></span>
+    <button class="btn small" type="button" data-reset>Start over</button>
+  </div>
+  <div class="sp-grid">
+    <div class="sp-left">
+      <div data-term></div>
+    </div>
+    <div class="sp-right">
+      <div data-mission-panel hidden></div>
+      <div class="sp-box">
+        <div class="eyebrow">You are here</div>
+        <p class="sp-where" data-where></p>
+        <ul class="sp-files" data-files></ul>
+      </div>
+      <div class="sp-box" data-procs-box hidden>
+        <div class="eyebrow">Processes</div>
+        <ul class="sp-procs" data-proc-list></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { LINUX_MISSIONS, world, type LinuxState } from '../lib/shell/missions.ts';
+  import { modeString, canAccess, R } from '../lib/shell/fs.ts';
+  import { mountTerminal, mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-shell-pg]')) {
+    const mission = LINUX_MISSIONS[root.dataset.mission ?? ''];
+    let state: LinuxState;
+    const fresh = () => { state = mission ? mission.setup() : { sh: world() }; };
+    fresh();
+    let refreshMission = () => {};
+    const where = root.querySelector<HTMLElement>('[data-where]')!;
+    const files = root.querySelector<HTMLElement>('[data-files]')!;
+    const procBox = root.querySelector<HTMLElement>('[data-procs-box]')!;
+    const procList = root.querySelector<HTMLElement>('[data-proc-list]')!;
+    procBox.hidden = !root.dataset.procs;
+
+    const draw = () => {
+      const sh = state.sh;
+      const shown = sh.cwd.startsWith(sh.home) ? '~' + sh.cwd.slice(sh.home.length) : sh.cwd;
+      where.replaceChildren(el('code', {}, `${sh.user.name}@bamboo:${shown}$`));
+      const dir = sh.fs.lookup(sh.cwd, sh.user);
+      if (!dir || dir.type !== 'dir' || !canAccess(dir, sh.user, R)) {
+        files.replaceChildren(el('li', { class: 'muted' }, 'You cannot list this folder.'));
+      } else {
+        const entries = [...dir.children.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+        files.replaceChildren(...(entries.length ? entries.map(([name, n]) => {
+          const kind = n.type === 'dir' ? 'dir' : n.device ? 'dev' : (n.mode & 0o111) ? 'exec' : 'file';
+          return el('li', { class: `${kind}${name.startsWith('.') ? ' hidden-file' : ''}` },
+            el('code', { class: 'mode' }, modeString(n)), el('span', { class: 'who' }, n.owner),
+            el('span', { class: 'name' }, name + (n.type === 'dir' ? '/' : '')));
+        }) : [el('li', { class: 'muted' }, 'Empty folder.')]));
+      }
+      if (root.dataset.procs) {
+        const rows = [...sh.procs.values()];
+        procList.replaceChildren(...(rows.length ? rows.map((p) => {
+          const st = p.alive ? ['running', 'ok'] : p.status === 0 ? ['exited 0', 'info'] : [`ended ${p.status} (${p.killedBy ?? 'exit'})`, 'warn'];
+          return el('li', {}, el('code', {}, String(p.pid)), el('span', { class: 'name' }, p.cmd), el('span', { class: `pill ${st[1]}` }, st[0]));
+        }) : [el('li', { class: 'muted' }, 'No processes of yours yet. Try sleep 300 &')]));
+      }
+      refreshMission();
+    };
+
+    const term = mountTerminal(root.querySelector<HTMLElement>('[data-term]')!, {
+      prompt: '$',
+      greeting: mission
+        ? [`Mission: ${mission.title}. You are panda, on a machine called bamboo.`, 'Type help for every command this sandbox knows.']
+        : ['A small Linux in your browser: files, permissions, processes and pipes.', 'Type help for every command it knows. Try: ls -la'],
+      onCommand: (line) => { const out = state.sh.run(line); draw(); return out; },
+    });
+    if (mission) {
+      const panel = root.querySelector<HTMLElement>('[data-mission-panel]')!;
+      panel.hidden = false;
+      refreshMission = mountMission(panel, mission, () => state, (cmd) => term.type(cmd));
+    }
+    root.querySelector('[data-reset]')!.addEventListener('click', () => { fresh(); term.clear(); term.print([{ text: 'A fresh machine.', kind: 'dim' }]); draw(); });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the listing and process rows are
+     created by the script, and Astro's scoped styles never reach those. */
+  .shell-pg .sp-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .shell-pg .sp-grid { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
+  .shell-pg .sp-right { display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .shell-pg .sp-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); min-width: 0; }
+  .shell-pg .sp-where { margin: 4px 0 8px; font-size: 0.85rem; overflow-wrap: anywhere; }
+  .shell-pg .sp-where code { background: none; border: 0; padding: 0; color: var(--bamboo); font-weight: 700; }
+  .shell-pg .sp-files, .shell-pg .sp-procs { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font: 0.82rem/1.4 var(--mono); }
+  .shell-pg .sp-files li { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+  .shell-pg .sp-files .mode { background: none; border: 0; padding: 0; color: var(--ink-2); flex: none; }
+  .shell-pg .sp-files .who { color: var(--muted); flex: none; min-width: 3.5em; }
+  .shell-pg .sp-files .name { overflow-wrap: anywhere; color: var(--ink); }
+  .shell-pg .sp-files .dir .name { color: var(--sky); font-weight: 700; }
+  .shell-pg .sp-files .exec .name { color: var(--bamboo); font-weight: 700; }
+  .shell-pg .sp-files .dev .name { color: var(--sun-text); }
+  /* Hidden files are marked, not faded: fading took them below readable contrast. */
+  .shell-pg .sp-files .hidden-file .name { font-style: italic; }
+  .shell-pg .sp-procs li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .shell-pg .sp-procs code { background: none; border: 0; padding: 0; color: var(--ink-2); min-width: 3em; }
+  .shell-pg .sp-procs .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .shell-pg .sp-procs .pill { font-family: var(--sans); white-space: normal; }
+</style>

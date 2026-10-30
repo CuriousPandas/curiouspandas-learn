@@ -588,6 +588,89 @@ await scenario('jwt-forge', '/learn/security/identity/', async (page) => {
   await expectText(page, `${r} .m-debrief`, /someone else's app/);
 });
 
+// ---- linux (writer L)
+// Each Linux mission played the way a learner would, with the tempting wrong
+// fix tried first where there is one, and the side panels checked as well as
+// the terminal: a listing or process table that never redraws would pass a
+// terminal-only check.
+
+await scenario('linux-paths', '/learn/linux/files-and-paths/', async (page) => {
+  const r = '[data-shell-pg]';
+  await type(page, r, 'pwd');
+  await expectText(page, `${r} .term-out`, /\/home\/panda/);
+  await type(page, r, 'ls -a');
+  await expectText(page, `${r} .term-out`, /\.bashrc/);
+  await type(page, r, 'cat /etc/hostname');
+  await type(page, r, 'cd projects/bamboo');
+  await expectText(page, `${r} [data-where]`, /panda@bamboo:~\/projects\/bamboo\$/);
+  await type(page, r, 'cp README.md README.bak');
+  await expectText(page, `${r} [data-files]`, /README\.bak/);
+  await type(page, r, 'echo "gone" > /dev/null');
+  await type(page, r, 'cat /dev/null');
+  await expectText(page, `${r} .m-debrief`, /\/dev\/null took your text/);
+  // Script-created rows must be styled: a directory name is drawn in its own colour.
+  await type(page, r, 'cd ~');
+  const dirColor = await page.locator(`${r} [data-files] li.dir .name`).first().evaluate((e) => getComputedStyle(e).color);
+  const ink = await page.evaluate(() => getComputedStyle(document.body).color);
+  if (dirColor === ink) throw new Error('folder names are unstyled - widget styles are not applying');
+});
+
+await scenario('linux-signals', '/learn/linux/processes-and-signals/', async (page) => {
+  const r = '[data-shell-pg]';
+  await type(page, r, 'ps -e');
+  await expectText(page, `${r} .term-out`, /orders --listen :8080/);
+  await type(page, r, 'kill 311');
+  await expectText(page, `${r} .term-out`, /saved 3 orders/);
+  await expectText(page, `${r} [data-proc-list]`, /orders --listen :8080\s*exited 0/);
+  await type(page, r, 'kill 312');
+  await type(page, r, 'ps -e');
+  await expectText(page, `${r} [data-proc-list]`, /stuck --ignore-term\s*running/);
+  await type(page, r, 'kill -9 312');
+  await expectText(page, `${r} [data-proc-list]`, /stuck --ignore-term\s*ended 137 \(KILL\)/);
+  await type(page, r, 'sleep 300 &');
+  await type(page, r, 'kill %1');
+  await expectText(page, `${r} .term-out`, /\[1\]\+\s+Terminated\s+sleep 300/);
+  await type(page, r, 'wait %1');
+  await type(page, r, 'echo $?');
+  await expectText(page, `${r} .term-out`, /143\s*$/);
+  await expectText(page, `${r} .m-debrief`, /128 \+ 15/);
+});
+
+await scenario('linux-perms', '/learn/linux/permissions/', async (page) => {
+  const r = '[data-shell-pg]';
+  await type(page, r, './deploy.sh');
+  await expectText(page, `${r} .term-out`, /bash: \.\/deploy\.sh: Permission denied/);
+  await type(page, r, 'ls -l deploy.sh');
+  await expectText(page, `${r} .term-out`, /-rw-r--r-- 1 panda panda/);
+  // The wrong fix: it runs, but anyone could now rewrite it. It must not pass.
+  await type(page, r, 'chmod 777 deploy.sh');
+  await type(page, r, './deploy.sh');
+  await expectText(page, `${r} .term-out`, /deploying bamboo v2/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 2) throw new Error('chmod 777 ticked the least-privilege step');
+  await type(page, r, 'chmod 755 deploy.sh');
+  await type(page, r, './deploy.sh');
+  await expectText(page, `${r} [data-files]`, /-rwxr-xr-x\s*panda\s*deploy\.sh/);
+  await type(page, r, 'cat /etc/shadow');
+  await type(page, r, 'chmod 644 /etc/shadow');
+  await expectText(page, `${r} .term-out`, /Operation not permitted/);
+  await expectText(page, `${r} .m-debrief`, /chmod 777 would also have made it run/);
+});
+
+await scenario('linux-pipes', '/learn/linux/pipes/', async (page) => {
+  const r = '[data-shell-pg]';
+  await type(page, r, 'wc -l access.log');
+  await expectText(page, `${r} .term-out`, /28 access\.log/);
+  await type(page, r, "grep ' 500$' access.log");
+  // The tempting answer counts every request and names the wrong client.
+  await type(page, r, "cut -d ' ' -f 1 access.log | sort | uniq -c | sort -rn | head -1");
+  await expectText(page, `${r} .term-out`, /12 10\.0\.0\.8\s*$/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 2) throw new Error('counting every request ticked the failures step');
+  await type(page, r, "grep ' 500$' access.log | cut -d ' ' -f 1 | sort | uniq -c | sort -rn | head -1 > noisy.txt");
+  await type(page, r, "grep ' 500$' access.log | cut -d ' ' -f 1 | sort | uniq -c | sort -rn");
+  await expectText(page, `${r} [data-files]`, /noisy\.txt/);
+  await expectText(page, `${r} .m-debrief`, /never failed once/);
+});
+
 await browser.close();
 server?.kill();
 
