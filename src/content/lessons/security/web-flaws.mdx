@@ -1,0 +1,103 @@
+---
+title: When input becomes code
+summary: Cross-site scripting and SQL injection are one bug in two costumes - text from a user crossing over into code. Break a toy comment box and a toy search, then fix both without changing a character of the input.
+minutes: 15
+xp: 40
+tiers: [browser]
+sources:
+  - title: OWASP Cross Site Scripting Prevention Cheat Sheet
+    url: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
+  - title: OWASP SQL Injection Prevention Cheat Sheet
+    url: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+  - title: MDN - Element.innerHTML, security considerations
+    url: https://developer.mozilla.org/en-US/docs/Web/API/Element/innerHTML#security_considerations
+  - title: MDN - DOMParser
+    url: https://developer.mozilla.org/en-US/docs/Web/API/DOMParser
+---
+
+A web page is code with gaps in it: "Hello, ___". A database query is too: "find the panda named ___". The gaps are for data. The bug in this lesson is what happens when the code is built by **gluing text together**, so whatever fills a gap gets read with the same eyes as the code around it. If the person filling the gap types something that looks like code, it *becomes* code.
+
+That one mistake has two famous names. In a browser it's **cross-site scripting** (XSS): a visitor's comment becomes JavaScript running in everyone else's page. In a database it's **SQL injection**: a search box rewrites the query it was meant to fill in.
+
+<Diagram
+  id="input-becomes-code"
+  title="Glued in, or passed as data"
+  desc="User input glued into code text is read by the browser or database parser as part of the code, so it can run. The same input passed separately as a value is never parsed as code and stays data."
+  nodes={[
+    { id: 'input', label: 'user input', sub: 'a comment, a name', x: 0, y: 0, kind: 'warn' },
+    { id: 'glue', label: 'glued into code', sub: 'one string', x: 1, y: 0, kind: 'bad' },
+    { id: 'parser', label: 'parser reads all', sub: 'browser or database', x: 2, y: 0 },
+    { id: 'runs', label: 'input runs', sub: 'as HTML or SQL', x: 3, y: 0, kind: 'bad' },
+    { id: 'sep', label: 'sent separately', sub: 'a value, not code', x: 1, y: 1, kind: 'ok' },
+    { id: 'data', label: 'stays data', sub: 'shown or matched', x: 3, y: 1, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'input', to: 'glue' },
+    { from: 'glue', to: 'parser' },
+    { from: 'parser', to: 'runs' },
+    { from: 'input', to: 'sep' },
+    { from: 'sep', to: 'data', label: 'never parsed' },
+  ]}
+  steps={[
+    { caption: 'Something arrives from outside. It might be ordinary text. It might be text shaped like code.', show: ['input'], focus: ['input'] },
+    { caption: 'The bug: it is pasted into the page or query as one long string. Nothing marks where the code ends and the input begins.', show: ['glue', 'parser', 'input->glue', 'glue->parser'], focus: ['glue'] },
+    { caption: 'The parser has no way to tell the two apart, so input shaped like code is run as code.', show: ['runs', 'parser->runs'], focus: ['runs'] },
+    { caption: 'The fix: keep the input in its own lane - text for the page, a parameter for the database. It is never parsed, so it can only ever be data.', show: ['sep', 'data', 'input->sep', 'sep->data'], focus: ['sep', 'data', 'sep->data'] },
+  ]}
+/>
+
+## A comment that runs
+
+The comment box below shows what a browser builds from a comment, without ever running it: the page parses the comment in an inert document where scripts are switched off and nothing loads. Pick the image with a handler, then switch between the two ways a page can put a comment on screen.
+
+<XssLab mission="xss-lab" />
+
+`innerHTML` hands the text to the browser's HTML parser. MDN's security notes are precise about what follows: a `<script>` tag inserted this way doesn't run, but that's little comfort, because an `<img>` whose `onerror` attribute holds code *does*. The same comment glued into a page on the server is worse still: there, the `<script>` runs too.
+
+`textContent` never parses anything. Every character, angle brackets included, is shown as a character. The comment looks exactly as it was typed and can't do anything.
+
+<Callout kind="trap" title="Filtering out the bad words">
+"Just strip `<script>`" fails, and the lab shows why: the dangerous part was an attribute on an image. Attackers have endless spellings. Block-lists lose. Putting text where only text can go wins.
+</Callout>
+
+OWASP's advice, in order: let your framework's automatic escaping do its job (most templating systems escape by default), use safe sinks like `textContent` instead of `innerHTML`, and add a Content Security Policy as a second layer. It's useful, but too easy to get wrong to be the main defence. Every framework also has an escape hatch, like React's `dangerouslySetInnerHTML`, and that's where these bugs live now.
+
+<Quiz
+  id="sec-web-1"
+  q="A page sets element.innerHTML = comment. A visitor's comment is <img src=x onerror=steal()>. What happens?"
+  options={["Nothing: innerHTML doesn't run scripts", "The image fails to load, its onerror handler runs, and steal() executes in every reader's page", "The browser shows the text literally"]}
+  answer={1}
+  explain="innerHTML skips <script> elements, but event handler attributes still fire. That's why the fix is textContent (or proper escaping), not hunting for <script>."
+/>
+
+## A search that answers a different question
+
+The keeper search builds its query the quick way: glue the name between two quotes. Try an ordinary name, then each of the others.
+
+<SqlLab mission="sql-lab" />
+
+`' OR '1'='1` closes the page's opening quote early, adds a condition that is always true, and leaves a quote for the page's closing quote to pair with. The database then answers a different question: every keeper, every role. `Lin' --` uses `--`, SQL's comment marker, to switch off the rest of the query.
+
+Then there's `O'Neil`, who is a real visitor, not an attacker. Their apostrophe breaks the glued query too. Injection isn't only a security hole. It's a bug that real names trigger by accident.
+
+Switch to **sends the name as a parameter**. The query text is now fixed, with a `?` where the value goes, and the value travels separately. OWASP's primary defence is exactly this: prepared statements with parameterised queries, which "treat bound values as data rather than SQL syntax". The attack string becomes a very strange name that matches nobody, and `O'Neil` just works.
+
+<Callout kind="real">
+Every mainstream database library supports parameters. The placeholder differs (`?`, `$1`, `:name`), and the rule doesn't: the query is a fixed string in your code, and anything from outside goes in as a parameter. Building a query from pieces of user input is the warning sign, even when it's tucked inside a helper.
+</Callout>
+
+<Quiz
+  id="sec-web-2"
+  q={`A search query is built as "... WHERE name = '" + name + "'". Which fix actually closes the hole?`}
+  options={["Reject names containing the word OR", "Escape quotes by hand before gluing", "Use a parameterised query: WHERE name = ?, with the name passed as a parameter"]}
+  answer={2}
+  explain="Block-lists miss spellings, and hand-escaping is easy to get subtly wrong. A parameter is never parsed as SQL, so there's nothing to get wrong."
+/>
+
+<Quiz
+  id="sec-web-3"
+  q="What do XSS and SQL injection have in common?"
+  options={["Both only affect old browsers", "In both, outside text is glued into code, so a parser reads it as code", "Both are prevented by HTTPS"]}
+  answer={1}
+  explain="Same root cause, two parsers. HTTPS protects text on its way to you. It does nothing about what your own code does with that text once it arrives."
+/>

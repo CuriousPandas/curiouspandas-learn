@@ -1,0 +1,164 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+// steal() does not exist anywhere. The point is where the text ends up, not
+// what it would do.
+const PRESETS: [string, string][] = [
+  ['A normal comment', 'Lovely pandas today!'],
+  ['Bold, on purpose', 'I <b>love</b> bamboo'],
+  ['A script tag', '<script>steal(document.cookie)</script>'],
+  ['An image with a handler', '<img src="x" onerror="steal(document.cookie)">'],
+  ['A link that runs code', '<a href="javascript:steal()">more pandas</a>'],
+];
+---
+<div class="widget card xss-lab" data-xss-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>A comment box</strong>
+    <span class="pill info">parsed, never run</span>
+  </div>
+  <div class="controls">
+    {PRESETS.map(([label, text]) => <button class="btn small" type="button" data-preset={text}>{label}</button>)}
+  </div>
+  <textarea rows="2" spellcheck="false" aria-label="Comment" data-input>{PRESETS[3][1]}</textarea>
+  <div class="controls">
+    <label>The page puts the comment in
+      <select data-mode>
+        <option value="html">as HTML (innerHTML)</option>
+        <option value="text">as text (textContent)</option>
+      </select>
+    </label>
+  </div>
+  <div class="xl-grid">
+    <div>
+      <span class="eyebrow">What readers see</span>
+      <div class="xl-preview" data-preview></div>
+    </div>
+    <div>
+      <span class="eyebrow">What the browser built from it</span>
+      <ol class="xl-tree" data-tree></ol>
+    </div>
+  </div>
+  <div class="xl-verdict" data-verdict aria-live="polite"></div>
+  <div class="xl-goals" data-goals hidden>
+    <span class="eyebrow">Goals · +40 XP</span>
+    <ul>
+      <li data-goal="run">Make a comment turn into code</li>
+      <li data-goal="defuse">Defuse that same comment without changing a character of it</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { dangersOf, HARMLESS, asText, type MNode } from '../lib/websec/markup.ts';
+  import { award } from '../lib/ui.ts';
+
+  // DOMParser builds a document with scripting disabled and nothing fetched,
+  // so even <img onerror> stays a description here, never an event.
+  const parse = (input: string): MNode[] => {
+    const body = new DOMParser().parseFromString(`<!doctype html><body>${input}`, 'text/html').body;
+    const conv = (n: Node): MNode | null => {
+      if (n.nodeType === Node.TEXT_NODE) return n.textContent ? { text: n.textContent } : null;
+      if (n.nodeType !== Node.ELEMENT_NODE) return null;
+      const e = n as Element;
+      return { tag: e.tagName.toLowerCase(), attrs: [...e.attributes].map((a) => [a.name, a.value]), children: [...e.childNodes].map(conv).filter((x): x is MNode => !!x) };
+    };
+    return [...body.childNodes].map(conv).filter((x): x is MNode => !!x);
+  };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-xss-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const input = q<HTMLTextAreaElement>('[data-input]'), mode = q<HTMLSelectElement>('[data-mode]');
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    if (mission) q('[data-goals]').hidden = false;
+
+    const goal = (g: string) => {
+      seen.add(g);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 2) award('missions', mission, 40, 'Kept a comment from becoming code');
+    };
+
+    // The preview recreates only plain formatting. Anything that would run is
+    // drawn as a labelled box, so the page shows the danger without having it.
+    const preview = (nodes: MNode[], into: HTMLElement) => {
+      for (const n of nodes) {
+        if ('text' in n) { into.append(n.text); continue; }
+        const bad = dangersOf({ ...n, children: [] });
+        if (HARMLESS.has(n.tag) && !bad.length) {
+          const e = document.createElement(n.tag);
+          preview(n.children, e);
+          into.append(e);
+        } else {
+          const chip = document.createElement('span');
+          chip.className = `xl-chip${bad.length ? ' bad' : ''}`;
+          chip.textContent = bad.length ? `${bad[0].what} runs here` : `<${n.tag}>`;
+          into.append(chip);
+          preview(n.children.filter((c) => n.tag !== 'script' || !('text' in c)), into);
+        }
+      }
+    };
+
+    const tree = (nodes: MNode[], depth = 0): HTMLLIElement[] => nodes.flatMap((n) => {
+      const li = document.createElement('li');
+      li.style.paddingLeft = `${depth * 16}px`;
+      if ('text' in n) { li.textContent = `text "${n.text}"`; li.className = 'txt'; return [li]; }
+      const attrs = n.attrs.map(([k, v]) => ` ${k}="${v}"`).join('');
+      li.textContent = `<${n.tag}${attrs}>`;
+      if (dangersOf({ ...n, children: [] }).length) li.className = 'bad';
+      return [li, ...tree(n.children, depth + 1)];
+    });
+
+    const render = () => {
+      const asHtml = mode.value === 'html';
+      const parsed = parse(input.value);
+      const nodes = asHtml ? parsed : asText(input.value);
+      const p = q('[data-preview]');
+      p.replaceChildren();
+      preview(nodes, p);
+      q('[data-tree]').replaceChildren(...tree(nodes));
+      const dangers = nodes.flatMap(dangersOf);
+      const wouldBe = parsed.flatMap(dangersOf);
+      const v = q('[data-verdict]');
+      if (asHtml && dangers.length) {
+        v.className = 'xl-verdict bad';
+        v.replaceChildren(...dangers.map((d) => { const s = document.createElement('p'); s.append(Object.assign(document.createElement('code'), { textContent: d.what }), ` ${d.why}`); return s; }));
+        goal('run');
+      } else if (!asHtml && wouldBe.length) {
+        v.className = 'xl-verdict ok';
+        v.textContent = 'Defused. The same characters are on screen, but the browser never read them as tags - so nothing in them can run.';
+        goal('defuse');
+      } else {
+        v.className = 'xl-verdict';
+        v.textContent = asHtml ? 'Nothing here would run - this time. The page is still trusting the commenter to only send harmless HTML.' : 'Shown exactly as typed. Angle brackets are just characters.';
+      }
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) => b.addEventListener('click', () => { input.value = b.dataset.preset!; render(); }));
+    input.addEventListener('input', render);
+    mode.addEventListener('change', render);
+    render();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the preview, tree and verdict are
+     built by the script, and scoped styles never reach them. */
+  .xss-lab textarea { width: 100%; font: 14px/1.5 var(--mono); padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); margin: 8px 0; }
+  .xss-lab .xl-grid { display: grid; gap: 12px; margin-top: 8px; }
+  @media (min-width: 760px) { .xss-lab .xl-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .xss-lab .xl-preview { min-height: 3em; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow-wrap: anywhere; }
+  .xss-lab .xl-chip { display: inline-block; font: 600 0.8rem var(--mono); padding: 1px 8px; margin: 0 4px; border-radius: 6px; background: var(--bg-2); color: var(--ink-2); border: 1px dashed var(--line-2); }
+  .xss-lab .xl-chip.bad { background: var(--berry-soft); color: var(--berry); border: 1px solid var(--berry); }
+  .xss-lab .xl-tree { list-style: none; margin: 0; padding: 10px 12px; font: 0.82rem/1.6 var(--mono); background: var(--term-bg); color: var(--term-ink); border-radius: 10px; min-height: 3em; overflow-wrap: anywhere; }
+  .xss-lab .xl-tree .txt { color: var(--term-dim); }
+  .xss-lab .xl-tree .bad { color: var(--term-err); font-weight: 700; }
+  .xss-lab .xl-verdict { margin: 12px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-size: 0.93rem; }
+  .xss-lab .xl-verdict p { margin: 2px 0; }
+  .xss-lab .xl-verdict.bad { background: var(--berry-soft); }
+  .xss-lab .xl-verdict.ok { background: var(--bamboo-soft); }
+  .xss-lab .xl-goals { font-size: 0.92rem; }
+  .xss-lab .xl-goals ul { margin: 4px 0 0; padding-left: 20px; }
+  .xss-lab .xl-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .xss-lab .xl-goals li.done::marker { content: "✓ "; }
+</style>

@@ -124,6 +124,30 @@ test('a conflict writes the same markers as git, and the resolution commits iden
   w.done();
 });
 
+test('a deleted secret reads back out of history exactly as git prints it', () => {
+  // The secrets-in-git lesson rests on this: the sandbox must resolve HEAD~N
+  // and ^N the way git does, and `git show <rev>:<path>` must return the bytes
+  // git returns, or the lesson would be teaching its own invention.
+  const w = new Twin();
+  for (const s of [
+    { write: ['config.env', 'PORT=8080\n'] }, { write: ['README.md', '# Bamboo shop\n'] },
+    { git: ['add', '.'] }, { git: ['commit', '-m', 'start the shop'] },
+    { write: ['config.env', 'PORT=8080\nPAYMENT_KEY=panda_live_7Qx2EXAMPLE\n'] }, { git: ['commit', '-am', 'add payment key'] },
+    { write: ['config.env', 'PORT=8080\n'] }, { git: ['commit', '-am', 'remove key'] }, { check: 'after the fix' },
+  ] as Step[]) w.step(s);
+  for (const rev of ['HEAD~1', 'HEAD^', 'HEAD~2', 'HEAD^1', 'HEAD~1^', 'main~1', 'HEAD^0']) {
+    assert.equal(w.repo.resolve(rev), w.real(['rev-parse', rev]).trim(), `rev ${rev}`);
+  }
+  for (const spec of ['HEAD~1:config.env', 'HEAD:config.env', 'HEAD~2:README.md']) {
+    const sandbox = run(w.repo, `git show ${spec}`).map((l) => l.text).join('\n');
+    assert.equal(sandbox, w.real(['show', spec]).replace(/\n$/, ''), `git show ${spec}`);
+  }
+  assert.match(run(w.repo, 'git show HEAD~1:config.env').map((l) => l.text).join('\n'), /panda_live_7Qx2EXAMPLE/);
+  assert.throws(() => w.repo.resolve('HEAD~5'), /unknown revision/);
+  assert.match(run(w.repo, 'git show HEAD~2:missing.txt')[0].text, /does not exist in 'HEAD~2'/);
+  w.done();
+});
+
 test('hash-object agrees with git for text the learner types', () => {
   const w = new Twin();
   w.step({ write: ['note.txt', 'Curious pandas learn by breaking things.\n'] });

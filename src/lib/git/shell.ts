@@ -29,8 +29,8 @@ export function tokenize(input: string): string[] {
   return out;
 }
 
-const SUPPORTED = 'init status add rm commit log branch switch checkout merge diff restore cat-file hash-object';
-const NOT_HERE = new Set(['rebase', 'reset', 'stash', 'cherry-pick', 'push', 'pull', 'fetch', 'clone', 'remote', 'tag', 'revert', 'bisect', 'reflog', 'show']);
+const SUPPORTED = 'init status add rm commit log branch switch checkout merge diff restore show cat-file hash-object';
+const NOT_HERE = new Set(['rebase', 'reset', 'stash', 'cherry-pick', 'push', 'pull', 'fetch', 'clone', 'remote', 'tag', 'revert', 'bisect', 'reflog']);
 
 export const HELP = `Shell:  ls   cat <file>   echo "text" > <file>   echo "more" >> <file>
         touch <file>   rm <file>   clear   help
@@ -124,6 +124,7 @@ function git(repo: Repo, args: string[]): string {
     case 'merge': return repo.merge(rest);
     case 'diff': return repo.diff(rest.includes('--staged') || rest.includes('--cached'));
     case 'restore': return repo.restore(rest);
+    case 'show': return repo.show(rest);
     case 'cat-file': return repo.catFile(rest);
     case 'hash-object': {
       const p = rest.filter((a) => !a.startsWith('-'))[0];
