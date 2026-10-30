@@ -1,0 +1,73 @@
+---
+title: Launch and find your first users
+summary: A big launch can bring hundreds of sign-ups and almost no users. Go where your users already are, help the first ones by hand, and judge it by who is still around a month later.
+minutes: 14
+xp: 40
+tiers: [browser]
+sources:
+  - title: Paul Graham - Do Things that Don't Scale
+    url: https://paulgraham.com/ds.html
+  - title: Andreessen Horowitz - 16 Startup Metrics (on measuring customers and churn)
+    url: https://a16z.com/16-startup-metrics/
+---
+
+Launch day feels like the finish line. You post it somewhere big, the sign-ups roll in, and the number looks wonderful. A month later, most of those accounts were never used.
+
+That's the difference between a launch metric and a product metric. **Sign-ups** measure how good your launch post was. Whether people **set it up** and are **still using it weeks later** measures whether your product solves their problem.
+
+<Diagram
+  id="launch-funnel"
+  title="From visitor to user"
+  desc="Visitors arrive from wherever you launched. Some sign up. Fewer do the first useful thing, which is activation. Fewer still are using it weeks later, which is retention. Each step loses people, and the last step is the one that shows the product works."
+  nodes={[
+    { id: 'visit', label: 'visitors', sub: 'from your launch', x: 0, y: 0 },
+    { id: 'signup', label: 'sign-ups', sub: 'made an account', x: 1, y: 0, kind: 'warn' },
+    { id: 'active', label: 'activated', sub: 'set up a check', x: 2, y: 0, kind: 'info' },
+    { id: 'kept', label: 'retained', sub: 'active in week 4', x: 3, y: 0, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'visit', to: 'signup', label: 'some' },
+    { from: 'signup', to: 'active', label: 'fewer' },
+    { from: 'active', to: 'kept', label: 'fewer still' },
+  ]}
+  steps={[
+    { caption: 'A launch brings visitors. Where they come from decides who they are.', show: ['visit'], focus: ['visit'] },
+    { caption: 'Some sign up. This is the number launch posts celebrate - it costs a visitor ten seconds.', show: ['signup', 'visit->signup'], focus: ['signup'] },
+    { caption: 'Activation: they did the first useful thing. For outage alerts, that is setting up a check on their own shop.', show: ['active', 'signup->active'], focus: ['active'] },
+    { caption: 'Retention: still using it weeks later. This is the number that says the product works.', show: ['kept', 'active->kept'], focus: ['kept'] },
+  ]}
+/>
+
+## Go where your users already are
+
+A post on a big general tech site reaches a lot of people, and few of them run small online shops. A thread where shop owners already ask "why did my site go down?" reaches very few people, and almost all of them have the problem. Answering questions there honestly, and mentioning what you've built when it helps, brings fewer visitors and far better ones.
+
+## Do things that don't scale
+
+Paul Graham's essay of that name argues that at the start you should take extraordinary measures, both to acquire users and to make them happy. For this product, that could mean getting on a call with each new user and setting up their first check together. It takes half an hour per person. With 400 sign-ups that's impossible; with 45, it's the best use of your week.
+
+<TractionLab />
+
+<Callout kind="trap">
+The launch with the most sign-ups is the one people want to repeat. Judge it by the last column instead. A month of effort should go where people are still using the product, not where they briefly looked at it.
+</Callout>
+
+<Quiz
+  id="launch-first-1"
+  q="Launch A brought 400 sign-ups and 8 people active in week four. Launch B brought 45 sign-ups and 11. Which worked better?"
+  options={["A - nine times the sign-ups", "B - more people still using the product a month later", "They're the same; sign-ups even out over time"]}
+  answer={1}
+  explain="Week-four users are the ones the product actually helped. B found more of them from a much smaller, better-matched audience - and that audience is small enough to help by hand."
+/>
+
+## Measure what matters
+
+The a16z metrics post describes measuring **retention by cohort**: take each original group of customers and track what percentage of them is still active as the months go by. It adds that investors want to see engagement "ideally expressed as cohort retention". The habit to build early is the same question on a small scale: of the people who signed up in a given week, how many are still active four weeks later? That tells you more than a running total of sign-ups.
+
+<Quiz
+  id="launch-first-2"
+  q="Helping each new user set up by hand doubled activation. Why not do it forever?"
+  options={["It's against the rules", "It doesn't scale: at hundreds of sign-ups a week it takes more hours than you have - but early on it teaches you what to build into the product", "Activation doesn't matter"]}
+  answer={1}
+  explain="Doing it by hand is a phase. Each call shows you where people get stuck, which is exactly what to fix in the product so later users can get there on their own."
+/>

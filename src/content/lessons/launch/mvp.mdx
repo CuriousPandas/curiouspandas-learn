@@ -1,0 +1,83 @@
+---
+title: The smallest thing worth shipping
+summary: A minimum viable product isn't a small product - it's the fastest way to test your riskiest assumption. Cut a ten-week roadmap down to a one-day experiment that still answers the question that matters.
+minutes: 14
+xp: 40
+tiers: [browser]
+sources:
+  - title: Eric Ries - Minimum Viable Product, a guide (Startup Lessons Learned, 2009)
+    url: http://www.startuplessonslearned.com/2009/08/minimum-viable-product-guide.html
+  - title: Paul Graham - Do Things that Don't Scale
+    url: https://paulgraham.com/ds.html
+---
+
+You've found two people with a real problem. The tempting next step is to build the product properly: accounts, billing, a dashboard, an app. Weeks later you launch, and only then do you find out whether anyone wants it.
+
+Eric Ries, who popularised the term, defined a minimum viable product as "that version of a new product which allows a team to collect the maximum amount of validated learning about customers with the least effort." In the same post he warns that an MVP, despite the name, "is not about creating minimal products". It's about learning. The question is what you most need to learn.
+
+## Find the riskiest assumption
+
+Every idea rests on assumptions. For an app that alerts shops when their site goes down:
+
+- **Can we detect an outage?** Yes. Uptime checks are well understood. Low risk.
+- **Can we send an alert?** Yes. Email and SMS are solved problems. Low risk.
+- **Will shop owners pay to hear about outages quickly?** Nobody knows. This is the one that sinks the business if it's wrong.
+
+Build to test the risky one first. Everything that doesn't help answer it can wait.
+
+<Diagram
+  id="launch-riskiest-first"
+  title="Test the risk first"
+  desc="An idea rests on several assumptions. Rank them by how badly being wrong would hurt and how little you know. The riskiest becomes the subject of the smallest experiment that can test it, and the result tells you whether to build more."
+  nodes={[
+    { id: 'idea', label: 'the idea', sub: 'outage alerts', x: 0, y: 0, kind: 'info' },
+    { id: 'list', label: 'assumptions', sub: 'detect, alert, pay', x: 1, y: 0 },
+    { id: 'risk', label: 'riskiest one', sub: 'will they pay?', x: 2, y: 0, kind: 'warn' },
+    { id: 'test', label: 'smallest test', sub: 'by hand, this week', x: 2, y: 1, kind: 'ok' },
+    { id: 'learn', label: 'what you learn', sub: 'build more, or stop', x: 1, y: 1 },
+  ]}
+  edges={[
+    { from: 'idea', to: 'list', label: 'rests on' },
+    { from: 'list', to: 'risk', label: 'rank' },
+    { from: 'risk', to: 'test', label: 'design' },
+    { from: 'test', to: 'learn', label: 'run' },
+  ]}
+  steps={[
+    { caption: 'Write down what has to be true for the idea to work.', show: ['idea', 'list', 'idea->list'], focus: ['list'] },
+    { caption: 'Rank them. The riskiest is the one you know least about that would sink you if wrong - here, whether anyone pays.', show: ['risk', 'list->risk'], focus: ['risk'] },
+    { caption: 'Design the smallest experiment that tests that one assumption, and run it with real people.', show: ['test', 'risk->test'], focus: ['test'] },
+    { caption: 'The result decides what you build next - or saves you from building at all.', show: ['learn', 'test->learn'], focus: ['learn'] },
+  ]}
+/>
+
+## Do it by hand first
+
+You don't need software to find out if people will pay for alerts. You can check their sites with a script on your own laptop, text them yourself when something breaks, and send a payment link. It looks embarrassingly manual. It also gets you an answer this week instead of next quarter.
+
+Paul Graham's essay *Do Things that Don't Scale* makes the general case. Founders have to "recruit users manually" at the start, and with only a few users "you can sometimes get away with doing by hand things that you plan to automate later." The essay's point is that this lets you launch faster.
+
+<ScopeCutter />
+
+<Callout kind="trap">
+To hit a deadline, the first thing people cut is billing. It's the one feature you can't cut. Without asking for money you learn whether people like free alerts, which is a different, much easier question. A payment link you send by hand costs almost nothing and keeps the real question in the test.
+</Callout>
+
+<Quiz
+  id="launch-mvp-1"
+  q="Which plan best tests 'shop owners will pay for outage alerts'?"
+  options={["Build the dashboard and mobile app first so it looks professional", "Check a few shops' sites yourself, text them when they go down, and send a payment link", "Launch free alerts and add pricing once you have lots of users"]}
+  answer={1}
+  explain="It tests all three parts of the risky assumption - notice, tell, ask for money - in days. The dashboard tests none of them, and free alerts skip the one question that matters."
+/>
+
+## When the manual version stops working
+
+Doing it by hand is a phase, not a plan. When you're texting thirty owners a day and they're paying, that's the signal to automate the part that hurts most, and you'll know which part that is because you've been doing it yourself.
+
+<Quiz
+  id="launch-mvp-2"
+  q="Your one-day manual test gets three paying shops. What do you build next?"
+  options={["Everything on the original roadmap", "The part of the manual work that takes you the most time or breaks most often", "A mobile app, because customers might like one"]}
+  answer={1}
+  explain="You now have paying customers and real experience of the job. Automate where the manual process hurts. The rest of the roadmap is still a guess until customers ask for it."
+/>

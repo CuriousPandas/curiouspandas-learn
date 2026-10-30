@@ -1,0 +1,113 @@
+---
+import '../styles/widgets.css';
+import { QUESTIONS, STARTER, PEOPLE } from '../lib/launch/interview.ts';
+---
+<div class="widget card interview-lab" data-interview>
+  <div class="widget-head">
+    <strong>Five interviews</strong>
+    <span class="pill info">scripted answers, real pattern</span>
+  </div>
+  <p class="il-pitch">The idea: <b>an app that tells small online shops when their site goes down.</b> You have time with five shop owners. Pick your questions.</p>
+  <fieldset class="il-qs">
+    <legend class="eyebrow">Your interview script</legend>
+    {QUESTIONS.map((q) => (
+      <label><input type="checkbox" value={q.id} checked={STARTER.includes(q.id)} /> {q.text}</label>
+    ))}
+  </fieldset>
+  <div class="controls">
+    <button class="btn small primary" type="button" data-run>Interview all five</button>
+    <span class="muted" data-count></span>
+  </div>
+  <div class="il-grid">
+    <div class="il-main">
+      <p class="il-summary" data-summary aria-live="polite">Nobody interviewed yet.</p>
+      <ol class="il-people" data-people aria-label="What each person said"></ol>
+      <div class="il-decide">
+        <label>How many of the {PEOPLE.length} have this problem today?
+          <select data-answer>{[5, 4, 3, 2, 1, 0].map((n) => <option value={n}>{n}</option>)}</select>
+        </label>
+        <button class="btn small" type="button" data-decide>Decide</button>
+        <p class="il-verdict" data-verdict aria-live="polite"></p>
+      </div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { interview, isClean, HAVE_PROBLEM, PEOPLE } from '../lib/launch/interview.ts';
+  import { INTERVIEW_MISSION } from '../lib/launch/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const SIGNAL = { compliment: 'compliment', promise: 'promise about the future', fact: 'fact' } as const;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-interview]')) {
+    const state = INTERVIEW_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), INTERVIEW_MISSION, () => state, () => {});
+    const boxes = [...root.querySelectorAll<HTMLInputElement>('.il-qs input')];
+    const picked = () => boxes.filter((b) => b.checked).map((b) => b.value);
+    const count = () => { q('[data-count]').textContent = `${picked().length} question${picked().length === 1 ? '' : 's'} picked`; };
+    boxes.forEach((b) => b.addEventListener('change', count));
+    count();
+
+    q('[data-run]').addEventListener('click', () => {
+      const ids = picked();
+      if (!ids.length) { q('[data-summary]').textContent = 'Pick at least one question first.'; return; }
+      const run = interview(ids);
+      state.runs.push(run);
+      const learnedSome = run.rows.filter((r) => r.learned.startsWith('has the problem')).length;
+      q('[data-summary]').textContent = run.bad
+        ? `${run.saidYes} of ${PEOPLE.length} said yes to something. ${run.bad} of your ${ids.length} questions asked about your idea, their opinion or the future.`
+        : `No compliments to count this time. From what already happened, ${learnedSome} of ${PEOPLE.length} show the problem.${isClean(run) ? '' : ' Ask at least three questions to trust the picture.'}`;
+      q('[data-people]').replaceChildren(...run.rows.map((row) => el('li', {},
+        el('div', { class: 'il-who' }, el('strong', {}, row.person.name), el('span', { class: 'muted' }, ` · ${row.person.shop}`)),
+        el('ul', { class: 'il-answers' }, ...row.answers.map((a) => el('li', { class: `il-${a.signal}` },
+          el('span', { class: 'il-chip' }, SIGNAL[a.signal]), el('span', {}, `"${a.text}"`)))),
+        el('p', { class: 'il-learned' }, el('b', {}, 'What you can conclude: '), row.learned))));
+      refresh();
+    });
+
+    q('[data-decide]').addEventListener('click', () => {
+      const answer = Number(q<HTMLSelectElement>('[data-answer]').value);
+      const afterCleanSpend = state.runs.some((r) => isClean(r) && r.kinds.includes('spend'));
+      state.decisions.push({ answer, afterCleanSpend });
+      const v = q('[data-verdict]');
+      v.textContent = !afterCleanSpend
+        ? 'Decide from evidence: run a clean interview that asks what they have already spent first.'
+        : answer === HAVE_PROBLEM ? `Yes - ${HAVE_PROBLEM}. Priya already pays for a workaround and Ken checks by hand every morning. The rest were being kind.`
+        : answer > HAVE_PROBLEM ? 'That counts people who liked the idea. Who has actually done something about the problem?'
+        : 'Look again: someone spending time every day on a workaround has the problem too.';
+      v.className = `il-verdict ${afterCleanSpend && answer === HAVE_PROBLEM ? 'ok' : 'bad'}`;
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the answers are built by the script. */
+  .interview-lab .il-pitch { margin: 0 0 10px; font-size: 0.95rem; }
+  .interview-lab .il-qs { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0 0 10px; display: grid; gap: 6px; min-width: 0; }
+  .interview-lab .il-qs label { display: flex; gap: 8px; align-items: flex-start; font-size: 0.92rem; cursor: pointer; }
+  .interview-lab .il-qs input { margin-top: 4px; flex: none; }
+  .interview-lab .il-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .interview-lab .il-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .interview-lab .il-main { min-width: 0; }
+  .interview-lab .il-summary { margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .interview-lab .il-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .interview-lab .il-people > li { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--bg); }
+  .interview-lab .il-answers { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; font-size: 0.88rem; }
+  .interview-lab .il-answers li { display: flex; gap: 8px; align-items: flex-start; }
+  .interview-lab .il-chip { flex: none; font-size: 0.72rem; font-weight: 700; padding: 1px 8px; border-radius: 99px; background: var(--bg-2); color: var(--ink-2); }
+  .interview-lab .il-fact .il-chip { background: var(--bamboo-soft); color: var(--bamboo); }
+  .interview-lab .il-compliment .il-chip, .interview-lab .il-promise .il-chip { background: var(--sun-soft); color: var(--sun-text); }
+  .interview-lab .il-learned { margin: 0; font-size: 0.86rem; color: var(--ink-2); }
+  .interview-lab .il-decide { margin-top: 12px; display: grid; gap: 8px; }
+  .interview-lab .il-decide label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.92rem; }
+  .interview-lab .il-decide select { font: inherit; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .interview-lab .il-decide .btn { justify-self: start; }
+  .interview-lab .il-verdict { margin: 0; font-size: 0.92rem; }
+  .interview-lab .il-verdict:empty { display: none; }
+  .interview-lab .il-verdict.ok { color: var(--bamboo); font-weight: 650; }
+  .interview-lab .il-verdict.bad { color: var(--berry); }
+</style>

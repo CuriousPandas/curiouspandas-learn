@@ -877,6 +877,92 @@ await scenario('net-lb', '/learn/network/load-balancers/', async (page) => {
   await expectText(page, 'header [data-xp]', /^[1-9]/);
 });
 
+// ---- launch (writer M)
+// Each widget plays its mission the way a learner would, trying the tempting
+// answer first and checking it does not pass: counting the polite yeses,
+// cutting payment to hit a date, the launch with the most sign-ups.
+
+await scenario('launch-interview', '/learn/launch/validate/', async (page) => {
+  const r = '[data-interview]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-summary]`, /^5 of 5 said yes/);
+  // Counting the compliments is the trap.
+  await page.selectOption(`${r} [data-answer]`, '5');
+  await page.click(`${r} [data-decide]`);
+  await expectText(page, `${r} [data-verdict]`, /Decide from evidence/);
+  for (const id of ['would-use', 'good-idea', 'would-pay', 'wouldnt-it']) await page.uncheck(`${r} .il-qs input[value="${id}"]`);
+  for (const id of ['last-time', 'today', 'spent']) await page.check(`${r} .il-qs input[value="${id}"]`);
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-summary]`, /No compliments to count.*2 of 5 show the problem/);
+  await page.selectOption(`${r} [data-answer]`, '5');
+  await page.click(`${r} [data-decide]`);
+  await expectText(page, `${r} [data-verdict]`, /counts people who liked the idea/);
+  if (await doneSteps(page, r) !== 3) throw new Error('answering 5 after a clean run ticked the decision step');
+  await page.selectOption(`${r} [data-answer]`, '2');
+  await page.click(`${r} [data-decide]`);
+  await expectText(page, `${r} .m-debrief`, /kindness is not demand/);
+});
+
+await scenario('launch-scope', '/learn/launch/mvp/', async (page) => {
+  const r = '[data-scope]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-check]`);
+  await expectText(page, `${r} [data-total]`, /^48 working days/);
+  // Fast, but cannot answer "will they pay": the trap.
+  await page.click(`${r} [data-clear]`);
+  for (const id of ['checker', 'email']) await page.check(`${r} .sc-list input[value="${id}"]`);
+  await page.click(`${r} [data-check]`);
+  await expectText(page, `${r} [data-total]`, /cannot tell you whether owners will pay/);
+  if (await doneSteps(page, r) !== 1) throw new Error('a plan with no way to take money ticked the two-week step');
+  await page.click(`${r} [data-clear]`);
+  for (const id of ['manual', 'text', 'paylink']) await page.check(`${r} .sc-list input[value="${id}"]`);
+  await page.click(`${r} [data-check]`);
+  await expectText(page, `${r} [data-total]`, /^1 working day \(about one day\).*tests the riskiest assumption/);
+  await expectText(page, `${r} .m-debrief`, /saved ten weeks/);
+});
+
+await scenario('launch-pricing', '/learn/launch/pricing/', async (page) => {
+  const r = '[data-price-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // Nothing is recorded until the learner changes something.
+  if (await doneSteps(page, r) !== 0) throw new Error('a pricing step ticked on load');
+  await page.click(`${r} [data-cheap]`);
+  await expectText(page, `${r} [data-verdict]`, /^Never pays back/);
+  await expectText(page, `${r} [data-maths]`, /\$60 \/ \$1\.50 = 40\.0 months/);
+  const setPrice = async (v) => { await page.fill(`${r} [data-price]`, String(v)); await page.locator(`${r} [data-price]`).dispatchEvent('change'); };
+  // Any price that pays back is not the lowest one.
+  await setPrice(20);
+  if (await doneSteps(page, r) !== 1) throw new Error('$20 ticked the lowest-price step');
+  await setPrice(7);
+  await expectText(page, `${r} [data-verdict]`, /Pays back in 10\.9 months/);
+  await page.selectOption(`${r} [data-billing]`, 'annual');
+  await setPrice(6);
+  await expectText(page, `${r} [data-verdict]`, /covers acquisition on day one/);
+  await expectText(page, `${r} .m-debrief`, /measure your own/);
+});
+
+await scenario('launch-traction', '/learn/launch/first-users/', async (page) => {
+  const r = '[data-traction]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.selectOption(`${r} [data-channel]`, 'big-launch');
+  await page.click(`${r} [data-launch]`);
+  await expectText(page, `${r} [data-rows]`, /Big launch\s*400\s*40\s*8/);
+  await page.selectOption(`${r} [data-channel]`, 'forum');
+  await page.click(`${r} [data-launch]`);
+  await page.check(`${r} [data-byhand]`);
+  await page.click(`${r} [data-launch]`);
+  await expectText(page, `${r} [data-rows]`, /Their forum \+ by hand\s*45\s*36\s*22\s*22\.5/);
+  // The most sign-ups is the trap.
+  await page.selectOption(`${r} [data-choose]`, 'big-launch');
+  await page.click(`${r} [data-pick]`);
+  await expectText(page, `${r} [data-verdict]`, /More sign-ups, fewer people/);
+  if (await doneSteps(page, r) !== 3) throw new Error('choosing the big launch ticked the last step');
+  await page.selectOption(`${r} [data-choose]`, 'forum');
+  await page.click(`${r} [data-pick]`);
+  await expectText(page, `${r} .m-debrief`, /do not scale while you still can/);
+});
+
 await browser.close();
 server?.kill();
 

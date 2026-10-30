@@ -171,11 +171,11 @@ export const TRACKS: Track[] = [
   {
     id: 'launch', title: 'Idea to Market', tagline: 'From a problem worth solving to people paying for the solution.', icon: 'flag', hue: 75,
     lessons: [
-      { slug: 'validate', title: 'Is the problem real?', status: 'soon' },
-      { slug: 'mvp', title: 'The smallest thing worth shipping', status: 'soon' },
-      { slug: 'pricing', title: 'Pricing and the numbers that keep you alive', status: 'soon' },
-      { slug: 'first-users', title: 'Launch and find your first users', status: 'soon' },
-      { slug: 'business-basics', title: 'The boring essentials: company, terms, taxes', status: 'soon' },
+      { slug: 'validate', title: 'Is the problem real?', status: 'ready' },
+      { slug: 'mvp', title: 'The smallest thing worth shipping', status: 'ready' },
+      { slug: 'pricing', title: 'Pricing and the numbers that keep you alive', status: 'ready' },
+      { slug: 'first-users', title: 'Launch and find your first users', status: 'ready' },
+      { slug: 'business-basics', title: 'The boring essentials: company, terms, taxes', status: 'ready' },
     ],
   },
 ];

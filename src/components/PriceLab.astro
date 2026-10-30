@@ -1,0 +1,82 @@
+---
+import '../styles/widgets.css';
+import { FACTS } from '../lib/launch/unit.ts';
+---
+<div class="widget card price-lab" data-price-lab>
+  <div class="widget-head">
+    <strong>One customer's numbers</strong>
+    <span class="pill info">cost to serve ${FACTS.costToServe.toFixed(2)}/mo · CAC ${FACTS.cac} · churn {FACTS.monthlyChurn * 100}%/mo</span>
+  </div>
+  <p class="pl-facts muted">This toy shop's facts, not benchmarks: each customer costs ${FACTS.costToServe.toFixed(2)} a month to serve, ${FACTS.cac} to win (CAC), and {FACTS.monthlyChurn * 100}% of monthly customers cancel each month.</p>
+  <div class="controls">
+    <label>Price per month $ <input type="number" min="1" max="100" step="1" value="9" data-price aria-label="Price per month in dollars" /></label>
+    <label>Billing
+      <select data-billing><option value="monthly">monthly</option><option value="annual">annual, upfront (10 months' price)</option></select>
+    </label>
+    <button class="btn small" type="button" data-cheap>$3 - undercut everyone</button>
+  </div>
+  <div class="pl-grid">
+    <div class="pl-main">
+      <p class="pl-verdict" data-verdict aria-live="polite">Change the price or billing to see the numbers.</p>
+      <ol class="pl-maths" data-maths aria-label="The working"></ol>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { economics, FACTS, type Billing } from '../lib/launch/unit.ts';
+  import { PRICING_MISSION } from '../lib/launch/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const $ = (n: number) => `$${n.toFixed(2)}`;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-price-lab]')) {
+    const state = PRICING_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), PRICING_MISSION, () => state, () => {});
+    const priceIn = q<HTMLInputElement>('[data-price]');
+    const billingIn = q<HTMLSelectElement>('[data-billing]');
+
+    // Recorded only when the learner changes something, so no step ticks on load.
+    const show = () => {
+      const price = Math.round(Number(priceIn.value));
+      if (!(price >= 1 && price <= 100)) { q('[data-verdict]').textContent = 'Enter a whole-dollar price from 1 to 100.'; return; }
+      const r = economics(price, billingIn.value as Billing);
+      state.results.push(r);
+      const v = q('[data-verdict]');
+      v.textContent = r.verdict;
+      const good = r.billing === 'annual' ? r.upfront >= FACTS.cac : r.paysBack && r.paybackMonths <= 12;
+      v.className = `pl-verdict ${good ? 'ok' : r.billing === 'monthly' && !r.paysBack ? 'bad' : 'warn'}`;
+      const lines: [string, string][] = [
+        ['Gross profit per month', `price - cost to serve = ${$(price)} - ${$(FACTS.costToServe)} = ${$(r.grossPerMonth)}`],
+        ['Payback', r.grossPerMonth > 0 ? `CAC / gross profit = $${FACTS.cac} / ${$(r.grossPerMonth)} = ${r.paybackMonths.toFixed(1)} months` : 'never - each month loses money'],
+        ['Expected lifetime', `1 / monthly churn = 1 / ${FACTS.monthlyChurn * 100}% = ${r.lifetimeMonths.toFixed(0)} months`],
+        ['Lifetime value', `gross profit x lifetime = ${$(Math.max(0, r.grossPerMonth))} x ${r.lifetimeMonths.toFixed(0)} = ${$(r.ltv)} (vs $${FACTS.cac} to win them)`],
+      ];
+      if (r.billing === 'annual') lines.push(['Cash on day one', `${FACTS.annualMonths} x ${$(price)} = ${$(r.upfront)}`]);
+      q('[data-maths]').replaceChildren(...lines.map(([k, val]) => el('li', {}, el('b', {}, k), el('span', {}, val))));
+      refresh();
+    };
+    priceIn.addEventListener('change', show);
+    billingIn.addEventListener('change', show);
+    q('[data-cheap]').addEventListener('click', () => { priceIn.value = '3'; billingIn.value = 'monthly'; show(); });
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the working is built by the script. */
+  .price-lab .pl-facts { font-size: 0.86rem; margin: 0 0 10px; }
+  .price-lab .controls label { display: inline-flex; gap: 6px; align-items: center; }
+  .price-lab input[type="number"] { width: 5.5em; font: inherit; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .price-lab .pl-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .price-lab .pl-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); } }
+  .price-lab .pl-main { min-width: 0; }
+  .price-lab .pl-verdict { margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .price-lab .pl-verdict.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .price-lab .pl-verdict.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .price-lab .pl-verdict.bad { background: var(--berry-soft); color: var(--berry); }
+  .price-lab .pl-maths { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.88rem; }
+  .price-lab .pl-maths li { display: grid; gap: 2px; padding: 6px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+  .price-lab .pl-maths span { font-family: var(--mono); font-size: 0.84rem; color: var(--ink-2); overflow-wrap: anywhere; }
+</style>
