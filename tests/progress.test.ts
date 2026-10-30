@@ -34,8 +34,8 @@ test('no storage at all reads as unavailable, not as a fresh start', () => {
 });
 
 test('ranks and streaks', () => {
-  assert.equal(rank(0).name, 'Curious Cub');
-  assert.equal(rank(150).name, 'Bamboo Hacker');
+  assert.equal(rank(0).name, 'Explorer');
+  assert.equal(rank(150).name, 'Tinkerer');
   assert.equal(rank(149).toNext, 1);
   const today = new Date(2026, 9, 29);
   assert.equal(streak(['2026-10-27', '2026-10-28', '2026-10-29'], today), 3);

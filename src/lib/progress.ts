@@ -25,11 +25,11 @@ export type StoreState = 'ok' | 'unavailable' | 'corrupt';
 export const empty = (): Progress => ({ v: 1, xp: 0, lessons: {}, quizzes: {}, missions: {}, real: {}, days: [] });
 
 export const RANKS = [
-  { xp: 0, name: 'Curious Cub' },
-  { xp: 150, name: 'Bamboo Hacker' },
-  { xp: 450, name: 'Forest Engineer' },
-  { xp: 1000, name: 'Peak Panda' },
-  { xp: 2000, name: 'Legendary Panda' },
+  { xp: 0, name: 'Explorer' },
+  { xp: 150, name: 'Tinkerer' },
+  { xp: 450, name: 'Builder' },
+  { xp: 1000, name: 'Operator' },
+  { xp: 2000, name: 'Architect' },
 ];
 
 export function rank(xp: number) {
