@@ -84,10 +84,12 @@ const { only = '', start = 'ok', checks = true, title = 'Break one stage of a re
   .journey .j-stages .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 0.8rem; background: var(--bg-2); color: var(--muted); }
   .journey .st-pass .dot { background: var(--bamboo); color: var(--bamboo-ink); }
   .journey .st-fail { border-color: var(--berry); }
-  .journey .st-fail .dot { background: var(--berry); color: #fff; }
+  .journey .st-fail .dot { background: var(--berry); color: var(--chip-ink); }
   .journey .st-answer { border-color: var(--sun); }
-  .journey .st-answer .dot { background: var(--sun); color: #fff; }
-  .journey .st-skip { opacity: .5; }
+  .journey .st-answer .dot { background: var(--sun); color: #1a1200; }
+  /* A stage the request never reached must not look like one it passed, but
+     fading it made its name unreadable. Dashed, muted text, empty dot instead. */
+  .journey .st-skip { border-style: dashed; color: var(--muted); background: transparent; }
   .journey .j-grid { display: grid; gap: 12px; }
   @media (min-width: 860px) { .journey .j-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); } }
   .journey .j-term { background: var(--term-bg); border-radius: 12px; padding: 10px 12px; min-width: 0; }
@@ -104,7 +106,7 @@ const { only = '', start = 'ok', checks = true, title = 'Break one stage of a re
   .journey .fact b { display: block; font-size: 1rem; color: var(--ink); }
   .journey .fact.bad b { color: var(--berry); }
   .journey .fact.ok b { color: var(--bamboo); }
-  .journey .fact.warn b { color: var(--sun); }
+  .journey .fact.warn b { color: var(--sun-text); }
   .journey .j-meaning { margin: 0; font-size: 0.93rem; }
   .journey .j-checks { border-collapse: collapse; font-size: 0.85rem; width: 100%; }
   .journey .j-checks caption { text-align: left; font-weight: 700; padding-bottom: 4px; }

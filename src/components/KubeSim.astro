@@ -57,28 +57,56 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
     const pendingBox = root.querySelector<HTMLElement>('[data-pending]')!;
     const clock = root.querySelector<HTMLElement>('[data-clock]')!;
 
+    // Pods and nodes keep their elements from tick to tick. This once rebuilt
+    // them all every tick, which swallowed any click whose press and release
+    // straddled a tick and threw keyboard focus off a pod each time. Chromium's
+    // quick test clicks slipped between ticks; WebKit's did not.
+    const chips = new Map<string, HTMLButtonElement>();
     const chip = (p: Pod) => {
-      const b = el('button', { type: 'button', class: `pod ${cls(p)}`, title: `${p.name}\n${p.status}${p.restarts ? ` · ${p.restarts} restarts` : ''}\n${p.template.image}` },
-        p.name.split('-').slice(0, 1)[0], el('small', {}, p.name.split('-').pop() ?? ''));
-      if (p.restarts) b.append(el('span', { class: 'restarts' }, `↻${p.restarts}`));
-      b.addEventListener('click', () => term.run(`kubectl describe pod ${p.name}`));
+      let b = chips.get(p.name);
+      if (!b) {
+        b = el('button', { type: 'button' }, p.name.split('-')[0], el('small', {}, p.name.split('-').pop() ?? ''), el('span', { class: 'restarts' })) as HTMLButtonElement;
+        b.addEventListener('click', () => term.run(`kubectl describe pod ${p.name}`));
+        chips.set(p.name, b);
+      }
+      b.className = `pod ${cls(p)}`;
+      b.title = `${p.name}\n${p.status}${p.restarts ? ` · ${p.restarts} restarts` : ''}\n${p.template.image}`;
+      b.lastElementChild!.textContent = p.restarts ? `↻${p.restarts}` : '';
       return b;
     };
+    // Remove what left before inserting what arrived, so a pod that stays is
+    // never detached - detaching is what drops focus.
+    const sync = (box: HTMLElement, want: Node[]) => {
+      const keep = new Set(want);
+      for (const n of [...box.childNodes]) if (!keep.has(n)) n.remove();
+      want.forEach((n, i) => { if (box.childNodes[i] !== n) box.insertBefore(n, box.childNodes[i] ?? null); });
+    };
+    const placeholder = (text: string) => el('span', { class: 'muted empty' }, text);
+    const nodeEls = new Map<string, { root: HTMLElement; usage: HTMLElement; bar: HTMLElement; pods: HTMLElement; empty: HTMLElement }>();
+    const nothingWaiting = placeholder('nothing waiting');
 
     const draw = () => {
       const c = state.cluster;
       clock.textContent = `t = ${c.tick * SECONDS_PER_TICK}s`;
-      nodesBox.replaceChildren(...c.nodes.map((n) => {
+      sync(nodesBox, c.nodes.map((n) => {
+        let v = nodeEls.get(n.name);
+        if (!v) {
+          const usage = el('span', { class: 'muted' }), bar = el('div', { class: 'cap' }, el('i')), pods = el('div', { class: 'pods' });
+          v = { root: el('div', { class: 'node' }, el('div', { class: 'node-head' }, el('strong', {}, n.name), usage), bar, pods), usage, bar, pods, empty: placeholder('no pods') };
+          nodeEls.set(n.name, v);
+        }
         const u = c.used(n.name);
         const pct = Math.min(100, (u.cpu / n.cpu) * 100);
+        v.usage.textContent = `${u.cpu}m / ${n.cpu}m CPU requested`;
+        (v.bar.firstChild as HTMLElement).style.width = `${pct}%`;
+        v.bar.classList.toggle('full', pct > 90);
         const pods = [...c.pods.values()].filter((p) => p.node === n.name);
-        return el('div', { class: 'node' },
-          el('div', { class: 'node-head' }, el('strong', {}, n.name), el('span', { class: 'muted' }, `${u.cpu}m / ${n.cpu}m CPU requested`)),
-          (() => { const bar = el('div', { class: 'cap' }, el('i')); (bar.firstChild as HTMLElement).style.width = `${pct}%`; if (pct > 90) bar.classList.add('full'); return bar; })(),
-          el('div', { class: 'pods' }, ...(pods.length ? pods.map(chip) : [el('span', { class: 'muted empty' }, 'no pods')])));
+        sync(v.pods, pods.length ? pods.map(chip) : [v.empty]);
+        return v.root;
       }));
       const waiting = [...c.pods.values()].filter((p) => !p.node && p.status !== 'Terminating');
-      pendingBox.replaceChildren(...(waiting.length ? waiting.map(chip) : [el('span', { class: 'muted empty' }, 'nothing waiting')]));
+      sync(pendingBox, waiting.length ? waiting.map(chip) : [nothingWaiting]);
+      for (const name of chips.keys()) if (!c.pods.has(name)) chips.delete(name);
       kubeWatch(state);
       refreshMission();
     };
@@ -140,14 +168,16 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
   .kube .pods { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; align-items: center; }
   .kube .unscheduled { border: 1px dashed var(--line-2); border-radius: 10px; padding: 8px 10px; }
   .kube .empty { font-size: 0.8rem; }
-  .kube .pods .pod { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; border: 0; border-radius: 8px; padding: 4px 9px; font: 600 11.5px/1.25 var(--mono); color: #fff; cursor: pointer; transition: transform .1s, opacity .3s; }
+  .kube .pods .pod { position: relative; display: inline-flex; flex-direction: column; align-items: flex-start; border: 0; border-radius: 8px; padding: 4px 9px; font: 600 11.5px/1.25 var(--mono); color: var(--chip-ink); cursor: pointer; transition: transform .1s, opacity .3s; }
   .kube .pods .pod small { font-weight: 400; opacity: .85; }
   .kube .pods .pod:hover { transform: translateY(-1px); }
   .kube .pods .pod.ok { background: var(--bamboo); color: var(--bamboo-ink); }
   .kube .pods .pod.start { background: var(--sky); }
-  .kube .pods .pod.pending { background: transparent; color: var(--sun); outline: 2px dashed var(--sun); }
+  .kube .pods .pod.pending { background: transparent; color: var(--sun-text); outline: 2px dashed var(--sun); }
+  .kube .pods .pod.pending small { opacity: 1; }
   .kube .pods .pod.bad { background: var(--berry); animation: shake .5s; }
   .kube .pods .pod.term { background: var(--muted); opacity: .45; }
   .kube .pods .restarts { position: absolute; top: -7px; right: -7px; background: var(--ink); color: var(--bg); border-radius: 99px; font-size: 10px; padding: 1px 5px; }
+  .kube .pods .restarts:empty { display: none; }
   @keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
 </style>

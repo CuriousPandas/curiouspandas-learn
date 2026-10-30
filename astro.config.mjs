@@ -12,4 +12,7 @@ export default defineConfig({
   // Astro's dev toolbar injects its own UI; the site check reads the page's
   // visible text, and the toolbar's text would be counted as ours.
   devToolbar: { enabled: false },
+  // Astro's default github-dark draws comments at 3:1, below WCAG AA, and the
+  // comments are where the lessons put "leave this running in another terminal".
+  markdown: { shikiConfig: { theme: 'github-dark-default' } },
 });

@@ -27,7 +27,7 @@
 .m-steps li { counter-increment: s; position: relative; padding: 7px 0 7px 32px; border-bottom: 1px dashed var(--line); color: var(--muted); }
 .m-steps li::before { content: counter(s); position: absolute; left: 0; top: 7px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line-2); display: grid; place-items: center; font-size: 0.72rem; font-weight: 700; }
 .m-steps li.current { color: var(--ink); font-weight: 600; }
-.m-steps li.current::before { border-color: var(--sun); color: var(--sun); }
+.m-steps li.current::before { border-color: var(--sun); color: var(--sun-text); }
 .m-steps li.done { color: var(--ink-2); }
 .m-steps li.done .m-text { text-decoration: line-through; text-decoration-color: var(--bamboo); }
 .m-steps li.done::before { content: "✓"; background: var(--bamboo); border-color: var(--bamboo); color: var(--bamboo-ink); }

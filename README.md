@@ -32,7 +32,8 @@ Every XP point and badge can be earned on the first tier. Progress lives in
 | Every mission can be finished, and the wrong fix does not pass | `tests/missions.test.ts` plays each mission from its own hints |
 | The ML and serving lessons' claims | `tests/ai.test.ts`: backprop vs a numerical gradient, XOR needs a hidden layer, paging beats reserving |
 | A corrupt progress store is never overwritten | `tests/progress.test.ts` |
-| Pages actually work in a browser | `scripts/check-site.mjs` renders every page, drives every widget, asserts on screen text, checks every internal link and 375 px overflow |
+| Pages actually work in a browser | `scripts/check-site.mjs` renders every page, drives every widget, asserts on screen text, checks every internal link and 375 px overflow - in Chromium, WebKit (every iPhone browser) and Firefox |
+| Readable and navigable for everyone | the same script runs axe (WCAG 2.1 A/AA) on every page in light and dark mode, and fails on any serious or critical violation |
 | CNCF maturity in the Tool Atlas | `scripts/sync-cncf.mjs` reads the CNCF landscape and writes a dated snapshot |
 
 ## Develop
@@ -44,7 +45,8 @@ npm ci
 npm run dev            # http://localhost:4321
 npm test               # engines, parity with git, missions
 npm run check          # typecheck
-npm run build && npm run check:site   # screenshots land in .site-check/ - look at them
+npm run build && npm run check:site   # screenshots land in .site-check/<engine>/ - look at them
+BROWSER=webkit npm run check:site      # also firefox; needs: npx playwright install webkit firefox
 npm run sync:cncf      # refresh CNCF maturity, then review the diff
 ```
 

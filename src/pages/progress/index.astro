@@ -126,15 +126,20 @@ const badges = [
 <style>
   .page { padding-top: 32px; max-width: 900px; }
   .summary { display: flex; flex-wrap: wrap; gap: 24px; padding: 18px 20px; align-items: center; }
-  .stat-big b { display: block; font-size: 2rem; line-height: 1; color: var(--sun); font-variant-numeric: tabular-nums; }
+  .stat-big b { display: block; font-size: 2rem; line-height: 1; color: var(--sun-text); font-variant-numeric: tabular-nums; }
   .stat-big span { font-size: 0.85rem; color: var(--muted); }
   .rankbar { flex: 1; min-width: 200px; }
   .bar { height: 10px; background: var(--bg-2); border-radius: 99px; overflow: hidden; margin-top: 6px; }
   .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--bamboo), var(--sun)); }
   .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
-  .badges :global(.badge) { padding: 12px; display: flex; flex-direction: column; gap: 2px; opacity: .55; box-shadow: none; }
+  /* Locked badges are marked by a dashed border and a faded medal, not by
+     fading the whole card: that dropped their descriptions below readable
+     contrast, and the description is how a learner finds out how to earn one. */
+  .badges :global(.badge) { padding: 12px; display: flex; flex-direction: column; gap: 2px; box-shadow: none; border-style: dashed; }
+  .badges :global(.badge:not(.got) .medal) { opacity: .35; filter: grayscale(1); }
+  .badges :global(.badge.got) { border-style: solid; }
   .badges :global(.badge.got) { opacity: 1; border-color: var(--sun); box-shadow: var(--shadow); }
-  .badges :global(.medal) { font-size: 1.5rem; color: var(--sun); }
+  .badges :global(.medal) { font-size: 1.5rem; color: var(--sun-text); }
   .badges :global(.badge .muted) { font-size: 0.82rem; }
   .ranks { padding-left: 20px; } .ranks li { color: var(--muted); } .ranks li.reached { color: var(--ink); } .ranks li.reached strong { color: var(--bamboo); }
   .data { padding: 16px 18px; }

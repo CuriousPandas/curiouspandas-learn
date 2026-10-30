@@ -7,13 +7,21 @@
 //
 //   npm run build && npm run check:site            (screenshots in .site-check/)
 //   SITE_URL=https://curiouspandas.dev npm run check:site   (check the live site)
+//   BROWSER=webkit npm run check:site              (Safari's engine; also firefox)
+//
+// WebKit matters most: every browser on an iPhone is WebKit underneath, and
+// phones are where most learners will meet this site first.
 
-import { chromium } from 'playwright';
+import * as engines from 'playwright';
+import { AxeBuilder } from '@axe-core/playwright';
 import { spawn } from 'node:child_process';
 import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-const OUT = '.site-check';
+const ENGINE = process.env.BROWSER ?? 'chromium';
+if (!['chromium', 'webkit', 'firefox'].includes(ENGINE)) throw new Error(`BROWSER must be chromium, webkit or firefox, not ${ENGINE}`);
+// One folder per engine, so a WebKit run never overwrites Chromium's evidence.
+const OUT = join('.site-check', ENGINE);
 mkdirSync(OUT, { recursive: true });
 
 function pages(dir, base = dir) {
@@ -38,7 +46,7 @@ if (!base) {
   }
 }
 
-const browser = await chromium.launch();
+const browser = await engines[ENGINE].launch();
 const failures = [];
 const report = [];
 const fail = (page, msg) => { failures.push(`${page}: ${msg}`); };
@@ -67,11 +75,25 @@ for (const path of pages('dist')) {
   // Horizontal scroll at phone width is a layout bug a desktop screenshot hides.
   await page.setViewportSize({ width: 375, height: 800 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  // "No sideways scroll" says nothing about whether a widget is usable at
+  // phone width, so keep the picture too.
+  await page.screenshot({ path: shot.replace(/\.png$/, '.phone.png'), fullPage: true });
   // Name the culprits, or "scrolls sideways" is a hunt every time.
   const wide = overflow > 1 ? await page.evaluate(() => [...document.querySelectorAll('main *')]
     .filter((e) => e.getBoundingClientRect().right > window.innerWidth + 1 && !e.closest('[style*="overflow"], pre, .graph, .term-out, table'))
     .slice(0, 4).map((e) => `${e.tagName.toLowerCase()}.${[...e.classList].join('.')} right=${Math.round(e.getBoundingClientRect().right)}`)) : [];
   report.push({ path, h1, chars: text.length, errors, failed, overflow, wide, shot });
+  // Accessibility, in both colour schemes: the site shipped 73 serious axe
+  // violations (gold text at 2.6:1, links nested in links) that no other check
+  // here could see. axe reads structure and computed colour, which do not vary
+  // by engine, so one engine's run is enough and the others skip the minutes.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  if (ENGINE === 'chromium') for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+    for (const v of violations.filter((v) => v.impact === 'serious' || v.impact === 'critical'))
+      fail(path, `a11y (${scheme}) ${v.id}: ${v.help} - ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}${v.nodes.length > 3 ? ` +${v.nodes.length - 3} more` : ''}`);
+  }
   if (!h1) fail(path, 'no h1');
   if (text.length < 200 && path !== '/404.html') fail(path, `only ${text.length} characters visible`);
   if (errors.length) fail(path, `console errors: ${errors.join(' | ')}`);
@@ -161,6 +183,11 @@ await scenario('kube-self-heal', '/learn/kubernetes/desired-state/', async (page
   const podBg = await page.locator(`${r} .pod.ok`).first().evaluate((e) => getComputedStyle(e).backgroundColor);
   if (/rgb\(2[34]\d, 2[34]\d, 2[34]\d\)|rgba\(0, 0, 0, 0\)/.test(podBg)) throw new Error(`Ready pods render as plain buttons (${podBg}) - widget styles are not applying`);
   const name = await page.locator(`${r} .pod.ok`).first().getAttribute('title').then((t) => t.split('\n')[0]);
+  // The cluster view once rebuilt every pod each tick: clicks that straddled a
+  // tick did nothing (WebKit timed out here) and keyboard focus fell off.
+  await page.locator(`${r} .pod.ok`).first().focus();
+  await page.waitForTimeout(600);
+  if (!(await page.evaluate(() => document.activeElement?.classList.contains('pod')))) throw new Error('keyboard focus fell off a pod when the cluster ticked');
   await type(page, r, `kubectl delete pod ${name}`);
   await expectText(page, `${r} .m-debrief`, /That loop/, 20000);
   await page.locator(`${r} .pod`).first().click();
@@ -211,8 +238,20 @@ await scenario('dark-mode-lesson', '/learn/git/what-is-git/', async (page) => {
 }, { dark: true });
 
 await scenario('phone-kube', '/learn/kubernetes/desired-state/', async (page) => {
+  // Play the mission at phone width, so the screenshot shows a working cluster
+  // rather than the top of the lesson.
+  const r = '[data-kube-sim]';
+  // The sim pauses while off screen (battery). On a phone it starts below the
+  // fold, and fill() types without scrolling, so look at it first like a person.
+  await page.locator(`${r} .term-in input`).scrollIntoViewIfNeeded();
+  await page.selectOption(`${r} [data-speed]`, '150');
+  await type(page, r, 'kubectl create deployment hello --image=panda/hello:1.0 --replicas=3');
+  await page.waitForFunction(() => document.querySelectorAll('[data-kube-sim] .pod.ok').length === 3, null, { timeout: 15000 });
+  await page.locator(`${r} [data-nodes]`).scrollIntoViewIfNeeded();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   if (overflow > 1) throw new Error(`scrolls sideways by ${overflow}px`);
+  const box = await page.locator(`${r} .pod.ok`).first().boundingBox();
+  if (!box || box.width < 24 || box.height < 24) throw new Error(`pods are too small to tap on a phone: ${JSON.stringify(box)}`);
 }, { width: 375 });
 
 
@@ -379,4 +418,4 @@ if (failures.length) {
   console.error(`\n${failures.length} problem(s):\n  - ${failures.join('\n  - ')}`);
   process.exit(1);
 }
-console.log(`\nAll ${report.length} checks passed. Screenshots in ${OUT}/ - look at them.`);
+console.log(`\nAll ${report.length} checks passed in ${ENGINE}. Screenshots in ${OUT}/ - look at them.`);

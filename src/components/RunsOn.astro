@@ -1,10 +1,14 @@
 ---
 import { TIERS, type Tier } from '../data/tracks.ts';
-interface Props { tiers: Tier[] }
-const { tiers } = Astro.props;
+// link=false inside something that is already a link (a lesson card): a link
+// inside a link is invalid HTML, and browsers repair it by splitting the card
+// into an empty outer link that screen readers announce as nameless.
+interface Props { tiers: Tier[]; link?: boolean }
+const { tiers, link = true } = Astro.props;
+const Tag = link ? 'a' : 'span';
 ---
 <div class="runs-on">
-  {tiers.map((t) => <a href="/machine/" class={`pill ${t === 'browser' ? 'ok' : t === 'machine' ? 'gold' : 'info'}`} title={TIERS[t].detail}>{TIERS[t].label}</a>)}
+  {tiers.map((t) => <Tag href={link ? '/machine/' : undefined} class={`pill ${t === 'browser' ? 'ok' : t === 'machine' ? 'gold' : 'info'}`} title={TIERS[t].detail}>{TIERS[t].label}</Tag>)}
 </div>
 <style>
   .runs-on { display: flex; flex-wrap: wrap; gap: 6px; }

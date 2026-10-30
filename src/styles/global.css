@@ -7,17 +7,26 @@
   --panel: #ffffff;
   --ink: #18191d;
   --ink-2: #44464f;
-  --muted: #6d6f78;
+  --muted: #5f6169;
   --line: #e1ddd2;
   --line-2: #cfcabd;
-  --bamboo: #2f7d46;
+  --bamboo: #276b3c;
   --bamboo-ink: #ffffff;
   --bamboo-soft: #e2f1e5;
   --sun: #c98a06;
   --sun-soft: #fbf0d3;
-  --berry: #c23a51;
+  /* Gold reads as gold only when bright, and bright gold text is 2.6:1 on
+     its own pale pill - unreadable for many. Fills and borders keep --sun;
+     anything that is text uses --sun-text. */
+  --sun-text: #8a5a00;
+  /* Text on a solid coloured chip (a pod). White fails on dark mode's light hues. */
+  --chip-ink: #ffffff;
+  /* Fill behind text whose strength varies (attention weights). Every blend
+     from --panel to this keeps --ink readable, which bright gold does not in dark mode. */
+  --heat: #c98a06;
+  --berry: #a8304a;
   --berry-soft: #fbe3e7;
-  --sky: #2f6fc7;
+  --sky: #285fab;
   --sky-soft: #e1ecfa;
   --term-bg: #15171c;
   --term-ink: #e7e5de;
@@ -36,7 +45,7 @@
   :root:not([data-theme="light"]) {
     --bg: #111215; --bg-2: #17181d; --panel: #1c1e24; --ink: #ecebe6; --ink-2: #c4c3bd; --muted: #92939b;
     --line: #2b2d35; --line-2: #3a3c46; --bamboo: #5cc27a; --bamboo-ink: #0d1a11; --bamboo-soft: #1a2e20;
-    --sun: #f2b632; --sun-soft: #2e2613; --berry: #ff7a8e; --berry-soft: #35191f; --sky: #6ea8ff; --sky-soft: #172338;
+    --sun: #f2b632; --sun-soft: #2e2613; --sun-text: #f2b632; --chip-ink: #0d0f14; --heat: #7a5a0e; --berry: #ff7a8e; --berry-soft: #35191f; --sky: #6ea8ff; --sky-soft: #172338;
     --term-bg: #0b0c0f; --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 30%);
     color-scheme: dark;
   }
@@ -44,7 +53,7 @@
 :root[data-theme="dark"] {
   --bg: #111215; --bg-2: #17181d; --panel: #1c1e24; --ink: #ecebe6; --ink-2: #c4c3bd; --muted: #92939b;
   --line: #2b2d35; --line-2: #3a3c46; --bamboo: #5cc27a; --bamboo-ink: #0d1a11; --bamboo-soft: #1a2e20;
-  --sun: #f2b632; --sun-soft: #2e2613; --berry: #ff7a8e; --berry-soft: #35191f; --sky: #6ea8ff; --sky-soft: #172338;
+  --sun: #f2b632; --sun-soft: #2e2613; --sun-text: #f2b632; --chip-ink: #0d0f14; --heat: #7a5a0e; --berry: #ff7a8e; --berry-soft: #35191f; --sky: #6ea8ff; --sky-soft: #172338;
   --term-bg: #0b0c0f; --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 30%);
   color-scheme: dark;
 }
@@ -89,7 +98,7 @@ img, svg { max-width: 100%; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--bg-2); color: var(--ink-2); border: 1px solid var(--line); white-space: nowrap; }
 .pill.ok { background: var(--bamboo-soft); color: var(--bamboo); border-color: transparent; }
-.pill.gold { background: var(--sun-soft); color: var(--sun); border-color: transparent; }
+.pill.gold { background: var(--sun-soft); color: var(--sun-text); border-color: transparent; }
 .pill.warn { background: var(--berry-soft); color: var(--berry); border-color: transparent; }
 .pill.info { background: var(--sky-soft); color: var(--sky); border-color: transparent; }
 
