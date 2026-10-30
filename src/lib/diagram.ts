@@ -18,9 +18,10 @@ export const NARROW_GAP_X = 56;
 // the sizes Diagram.astro draws; a longer label belongs in the caption.
 export const MAX_LABEL = 18;
 export const MAX_SUB = 22;
-// An arrow label has to fit the gap between two columns (100 units): a longer
-// one ran into the boxes either side.
-export const MAX_EDGE_LABEL = 14;
+// An arrow label has to fit the gap between two columns (100 units). At about
+// 7 units a character, 13-14 character labels ("closes the gap") still ran into
+// the boxes either side; 12 clears them.
+export const MAX_EDGE_LABEL = 12;
 // Phones get the layout turned so the short side runs across. Two boxes across
 // keeps a label near 13px on a 375px screen; three shrinks it to about 8px.
 // The long side is capped so the desktop picture still fits a lesson column:
