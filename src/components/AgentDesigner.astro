@@ -89,8 +89,13 @@ import { JOBS, MODELS, PRICES_CHECKED, MINUTES_PER_APPROVAL } from '../lib/agent
   /* Global, prefixed: the action rows and verdict are created by the script. */
   .agent-designer .ad-grid { display: grid; gap: 14px; margin-top: 12px; }
   @media (min-width: 900px) { .agent-designer .ad-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
-  .agent-designer .ad-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
-  .agent-designer .ad-actions { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .agent-designer .ad-main { min-width: 0; display: grid; gap: 10px; align-content: start; grid-template-columns: minmax(0, 1fr); }
+  /* minmax(0, 1fr) and min-width: 0 let rows shrink below their content: a
+     grid item defaults to min-width: auto, so each row grew to its select's
+     widest option and Linux WebKit scrolled phones 3px sideways. */
+  .agent-designer .ad-actions { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .agent-designer .ad-actions, .agent-designer .ad-actions li { min-width: 0; }
+  .agent-designer .ad-actions li select { min-width: 0; flex: 0 1 auto; }
   .agent-designer .ad-actions li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 0.9rem; }
   .agent-designer .ad-label { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; min-width: 0; }
   .agent-designer .ad-tag { font-size: 0.72rem; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--sun-soft); color: var(--sun-text); }
