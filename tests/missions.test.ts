@@ -33,6 +33,20 @@ for (const m of Object.values(GIT_MISSIONS)) {
   });
 }
 
+test('reading the cleaned file does not count as finding the leaked key', () => {
+  // The lesson is that the key survives in history. Looking at HEAD, where it
+  // is gone, proves the opposite, so it must not tick the last step.
+  const m = GIT_MISSIONS['git-secret-history'];
+  const s = m.setup();
+  for (const cmd of ['echo "PAYMENT_KEY=panda_live_7Qx2EXAMPLE" >> config.env', 'git commit -am "add payment key"']) { s.history.push(cmd); run(s.repo, cmd); }
+  assert.equal(m.steps[2].done(s), false, 'committing the key is not the fix');
+  for (const cmd of ['echo "PORT=8080" > config.env', 'git commit -am "remove key"', 'git show HEAD:config.env', 'cat config.env']) { s.history.push(cmd); run(s.repo, cmd); }
+  assert.equal(m.steps[2].done(s), true);
+  assert.equal(m.steps[3].done(s), false, 'HEAD and the working file no longer hold the key');
+  s.history.push('git show HEAD~1'); run(s.repo, 'git show HEAD~1');
+  assert.equal(m.steps[3].done(s), true, 'the commit that added the key shows it in its diff');
+});
+
 function playKube(s: KubeState, cmd: string) {
   const pods = [...s.cluster.pods.values()].filter((p) => p.status !== 'Terminating');
   cmd = cmd

@@ -103,8 +103,24 @@ export class Repo {
     return o;
   }
 
-  /** Full sha from a branch name, HEAD, or an unambiguous prefix of 4+ chars. */
+  /** Full sha from a branch name, HEAD, or an unambiguous prefix of 4+ chars,
+   *  optionally followed by ~N (Nth first-parent ancestor) and ^N (Nth parent). */
   resolve(rev: string): string {
+    // Ref names may not contain ~ or ^, so anything after the first one is a walk.
+    const walk = /^([^~^]+)((?:[~^]\d*)+)$/.exec(rev);
+    if (walk) {
+      let sha = this.resolve(walk[1]);
+      for (const [, op, digits] of walk[2].matchAll(/([~^])(\d*)/g)) {
+        const n = digits === '' ? 1 : Number(digits);
+        const steps = op === '~' ? n : n === 0 ? 0 : 1;
+        for (let i = 0; i < steps; i++) {
+          const parent = this.commit(sha).parents[op === '~' ? 0 : n - 1];
+          if (!parent) throw new GitError(`fatal: ambiguous argument '${rev}': unknown revision or path not in the working tree.`);
+          sha = parent;
+        }
+      }
+      return sha;
+    }
     if (rev === 'HEAD') {
       const h = this.headSha();
       if (!h) throw new GitError(`fatal: ambiguous argument 'HEAD': unknown revision`);
@@ -524,6 +540,41 @@ export class Repo {
       }
     }
     return '';
+  }
+
+  /** `git show <rev>:<path>` prints that file as it was; `git show <rev>` prints
+   *  the commit and what it changed. The first is how a deleted secret is read
+   *  straight back out of history. */
+  show(args: string[]): string {
+    this.requireRepo();
+    const target = args.filter((a) => !a.startsWith('-'))[0] ?? 'HEAD';
+    const colon = target.indexOf(':');
+    if (colon >= 0) {
+      const rev = target.slice(0, colon), path = target.slice(colon + 1);
+      if (!rev) throw new GitError('git show :<path> (the staged copy) is not in this sandbox - name a commit, like HEAD~1:<path>');
+      const blob = this.treeOfCommit(this.resolve(rev)).get(path);
+      if (!blob) {
+        throw new GitError(this.workdir.has(path)
+          ? `fatal: path '${path}' exists on disk, but not in '${rev}'`
+          : `fatal: path '${path}' does not exist in '${rev}'`);
+      }
+      return (this.get(blob) as { data: string }).data.replace(/\n$/, '');
+    }
+    const sha = this.resolve(target);
+    const o = this.commit(sha);
+    const deco = this.decorations(sha);
+    const head = `commit ${sha}${deco ? ` (${deco})` : ''}\nAuthor: ${o.author.name} <${o.author.email}>\nDate:   ${new Date(o.author.time * 1000).toUTCString()}\n\n    ${o.message.split('\n')[0]}\n`;
+    const before = this.treeOfCommit(o.parents[0]), after = this.flatten(o.tree);
+    const chunks: string[] = [];
+    for (const p of [...new Set([...before.keys(), ...after.keys()])].sort()) {
+      if (before.get(p) === after.get(p)) continue;
+      const a = before.has(p) ? (this.get(before.get(p)!) as { data: string }).data : undefined;
+      const b = after.has(p) ? (this.get(after.get(p)!) as { data: string }).data : undefined;
+      const ops = diffLines(splitLines(a ?? ''), splitLines(b ?? ''));
+      chunks.push(`diff --git a/${p} b/${p}\n--- ${a === undefined ? '/dev/null' : 'a/' + p}\n+++ ${b === undefined ? '/dev/null' : 'b/' + p}\n` +
+        ops.map((d) => d.op + d.line).join('\n'));
+    }
+    return [head, ...chunks].join('\n');
   }
 
   catFile(args: string[]): string {

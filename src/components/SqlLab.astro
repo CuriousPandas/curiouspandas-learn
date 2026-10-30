@@ -1,0 +1,108 @@
+---
+import '../styles/widgets.css';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+const PRESETS = ['Mei', "O'Neil", "' OR '1'='1", "Lin' --"];
+---
+<div class="widget card sql-lab" data-sql-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>Find a keeper</strong>
+    <span class="pill info">toy database, in this page</span>
+  </div>
+  <div class="controls">
+    <span class="muted">Try:</span>
+    {PRESETS.map((p) => <button class="btn small" type="button" data-preset={p}><code>{p}</code></button>)}
+  </div>
+  <div class="controls">
+    <label>Name <input type="text" spellcheck="false" autocomplete="off" data-q value="Mei" /></label>
+    <label>The code
+      <select data-mode>
+        <option value="glue">glues the name into the query</option>
+        <option value="param">sends the name as a parameter</option>
+      </select>
+    </label>
+  </div>
+  <span class="eyebrow">What the database receives</span>
+  <pre class="sq-query" data-query></pre>
+  <div class="sq-result" data-result aria-live="polite"></div>
+  <div class="sq-goals" data-goals hidden>
+    <span class="eyebrow">Goals · +40 XP</span>
+    <ul>
+      <li data-goal="all">Make a one-name search return every row</li>
+      <li data-goal="param">Send that same input as a parameter and get nothing back</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { concatenated, parameterised, PANDAS, PREFIX } from '../lib/websec/toysql.ts';
+  import { award } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-sql-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const input = q<HTMLInputElement>('[data-q]'), mode = q<HTMLSelectElement>('[data-mode]');
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    if (mission) q('[data-goals]').hidden = false;
+
+    const goal = (g: string) => {
+      seen.add(g);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 2) award('missions', mission, 40, 'Kept a search from rewriting its own query');
+    };
+
+    const render = () => {
+      const v = input.value;
+      const glued = mode.value === 'glue';
+      const r = glued ? concatenated(v) : parameterised(v);
+      // Mark which characters came from the learner, so it is visible where
+      // their text sits inside the query.
+      const pre = q('[data-query]');
+      const mark = Object.assign(document.createElement('mark'), { textContent: glued ? v : '?' });
+      pre.replaceChildren(PREFIX, ...(glued ? ["'", mark, "'"] : [mark]));
+      if (!glued) pre.append(`\nparameter 1: ${JSON.stringify(v)}`);
+
+      const box = q('[data-result]');
+      if (r.error) {
+        box.className = 'sq-result err';
+        box.textContent = `Error: ${r.error}. The name's own quote ended the string early - the same mistake an attacker uses on purpose.`;
+        return;
+      }
+      const rows = r.rows ?? [];
+      const table = document.createElement('table');
+      table.append(Object.assign(document.createElement('caption'), { textContent: `${rows.length} row${rows.length === 1 ? '' : 's'}` }));
+      const head = table.createTHead().insertRow();
+      for (const h of ['name', 'role']) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.append(th); }
+      const body = table.createTBody();
+      for (const row of rows) { const tr = body.insertRow(); tr.insertCell().textContent = row.name; tr.insertCell().textContent = row.role; }
+      box.className = 'sq-result';
+      box.replaceChildren(table);
+      const isAName = PANDAS.some((p) => p.name === v);
+      if (glued && rows.length === PANDAS.length && !isAName) goal('all');
+      if (!glued && rows.length === 0 && concatenated(v).rows?.length === PANDAS.length) goal('param');
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) => b.addEventListener('click', () => { input.value = b.dataset.preset!; render(); }));
+    input.addEventListener('input', render);
+    mode.addEventListener('change', render);
+    render();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the query and result table are
+     built by the script, and scoped styles never reach them. */
+  .sql-lab input[type="text"] { font: 14px var(--mono); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); min-width: 0; width: 15em; max-width: 100%; }
+  .sql-lab .btn code { background: none; border: 0; padding: 0; }
+  .sql-lab .sq-query { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 10px; font-size: 0.86rem; }
+  .sql-lab .sq-query mark { background: var(--term-hint); color: #1a1200; border-radius: 3px; padding: 0 2px; }
+  .sql-lab .sq-result { min-height: 3em; font-size: 0.9rem; }
+  .sql-lab .sq-result.err { padding: 10px 12px; border-radius: 10px; background: var(--berry-soft); }
+  .sql-lab .sq-result table { border-collapse: collapse; width: 100%; max-width: 360px; }
+  .sql-lab .sq-result caption { text-align: left; font-weight: 700; padding-bottom: 4px; }
+  .sql-lab .sq-result th, .sql-lab .sq-result td { text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--line); }
+  .sql-lab .sq-goals { font-size: 0.92rem; margin-top: 10px; }
+  .sql-lab .sq-goals ul { margin: 4px 0 0; padding-left: 20px; }
+  .sql-lab .sq-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .sql-lab .sq-goals li.done::marker { content: "✓ "; }
+</style>

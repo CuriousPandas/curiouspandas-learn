@@ -449,6 +449,76 @@ await scenario('nn-challenge-prop', '/learn/ml/neural-networks/', async (page) =
   await expectText(page, '[data-nn] [data-goal]', /checkerboard/);
 });
 
+// ---- security 1-3 (writer A)
+await scenario('sec-secret-history', '/learn/security/secrets-in-git/', async (page) => {
+  const r = '[data-git-playground]';
+  await page.locator(`${r} .term-in input`).scrollIntoViewIfNeeded();
+  for (const c of ['echo "PAYMENT_KEY=panda_live_7Qx2EXAMPLE" >> config.env', 'git commit -am "add payment key"', 'echo "PORT=8080" > config.env', 'git commit -am "remove key"', 'cat config.env']) await type(page, r, c);
+  // The current file is clean; reading it must not finish the mission.
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('mission finished before the key was read back from history');
+  await type(page, r, 'git show HEAD~1:config.env');
+  await expectText(page, `${r} .term-out`, /PAYMENT_KEY=panda_live_7Qx2EXAMPLE/);
+  await expectText(page, `${r} .m-debrief`, /revoke the key/);
+  await expectText(page, 'header [data-xp]', /^[1-9]/);
+});
+
+await scenario('sec-hash-lab', '/learn/security/passwords-and-hashing/', async (page) => {
+  const r = '[data-hash-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const ready = () => page.waitForFunction((sel) => !document.querySelector(`${sel} [data-attack]`).disabled && /^[0-9a-f]{64}$/.test(document.querySelector(`${sel} [data-hash]`).textContent), r);
+  await page.selectOption(`${r} [data-pw]`, 'pandabear2024');
+  await page.selectOption(`${r} [data-scheme]`, 'plain');
+  await ready();
+  await page.click(`${r} [data-attack]`);
+  await expectText(page, `${r} [data-out]`, /Cracked after \d+ guesses.*"pandabear2024"/, 15000);
+  await page.click(`${r} [data-table]`);
+  await expectText(page, `${r} [data-out]`, /Found in one lookup/);
+  await page.selectOption(`${r} [data-scheme]`, 'salted');
+  await ready();
+  await page.click(`${r} [data-table]`);
+  await expectText(page, `${r} [data-out]`, /No match\. The table holds hashes of bare words/);
+  // The listed password at 600,000 rounds must outlast the 4s budget.
+  await page.selectOption(`${r} [data-scheme]`, 'pbkdf2');
+  await page.selectOption(`${r} [data-iter]`, '600000');
+  await ready();
+  await page.click(`${r} [data-attack]`);
+  await expectText(page, `${r} [data-out]`, /Gave up after 4s/, 20000);
+  if (await page.locator(`${r} [data-goal].done`).count() !== 3) throw new Error('hash lab goals did not all tick');
+  await expectText(page, 'header [data-xp]', /^[1-9]/);
+});
+
+await scenario('sec-xss-lab', '/learn/security/web-flaws/', async (page) => {
+  const r = '[data-xss-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-preset^="<img"]`);
+  await expectText(page, `${r} [data-verdict]`, /<img onerror>.*event handler/);
+  if (!(await page.locator(`${r} .xl-preview .xl-chip.bad`).count())) throw new Error('the dangerous image is not drawn as a warning chip');
+  // The page must never have created a real <img> from the comment.
+  if (await page.locator(`${r} .xl-preview img`).count()) throw new Error('the preview created a live <img> from the comment');
+  await page.selectOption(`${r} [data-mode]`, 'text');
+  await expectText(page, `${r} [data-verdict]`, /Defused/);
+  await expectText(page, `${r} [data-preview]`, /<img src="x" onerror=/);
+  if (await page.locator(`${r} [data-goal].done`).count() !== 2) throw new Error('xss goals did not both tick');
+  const bg = await page.locator(`${r} .xl-tree`).evaluate((e) => getComputedStyle(e).backgroundColor);
+  if (bg === 'rgba(0, 0, 0, 0)') throw new Error('script-built tree is unstyled - widget styles are not applying');
+});
+
+await scenario('sec-sql-lab', '/learn/security/web-flaws/', async (page) => {
+  const r = '[data-sql-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} [data-result]`, /1 row[\s\S]*Mei/);
+  await page.click(`${r} [data-preset="' OR '1'='1"]`);
+  await expectText(page, `${r} [data-query]`, /WHERE name = '' OR '1'='1'/);
+  await expectText(page, `${r} [data-result]`, /4 rows/);
+  await page.click(`${r} [data-preset="O'Neil"]`);
+  await expectText(page, `${r} [data-result]`, /Error: .*quote ended the string early/);
+  await page.click(`${r} [data-preset="' OR '1'='1"]`);
+  await page.selectOption(`${r} [data-mode]`, 'param');
+  await expectText(page, `${r} [data-query]`, /WHERE name = \?\nparameter 1:/);
+  await expectText(page, `${r} [data-result]`, /0 rows/);
+  if (await page.locator(`${r} [data-goal].done`).count() !== 2) throw new Error('sql goals did not both tick');
+});
+
 await browser.close();
 server?.kill();
 

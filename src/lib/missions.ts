@@ -81,7 +81,44 @@ export const GIT_MISSIONS: Record<string, Mission<GitState>> = {
     ],
     debrief: 'a.txt and b.txt point at the same blob. Git stores content once, named by its hash, no matter how many paths hold it. That is content addressing, and it is why git can tell what changed without comparing every byte.',
   },
+  'git-secret-history': {
+    id: 'git-secret-history', title: 'Deleted is not gone', xp: 60,
+    setup: gitSetup(['git init', 'echo "PORT=8080" > config.env', 'echo "# Bamboo shop" > README.md', 'git add .', 'git commit -m "start the shop"']),
+    steps: [
+      { text: 'Paste the payment key into config.env (it is fake - a real one looks just as harmless)', hint: 'echo "PAYMENT_KEY=panda_live_7Qx2EXAMPLE" >> config.env', done: (s) => hasKey(s.repo.workdir.get('config.env')) || keyCommitted(s.repo) },
+      { text: 'Commit it. This is the mistake', hint: 'git commit -am "add payment key"', done: (s) => keyCommitted(s.repo) },
+      { text: 'Notice, delete the key from the file, and commit the fix', hint: 'echo "PORT=8080" > config.env  then  git commit -am "remove key"', done: (s) => keyCommitted(s.repo) && !treeHasKey(s.repo, s.repo.headSha()) },
+      // Any route that puts the key back on screen counts: reading the old file,
+      // or showing the commit that added or removed it.
+      { text: 'Prove it is still there: read config.env as it was one commit ago', hint: 'git show HEAD~1:config.env', done: (s) => !treeHasKey(s.repo, s.repo.headSha()) && s.history.some((l) => showsKey(s.repo, l.trim())) },
+    ],
+    debrief: 'Deleting the line made a new snapshot. The old one is still in history, and in every clone, fork and CI cache that fetched it. Rewriting history cannot reach those copies, so the real fix is outside git: revoke the key and issue a new one. Then the leaked copy is worthless wherever it is.',
+  },
 };
+
+// The fake key. Shaped to be unmistakably fake and to match no real scanner
+// rule, so pushing this repo cannot trip secret scanning on a real provider.
+const KEY = /panda_live_\w+/;
+const hasKey = (t: string | undefined) => !!t && KEY.test(t);
+const treeHasKey = (r: Repo, sha: string | undefined) => !!sha && [...r.treeOfCommit(sha).values()].some((b) => hasKey((r.get(b) as { data: string }).data));
+const keyCommitted = (r: Repo) => r.allCommits().some((c) => treeHasKey(r, c));
+function showsKey(r: Repo, line: string): boolean {
+  const m = /^git show(?:\s+(\S+))?$/.exec(line);
+  if (!m) return false;
+  try {
+    const spec = m[1] ?? 'HEAD';
+    const colon = spec.indexOf(':');
+    if (colon > 0) {
+      const blob = r.treeOfCommit(r.resolve(spec.slice(0, colon))).get(spec.slice(colon + 1));
+      return !!blob && hasKey((r.get(blob) as { data: string }).data);
+    }
+    // A whole commit shows its diff: the key appears if it is on either side.
+    const c = r.resolve(spec);
+    return treeHasKey(r, c) || treeHasKey(r, r.commit(c).parents[0]);
+  } catch {
+    return false;
+  }
+}
 
 function mergedSnack(r: Repo) {
   const m = r.branches.get('main'), sn = r.branches.get('snack');

@@ -1,0 +1,165 @@
+---
+import '../styles/widgets.css';
+import { WORDLIST } from '../lib/crypto/hashing.ts';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+// Sample passwords only. Asking learners to type a real password into a page
+// to "test" it is exactly the habit this lesson should not build.
+const SAMPLES = ['sunshine', 'panda123', 'pandabear2024', 'correct horse battery staple'];
+---
+<div class="widget card hash-lab" data-hash-lab data-mission={mission} data-budget="4000">
+  <div class="widget-head">
+    <strong>A password vault, and someone who stole it</strong>
+    <span class="pill info">real hashing, on this device</span>
+  </div>
+  <div class="controls">
+    <label>Password <select data-pw>{SAMPLES.map((p) => <option value={p}>{p}</option>)}</select></label>
+    <label>Stored as
+      <select data-scheme>
+        <option value="plain">SHA-256, no salt</option>
+        <option value="salted">SHA-256 with a salt</option>
+        <option value="pbkdf2">PBKDF2 with a salt</option>
+      </select>
+    </label>
+    <label data-iter-wrap hidden>Rounds
+      <select data-iter>
+        <option value="1000">1,000</option>
+        <option value="100000">100,000</option>
+        <option value="600000" selected>600,000</option>
+      </select>
+    </label>
+  </div>
+  <div class="hl-db">
+    <span class="eyebrow">What the stolen database holds</span>
+    <div class="hl-row"><span>salt</span><code data-salt></code></div>
+    <div class="hl-row"><span>hash</span><code data-hash></code></div>
+  </div>
+  <div class="controls">
+    <button class="btn small primary" type="button" data-attack>Run the dictionary attack</button>
+    <button class="btn small" type="button" data-table>Try the lookup table</button>
+    <button class="btn small" type="button" data-measure>Measure this device</button>
+  </div>
+  <p class="hl-out" data-out aria-live="polite">The attacker has a list of {WORDLIST.length} likely passwords. Pick how the password was stored, then attack it.</p>
+  <table class="hl-rates" data-rates hidden>
+    <caption>Guesses per second on this device</caption>
+    <thead><tr><th scope="col">Stored as</th><th scope="col">Guesses / second</th><th scope="col">A billion guesses</th></tr></thead>
+    <tbody data-rate-rows></tbody>
+  </table>
+  <div class="hl-goals" data-goals hidden>
+    <span class="eyebrow">Goals · +60 XP</span>
+    <ul>
+      <li data-goal="crack">Crack an unsalted hash</li>
+      <li data-goal="salt">See a salt make the lookup table useless</li>
+      <li data-goal="slow">Make the attack run out of time on a password that is in its list</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  import { WORDLIST, storePassword, crack, buildTable, lookup, measure, formatDuration, type Scheme, type Stored } from '../lib/crypto/hashing.ts';
+  import { award } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n >= 100 ? Math.round(n).toLocaleString('en') : n.toFixed(1);
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-hash-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const pw = q<HTMLSelectElement>('[data-pw]'), schemeSel = q<HTMLSelectElement>('[data-scheme]'), iter = q<HTMLSelectElement>('[data-iter]');
+    const out = q('[data-out]');
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>('button')];
+    const budget = Number(root.dataset.budget);
+    const mission = root.dataset.mission;
+    const seen = new Set<string>();
+    let stored: Stored | undefined;
+    let table: Map<string, string> | undefined;
+    if (mission) q('[data-goals]').hidden = false;
+
+    const scheme = (): Scheme => schemeSel.value === 'pbkdf2' ? { kind: 'pbkdf2', iterations: Number(iter.value) } : { kind: 'sha256', salted: schemeSel.value === 'salted' };
+    const busy = (on: boolean) => buttons.forEach((b) => { b.disabled = on; });
+    const goal = (g: string) => {
+      seen.add(g);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-goal]')) li.classList.toggle('done', seen.has(li.dataset.goal!));
+      if (mission && seen.size === 3) award('missions', mission, 60, 'Slow, salted hashing beat the attacker');
+    };
+
+    const restore = async () => {
+      q('[data-iter-wrap]').hidden = schemeSel.value !== 'pbkdf2';
+      busy(true);
+      stored = await storePassword(pw.value, scheme());
+      q('[data-salt]').textContent = stored.salt || '(none)';
+      q('[data-hash]').textContent = stored.hash;
+      busy(false);
+    };
+
+    q('[data-attack]').addEventListener('click', async () => {
+      if (!stored) return;
+      busy(true);
+      const r = await crack(stored, WORDLIST, { budgetMs: budget, onProgress: (t, ms) => { out.textContent = `Guessing... ${t} of ${WORDLIST.length} words, ${(ms / 1000).toFixed(1)}s`; } });
+      const rate = r.tries / Math.max(r.ms / 1000, 0.001);
+      if (r.found) {
+        out.textContent = `Cracked after ${r.tries} guesses in ${formatDuration(r.ms / 1000)}: the password is "${r.found}".`;
+        if (stored.scheme.kind === 'sha256' && !stored.scheme.salted) goal('crack');
+      } else if (r.gaveUp) {
+        out.textContent = `Gave up after ${budget / 1000}s: ${r.tries} of ${WORDLIST.length} words tried, ${fmt(rate)} a second. This whole list would take about ${formatDuration(WORDLIST.length / rate)} - and a real list is vastly longer.`;
+        if (WORDLIST.includes(pw.value)) goal('slow');
+      } else {
+        out.textContent = `All ${WORDLIST.length} words tried in ${formatDuration(r.ms / 1000)}: not in this list. A real attacker's list is far bigger, built from past breaches.`;
+      }
+      busy(false);
+    });
+
+    q('[data-table]').addEventListener('click', async () => {
+      if (!stored) return;
+      busy(true);
+      table ??= await buildTable(WORDLIST);
+      const hit = lookup(stored, table);
+      if (hit) {
+        out.textContent = `Found in one lookup: "${hit}". The table was built once, long before this database was stolen, and works on every unsalted database.`;
+        goal('crack');
+      } else if (stored.salt) {
+        out.textContent = 'No match. The table holds hashes of bare words, and this one had a salt mixed in. The attacker would have to redo all that work for this one user - and again for the next.';
+        goal('salt');
+      } else {
+        out.textContent = 'No match: this password is not in the table at all.';
+      }
+      busy(false);
+    });
+
+    q('[data-measure]').addEventListener('click', async () => {
+      busy(true);
+      const rows = q('[data-rate-rows]');
+      rows.replaceChildren();
+      q('[data-rates]').hidden = false;
+      const kinds: [string, Scheme][] = [['SHA-256', { kind: 'sha256', salted: true }], ...[1000, 100000, 600000].map((n): [string, Scheme] => [`PBKDF2, ${n.toLocaleString('en')} rounds`, { kind: 'pbkdf2', iterations: n }])];
+      for (const [label, s] of kinds) {
+        out.textContent = `Measuring ${label}...`;
+        const rate = await measure(s, 500);
+        const tr = document.createElement('tr');
+        for (const t of [label, fmt(rate), formatDuration(1e9 / rate)]) { const td = document.createElement('td'); td.textContent = t; tr.append(td); }
+        rows.append(tr);
+      }
+      out.textContent = 'Measured. Same device, same browser - only the hashing changed.';
+      busy(false);
+    });
+
+    for (const s of [pw, schemeSel, iter]) s.addEventListener('change', restore);
+    restore();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed by the widget class: the rate rows are made by the script,
+     and scoped styles never reach elements Astro did not render. */
+  .hash-lab .hl-db { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+  .hash-lab .hl-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 0.88rem; }
+  .hash-lab .hl-row span { color: var(--muted); }
+  .hash-lab .hl-row code { overflow-wrap: anywhere; background: none; border: 0; padding: 0; }
+  .hash-lab .hl-out { min-height: 3em; margin: 10px 0; padding: 10px 12px; background: var(--bg-2); border-radius: 10px; font-size: 0.93rem; }
+  .hash-lab .hl-rates { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin: 6px 0 10px; }
+  .hash-lab .hl-rates caption { text-align: left; font-weight: 700; padding-bottom: 4px; }
+  .hash-lab .hl-rates th, .hash-lab .hl-rates td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  .hash-lab .hl-rates td:nth-child(n+2) { font-variant-numeric: tabular-nums; }
+  .hash-lab .hl-goals { font-size: 0.92rem; }
+  .hash-lab .hl-goals ul { margin: 4px 0 0; padding-left: 20px; }
+  .hash-lab .hl-goals li.done { color: var(--bamboo); font-weight: 650; }
+  .hash-lab .hl-goals li.done::marker { content: "✓ "; }
+</style>

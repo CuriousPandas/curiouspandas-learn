@@ -68,9 +68,9 @@ export const TRACKS: Track[] = [
     // defender's side. Nothing here points a learner at a system they do not own.
     id: 'security', title: 'Security', tagline: 'How things get broken into - and the habits that stop it.', icon: 'lock', hue: 0,
     lessons: [
-      { slug: 'secrets-in-git', title: 'Deleted is not gone', status: 'soon' },
-      { slug: 'passwords-and-hashing', title: 'Why slow hashes win', status: 'soon' },
-      { slug: 'web-flaws', title: 'When input becomes code', status: 'soon' },
+      { slug: 'secrets-in-git', title: 'Deleted is not gone', status: 'ready' },
+      { slug: 'passwords-and-hashing', title: 'Why slow hashes win', status: 'ready' },
+      { slug: 'web-flaws', title: 'When input becomes code', status: 'ready' },
       { slug: 'supply-chain', title: 'Trusting what you ship', status: 'soon' },
       { slug: 'cluster-access', title: 'Who can do what in a cluster', status: 'soon' },
       { slug: 'identity', title: 'Who are you, really?', status: 'soon' },
