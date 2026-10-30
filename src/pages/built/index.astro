@@ -56,7 +56,7 @@ const stats = [
 
     <div class="prose">
       <h2>Who did what</h2>
-      <p><strong>Dave Johnson</strong> (<a href="https://sallux.dev">Sallux</a>) decided what the site is and is not: free forever, no accounts, nothing running on a server, every lesson playable in a browser. He chose the subjects, the names, the domain, which features to build next, and when something was good enough to ship. He also set the working rules below, which caught most of the bugs on this page.</p>
+      <p><strong>The maintainer</strong>, at <a href="https://github.com/TemplateMechanics">TemplateMechanics</a>, decided what the site is and is not: free forever, no accounts, nothing running on a server, every lesson playable in a browser. They chose the subjects, the names, the domain, which features to build next, and when something was good enough to ship. They also set the working rules below, which caught most of the bugs on this page.</p>
       <p><strong>Claude</strong>, Anthropic's AI model (Opus 5, and Opus 5.5 for the last changes), worked as a coding agent inside <a href="https://claude.com/claude-code">Claude Code</a>. It wrote the lessons, simulators, tests and deployment, ran them, read the results, and fixed what failed. The commits in the <a href="https://github.com/CuriousPandas/curiouspandas-learn">repository</a> credit both.</p>
       <p>For the big pushes, the main agent split the work. Each new trail went to a separate "writer" agent working in its own copy of the repository (a git worktree), with its own lessons, widgets, tests and browser checks. The main agent then merged each one and ran every check again before anything went live. Up to seven writers worked at once.</p>
     </div>
@@ -64,9 +64,9 @@ const stats = [
     <Diagram
       id="built-flow"
       title="How a change reached the site"
-      desc="Dave decides what to build. The main agent plans it and hands whole trails to writer agents, each in its own git worktree. Their work merges back, then unit tests and browser checks in three engines run locally and again in CI, and only a fully green build deploys to GitHub Pages."
+      desc="The maintainer decides what to build. The main agent plans it and hands whole trails to writer agents, each in its own git worktree. Their work merges back, then unit tests and browser checks in three engines run locally and again in CI, and only a fully green build deploys to GitHub Pages."
       nodes={[
-        { id: 'dave', label: 'Dave', sub: 'decides, reviews', x: 0, y: 0 },
+        { id: 'dave', label: 'maintainer', sub: 'decides, reviews', x: 0, y: 0 },
         { id: 'main', label: 'main agent', sub: 'plans, merges', x: 1, y: 0, kind: 'info' },
         { id: 'writers', label: 'writer agents', sub: 'one trail each', x: 2, y: 0, kind: 'info' },
         { id: 'tests', label: 'unit tests', sub: 'vs real tools', x: 3, y: 0 },
@@ -86,7 +86,7 @@ const stats = [
         { from: 'ci', to: 'live', label: 'deploy' },
       ]}
       steps={[
-        { caption: 'Dave picks what to build next and the rules it has to meet.', show: ['dave', 'main', 'dave->main'], focus: ['dave'] },
+        { caption: 'The maintainer picks what to build next and the rules it has to meet.', show: ['dave', 'main', 'dave->main'], focus: ['dave'] },
         { caption: 'The main agent hands whole trails to writer agents, each in its own git worktree so they cannot trip over each other.', show: ['writers', 'main->writers'], focus: ['writers'] },
         { caption: 'Merged work runs the unit tests, many of which compare a simulator against the real tool: real git, real SQLite, real bash.', show: ['tests', 'writers->tests'], focus: ['tests'] },
         { caption: 'Every page is rendered in Chromium, WebKit and Firefox, every widget is driven, and axe checks accessibility. Red goes back for a fix.', show: ['browsers', 'tests->browsers', 'fix', 'browsers->fix', 'fix->tests'], focus: ['browsers', 'fix'] },
