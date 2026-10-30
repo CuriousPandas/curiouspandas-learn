@@ -1,0 +1,110 @@
+---
+title: Why one query takes 2 ms and another 20 s
+summary: Find 10 orders among 200,000, watch SQLite read every row, add an index and watch it jump. Then meet the log-in query an index on email can't help.
+minutes: 18
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: SQLite - query planning (binary search over an index)
+    url: https://www.sqlite.org/queryplanner.html
+  - title: SQLite - EXPLAIN QUERY PLAN (SCAN and SEARCH)
+    url: https://www.sqlite.org/eqp.html
+  - title: SQLite - indexes on expressions
+    url: https://www.sqlite.org/expridx.html
+  - title: PostgreSQL 17 - indexes on expressions (lower(col1))
+    url: https://www.postgresql.org/docs/17/indexes-expressional.html
+  - title: SQLite - ANALYZE
+    url: https://www.sqlite.org/lang_analyze.html
+  - title: PostgreSQL 17 - EXPLAIN (the ANALYZE option)
+    url: https://www.postgresql.org/docs/17/sql-explain.html
+---
+
+A table is stored in one order, usually by its primary key. Ask for "orders where `customer_id` = 4242" and, without help, the database has one option: read every order and keep the ones that match. That's a **full table scan**.
+
+An **index** is a second, sorted copy of one or more columns, each entry pointing back to its row. With an index on `customer_id`, the database does what you'd do with a phone book: jump to the right page. SQLite's documentation describes the lookup as a binary search, so the time grows with log N, the logarithm of the number of rows, not with N itself.
+
+<Diagram
+  id="db-scan-vs-search"
+  title="Walking the table vs jumping through an index"
+  desc="Without an index, finding one customer's orders means reading all 200,000 rows: the plan says SCAN orders. With an index on customer_id, SQLite searches the sorted index and goes straight to the 10 matching rows: the plan says SEARCH orders USING INDEX."
+  nodes={[
+    { id: 'query', label: 'customer_id=4242', sub: 'find 10 orders', x: 0, y: 0, kind: 'info' },
+    { id: 'scan', label: 'SCAN orders', sub: 'reads 200,000 rows', x: 1, y: 0, kind: 'bad' },
+    { id: 'index', label: 'SEARCH, index', sub: 'sorted tree, log N', x: 1, y: 1, kind: 'ok' },
+    { id: 'rows', label: '10 rows', sub: 'same answer', x: 2, y: 0 },
+  ]}
+  edges={[
+    { from: 'query', to: 'scan', label: 'no index' },
+    { from: 'scan', to: 'rows', label: 'every row' },
+    { from: 'query', to: 'index', label: 'with index' },
+    { from: 'index', to: 'rows', label: 'jump' },
+  ]}
+  steps={[
+    { caption: 'One question: which orders belong to customer 4242? There are 10 of them, among 200,000.', show: ['query'], focus: ['query'] },
+    { caption: 'With no index on customer_id, the only plan is to read every row and check it. The plan calls this SCAN.', show: ['scan', 'rows', 'query->scan', 'scan->rows'], focus: ['scan'] },
+    { caption: 'With an index, SQLite searches a sorted structure and lands on the 10 rows directly. The plan says SEARCH ... USING INDEX. Same answer, a tiny fraction of the work.', show: ['index', 'query->index', 'index->rows'], focus: ['index'] },
+  ]}
+/>
+
+## Measure it
+
+The console below builds 200,000 orders and 20,000 customers in your browser. That takes a second or two. Run the query, and read the **plan** SQLite chose and how many rows it had to read.
+
+<DbConsole dataset="shop" mission="db-index" title="200,000 orders" starter="SELECT * FROM orders WHERE customer_id = 4242;" />
+
+Measured for this lesson with the same data and the same SQLite build, in Node 24 on a Windows laptop: the scan took **31 ms** and the indexed lookup **0.48 ms**. Your browser's numbers will differ, but the ratio is the point.
+
+That's how a 2 ms query becomes a 20 s query. A scan's cost grows with the table, so a thousand times more rows means roughly a thousand times longer. The indexed lookup grows with log N and barely moves. The query that was fine in testing with a thousand rows is the one that takes the site down at a hundred million.
+
+## The function that hides the column
+
+Log-in pages usually match emails without caring about capitals: `WHERE lower(email) = lower(?)`. Add an index on `email` and the plan is still `SCAN customers`. The index stores `email`, and the query asks about `lower(email)`, a different value. SQLite uses an expression index only when the query contains the expression exactly as it's written in `CREATE INDEX`. PostgreSQL's documentation uses this very `lower(col1)` example.
+
+Two fixes work:
+
+- **Index the expression:** `CREATE INDEX ... ON customers(lower(email))`.
+- **Store the email already lower-cased,** and compare plain values.
+
+<Callout kind="trap">
+An index isn't free, and it isn't always faster. Every `INSERT` and `UPDATE` must update every index on the table too. And when a query matches a large share of the rows, jumping around an index can lose to just reading the table. For this lesson, a query for all of 2025's orders (66,482 of the 200,000) took **304 ms** through an index on `created_at` and **145 ms** as a full scan. `ANALYZE` gives SQLite's planner the statistics to make that call better.
+</Callout>
+
+<Quiz
+  id="db-idx-1"
+  q="The plan says SCAN orders and the table has grown from 10,000 to 10,000,000 rows. Roughly how much slower is the query?"
+  options={["About the same", "About 1,000 times slower - it still reads every row", "About 3 times slower"]}
+  answer={1}
+  explain="A full scan reads every row, so its cost grows in step with the table. An indexed SEARCH grows with log N, which is why it barely notices."
+/>
+
+<Quiz
+  id="db-idx-2"
+  q="There is an index on created_at. Which query can use it?"
+  options={["WHERE substr(created_at, 1, 7) = '2025-03'", "WHERE created_at >= '2025-03-01' AND created_at < '2025-04-01'", "WHERE strftime('%m', created_at) = '03'"]}
+  answer={1}
+  explain="Comparing the bare column to a range lets the database search the sorted index. Wrapping the column in a function produces a value the index doesn't store."
+/>
+
+<DoItForReal id="db-idx-real" needs="terminal">
+
+The same 200,000 orders in the real `sqlite3` shell, with timings from your machine:
+
+```bash
+sqlite3 :memory:
+```
+
+```sql
+.timer on
+CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, total REAL, created_at TEXT);
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200000)
+INSERT INTO orders SELECT i, (i * 7919) % 20000 + 1, ((i * 104729) % 50000) / 100.0, date('2023-01-01', '+' || ((i * 31) % 1095) || ' days') FROM n;
+EXPLAIN QUERY PLAN SELECT * FROM orders WHERE customer_id = 4242;
+SELECT count(*) FROM orders WHERE customer_id = 4242;
+CREATE INDEX idx_orders_customer ON orders(customer_id);
+EXPLAIN QUERY PLAN SELECT * FROM orders WHERE customer_id = 4242;
+SELECT count(*) FROM orders WHERE customer_id = 4242;
+```
+
+In PostgreSQL the command is `EXPLAIN ANALYZE`. It runs the query and reports the plan along with the real time each step took.
+
+</DoItForReal>

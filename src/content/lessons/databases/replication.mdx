@@ -1,0 +1,112 @@
+---
+title: Replicas, lag and why a replica is not a backup
+summary: A replica copies every change a moment later. That's why you can save your name and still see the old one - and why a replica copies a DROP TABLE just as faithfully. Get the data back with point-in-time recovery.
+minutes: 18
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: PostgreSQL 17 - log shipping and streaming replication
+    url: https://www.postgresql.org/docs/17/warm-standby.html
+  - title: PostgreSQL 17 - hot standby (delay between primary and standby)
+    url: https://www.postgresql.org/docs/17/hot-standby.html
+  - title: PostgreSQL 17 - WAL settings (synchronous_commit, recovery targets)
+    url: https://www.postgresql.org/docs/17/runtime-config-wal.html
+  - title: PostgreSQL 17 - continuous archiving and point-in-time recovery
+    url: https://www.postgresql.org/docs/17/continuous-archiving.html
+  - title: PostgreSQL 17 - pg_last_wal_replay_lsn()
+    url: https://www.postgresql.org/docs/17/functions-admin.html
+  - title: PostgreSQL 17 - recovery_min_apply_delay
+    url: https://www.postgresql.org/docs/17/runtime-config-replication.html
+  - title: CloudNativePG 1.30 - recovery
+    url: https://cloudnative-pg.io/docs/1.30/recovery
+  - title: TemplateMechanics/tilt - the demo-pg Cluster
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/cloudnative-pg/clusters/demo-cluster.yaml
+---
+
+Every change a PostgreSQL server makes is first written to its **write-ahead log** (WAL). That log is what makes the next two things possible.
+
+- **A replica** (a standby) receives the primary's WAL and replays it, so it holds a live copy you can read from. It spreads read load and gives you a server to fail over to.
+- **An archive** keeps every WAL file, alongside a periodic **base backup**. Together they let you rebuild the database as it was at any moment you choose. That's **point-in-time recovery** (PITR).
+
+Both are copies, but only one of them is a backup.
+
+<Diagram
+  id="db-copies-vs-backups"
+  title="Two copies that behave very differently"
+  desc="The primary takes writes and streams its WAL to a replica, which replays it a moment later. The primary also archives every WAL file. Restoring last night's base backup and replaying the archived WAL up to a chosen time rebuilds the database as it was at that moment. When someone drops a table, the replica replays the drop; the archive can stop just before it."
+  nodes={[
+    { id: 'primary', label: 'primary', sub: 'takes the writes', x: 0, y: 0, kind: 'info' },
+    { id: 'replica', label: 'replica', sub: 'replays WAL late', x: 1, y: 0, kind: 'warn' },
+    { id: 'archive', label: 'WAL archive', sub: 'every change, kept', x: 0, y: 1 },
+    { id: 'pitr', label: 'PITR', sub: 'rebuilt at time T', x: 1, y: 1, kind: 'ok' },
+    { id: 'base', label: 'base backup', sub: 'nightly, 02:00', x: 2, y: 1 },
+  ]}
+  edges={[
+    { from: 'primary', to: 'replica', label: 'streams WAL' },
+    { from: 'primary', to: 'archive', label: 'archives' },
+    { from: 'archive', to: 'pitr', label: 'replay to T' },
+    { from: 'base', to: 'pitr', label: 'restore' },
+  ]}
+  steps={[
+    { caption: 'The primary takes every write and records it in its WAL.', show: ['primary'], focus: ['primary'] },
+    { caption: 'It streams that WAL to a replica, which replays it a moment later. In PostgreSQL this is asynchronous by default: the primary does not wait.', show: ['replica', 'primary->replica'], focus: ['replica'] },
+    { caption: 'A DROP TABLE is just another change in the WAL. The replica replays it within a second. A copy of the mistake is still the mistake.', show: [], focus: ['replica', 'primary->replica'] },
+    { caption: 'The archive keeps every WAL file, and a base backup is taken each night.', show: ['archive', 'base', 'primary->archive'], focus: ['archive', 'base'] },
+    { caption: 'Restore the base backup, replay the archive up to a moment before the DROP, and stop. That is point-in-time recovery.', show: ['pitr', 'archive->pitr', 'base->pitr'], focus: ['pitr'] },
+  ]}
+/>
+
+## Lag you can see, and a mistake you can't undo by copying
+
+<ReplicaLab mission="db-replica" />
+
+## Reading your own writes
+
+PostgreSQL's documentation says it plainly: WAL "takes some time to arrive from the primary server so there will be a measurable delay between primary and standby." Usually that's milliseconds, which is long enough for a user who saves a change and reloads instantly. The fixes trade cost in different places:
+
+- **Route a user's reads to the primary briefly after they write.** Cheap, and everyone else still uses replicas.
+- **Make the replica read wait** until it has replayed the write. The app remembers the write's WAL position and compares it with `pg_last_wal_replay_lsn()` on the replica.
+- **Make commits wait** with `synchronous_commit = remote_apply`, so the commit doesn't return until the standby has applied it. Every write pays for the round trip.
+
+More replicas don't help. Each one lags just the same.
+
+## Recovering a dropped table
+
+Promoting the replica gives you a server with no `orders` table, because it already replayed the drop. Last night's backup brings back the table as it was at 02:00, without today's orders. Only the backup **plus the WAL archive**, replayed with `recovery_target_time` set before the mistake, brings everything back. By default (`recovery_target_inclusive = on`) PostgreSQL stops just after the target, so the target has to fall before the DROP and after the last order you want.
+
+<Callout kind="trap">
+A database with replicas looks protected, and a backup job that runs every night looks protected. Neither is, until you've restored it. The next track, Resilience, covers testing restores. The short version: a backup you've never restored is a hope, not a backup.
+</Callout>
+
+<Callout kind="tip">
+A **delayed replica** is a middle ground. With `recovery_min_apply_delay = 1h`, a standby stays an hour behind on purpose, which gives you an hour to stop it before it replays a mistake.
+</Callout>
+
+<Quiz
+  id="db-rep-1"
+  q="Someone runs DROP TABLE on the primary. You have an asynchronous replica and a nightly backup. What brings back every row?"
+  options={["Promote the replica", "Restore the nightly backup", "Restore the backup and replay the WAL archive to just before the DROP"]}
+  answer={2}
+  explain="The replica replays the DROP within a moment. The nightly backup misses everything since it ran. The backup plus archived WAL can rebuild the database at any moment, including one second before the mistake."
+/>
+
+<Quiz
+  id="db-rep-2"
+  q="Users save a profile change and sometimes still see the old value after a reload. Reads go to a replica. Which change does NOT fix it?"
+  options={["Add another replica", "Send each user's own reads to the primary for a few seconds after they write", "Have the replica read wait until it has replayed that user's write"]}
+  answer={0}
+  explain="Another replica lags just like the first. The fix has to tie the read to the write: read where the write already is, or wait until the replica has caught up."
+/>
+
+<DoItForReal id="db-rep-real" profile="gitops">
+
+Look at what tilt's own database can and can't recover from:
+
+```bash
+kubectl -n cnpg-system get cluster demo-pg                 # INSTANCES 1: no replica to fail over to
+kubectl -n cnpg-system get cluster demo-pg -o jsonpath='{.spec.backup}'; echo   # empty: no backup configured
+```
+
+The empty `backup` isn't an oversight. The Cluster's own comments in tilt say WAL archiving needs an object store, which a laptop doesn't have, and that a cluster with no backup stanza "looks configured and has no recovery path whatsoever". CloudNativePG's documentation agrees: "A valid WAL archive is required to perform PITR."
+
+</DoItForReal>

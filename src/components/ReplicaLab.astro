@@ -1,0 +1,109 @@
+---
+// A primary, a streaming replica and a backup with its WAL archive
+// (src/lib/db/replica.ts): first reading your own write, then a dropped table.
+import '../styles/widgets.css';
+import { ROUTES, METHODS, TARGETS, LAG_MS, READ_AFTER_MS, TODAY, BEFORE_BACKUP } from '../lib/db/replica.ts';
+interface Props { mission?: string }
+const { mission = '' } = Astro.props;
+---
+<div class="widget card replica-lab" data-replica-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>Primary, replica, backup</strong>
+    <span class="pill info">replica lag {LAG_MS} ms</span>
+  </div>
+  <div class="rl-grid">
+    <div class="rl-parts">
+      <fieldset class="rl-box">
+        <legend class="eyebrow">Reading your own write</legend>
+        <p class="small">You change your display name from <b>Bao</b> to <b>Bamboo Bao</b>, and the page reloads {READ_AFTER_MS} ms later.</p>
+        <label>Reads <select data-route>{Object.entries(ROUTES).map(([k, v]) => <option value={k}>{v}</option>)}</select></label>
+        <button class="btn small primary" type="button" data-save>Save and reload</button>
+        <div class="rl-out" data-read aria-live="polite"></div>
+      </fieldset>
+      <fieldset class="rl-box">
+        <legend class="eyebrow">The dropped table</legend>
+        <p class="small">A base backup ran at 02:00 with {BEFORE_BACKUP.toLocaleString('en-US')} orders, and every change since is in the WAL archive. {TODAY} orders came in today. At <b>14:05:00</b> someone runs <code>DROP TABLE orders</code> on the primary.</p>
+        <label>Recovery <select data-method>{Object.entries(METHODS).map(([k, v]) => <option value={k}>{v}</option>)}</select></label>
+        <label>Replay up to <select data-target disabled>{TARGETS.map((t) => <option value={t} selected={t === '14:05:30'}>{t}</option>)}</select></label>
+        <button class="btn small primary" type="button" data-recover>Recover</button>
+        <div class="rl-out" data-recovered aria-live="polite"></div>
+      </fieldset>
+    </div>
+    <div data-mission-panel hidden></div>
+  </div>
+</div>
+
+<script>
+  import { LAG_MS, READ_AFTER_MS, ALL, type Route, type Method } from '../lib/db/replica.ts';
+  import { REPLICA_MISSION, doRead, doRecover, type ReplicaState } from '../lib/db/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-replica-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const route = q<HTMLSelectElement>('[data-route]'), method = q<HTMLSelectElement>('[data-method]'), target = q<HTMLSelectElement>('[data-target]');
+    const state: ReplicaState = { reads: [], recoveries: [] };
+    let refresh = () => {};
+    if (root.dataset.mission) {
+      const panel = q('[data-mission-panel]');
+      panel.hidden = false;
+      refresh = mountMission(panel, REPLICA_MISSION, () => state, () => {});
+    }
+    method.addEventListener('change', () => { target.disabled = method.value !== 'pitr'; });
+
+    const facts = (pairs: [string, string][]) => el('dl', { class: 'rl-facts' }, ...pairs.flatMap(([k, v]) => [el('dt', {}, k), el('dd', {}, v)]));
+
+    q('[data-save]').addEventListener('click', () => {
+      const r = doRead(state, route.value as Route);
+      const box = q('[data-read]');
+      const name = r.sees === 'new' ? 'Bamboo Bao' : 'Bao';
+      const why = r.sees === 'old'
+        ? `The reload read a replica that had not replayed your change yet: it applies ${LAG_MS} ms after the primary commits, and you read at ${READ_AFTER_MS} ms.`
+        : r.route === 'primary'
+          ? 'Fresh - and so is everyone else\'s read, because every read now lands on the primary. The replicas sit idle.'
+          : r.route === 'sync'
+            ? `Fresh, because the commit waited for the replica. Every write in the app now takes ${r.writeMs} ms instead of 5.`
+            : r.route === 'wait-lsn'
+              ? `Fresh, but this read waited ${r.readMs} ms for the replica to catch up.`
+              : 'Fresh: your own reads went to the primary for a moment; everyone else\'s still use the replica.';
+      box.replaceChildren(
+        el('p', { class: `rl-verdict ${r.sees === 'new' ? 'ok' : 'bad'}` }, `You see: ${name}`),
+        facts([['write', `${r.writeMs} ms`], ['read', `${r.readMs} ms`], ['other users read', r.othersOnReplicas ? 'replicas' : 'the primary']]),
+        el('p', { class: 'small' }, why));
+      refresh();
+    });
+
+    q('[data-recover]').addEventListener('click', () => {
+      const r = doRecover(state, method.value as Method, target.value);
+      const box = q('[data-recovered]');
+      box.replaceChildren(
+        el('p', { class: `rl-verdict ${r.lost === 0 ? 'ok' : 'bad'}` }, r.tableExists ? `orders is back: ${r.orders.toLocaleString('en-US')} of ${ALL.toLocaleString('en-US')} orders` : 'orders does not exist'),
+        el('p', { class: 'small' }, r.note));
+      root.dataset.lost = String(r.lost);
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  .replica-lab .rl-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .replica-lab .rl-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); } }
+  .replica-lab .rl-parts { display: grid; gap: 12px; min-width: 0; align-content: start; }
+  /* minmax(0, 1fr): a grid column otherwise grows to its widest item, and a
+     select is as wide as its longest option - the remote_apply one pushed a
+     375px phone 216px sideways. */
+  .replica-lab .rl-box { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 12px; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+  .replica-lab .rl-box select { max-width: 100%; min-width: 0; }
+  .replica-lab .rl-box p { margin: 0; }
+  .replica-lab .rl-box > label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.9rem; }
+  .replica-lab .rl-box select { font: inherit; font-size: 0.86rem; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .replica-lab .rl-box select:disabled { color: var(--muted); }
+  .replica-lab .rl-box .btn { justify-self: start; }
+  .replica-lab .rl-out { display: grid; gap: 6px; }
+  .replica-lab .rl-out:empty { display: none; }
+  .replica-lab .rl-verdict { font-weight: 700; padding: 6px 10px; border-radius: 8px; }
+  .replica-lab .rl-verdict.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .replica-lab .rl-verdict.bad { background: var(--berry-soft); color: var(--berry); }
+  .replica-lab .rl-facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 0.86rem; }
+  .replica-lab .rl-facts dt { color: var(--muted); }
+  .replica-lab .rl-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+</style>

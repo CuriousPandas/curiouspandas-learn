@@ -1287,6 +1287,121 @@ await scenario('launch-traction', '/learn/launch/first-users/', async (page) => 
   await expectText(page, `${r} .m-debrief`, /do not scale while you still can/);
 });
 
+// ---- databases (writer DB) -------------------------------------------------
+// The SQL consoles run real SQLite (WebAssembly, served from this origin) in a
+// worker. Each scenario tries the tempting wrong query first and checks the
+// mission does not tick, then plays it right.
+
+const dbReady = (page, r, timeout = 30000) => page.waitForFunction((sel) => document.querySelector(sel)?.dataset.ready === '1', r, { timeout });
+
+await scenario('db-zoo', '/learn/databases/sql-basics/', async (page) => {
+  const r = '[data-db-console]';
+  await page.locator(`${r} .term-in input`).scrollIntoViewIfNeeded();
+  await dbReady(page, r);
+  await type(page, r, 'SELECT * FROM pandas;');
+  await expectText(page, `${r} .term-out`, /8 rows in/);
+  await expectText(page, `${r} [data-result] caption`, /^8 rows$/);
+  // COUNT(*) after a LEFT JOIN gives Ravi a panda he does not have.
+  await type(page, r, 'SELECT k.name, COUNT(*) FROM keepers k LEFT JOIN pandas p ON p.keeper_id = k.id GROUP BY k.id;');
+  await expectText(page, `${r} [data-result]`, /Ravi\s*1/);
+  await type(page, r, 'SELECT p.name, k.name FROM pandas p JOIN keepers k ON k.id = p.keeper_id;');
+  await expectText(page, `${r} .term-out`, /7 rows in/);
+  if (await doneSteps(page, r) !== 1) throw new Error(`tempting queries ticked ${await doneSteps(page, r)} steps, expected only step 1`);
+  for (const sql of [
+    'SELECT name, age FROM pandas WHERE age > 10 ORDER BY age DESC;',
+    'SELECT p.name, k.name FROM pandas p LEFT JOIN keepers k ON k.id = p.keeper_id;',
+    "SELECT p.name, SUM(f.kg) FROM pandas p JOIN feedings f ON f.panda_id = p.id WHERE f.food = 'bamboo' GROUP BY p.name;",
+    'SELECT k.name, COUNT(p.id) FROM keepers k LEFT JOIN pandas p ON p.keeper_id = k.id GROUP BY k.name;',
+  ]) await type(page, r, sql);
+  await expectText(page, `${r} .m-debrief`, /COUNT\(p\.id\) skips the NULL/);
+  // Script-created result cells must be styled (scoped CSS never reaches them).
+  await type(page, r, 'SELECT p.name, k.name FROM pandas p LEFT JOIN keepers k ON k.id = p.keeper_id;');
+  await expectText(page, `${r} [data-result] td.null`, /NULL/);
+  const style = await page.locator(`${r} [data-result] td.null`).first().evaluate((e) => getComputedStyle(e).fontStyle);
+  if (style !== 'italic') throw new Error('NULL cells are unstyled - widget styles are not applying');
+});
+
+await scenario('db-runaway', '/learn/databases/sql-basics/', async (page) => {
+  // A query that never ends must be stopped and reported, not freeze the tab
+  // or come back looking like an empty result.
+  const r = '[data-db-console]';
+  await page.locator(`${r} .term-in input`).scrollIntoViewIfNeeded();
+  await dbReady(page, r);
+  await type(page, r, 'WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT count(*) FROM n;');
+  await expectText(page, `${r} .term-out`, /Stopped after 4 s/, 15000);
+  await type(page, r, 'SELECT count(*) FROM pandas;');
+  await expectText(page, `${r} .term-out`, /1 row in/, 15000);
+  await expectText(page, `${r} [data-result]`, /8/);
+});
+
+await scenario('db-index', '/learn/databases/indexes/', async (page) => {
+  const r = '[data-db-console]';
+  await page.locator(`${r} .term-in input`).scrollIntoViewIfNeeded();
+  await dbReady(page, r, 45000);
+  await type(page, r, 'SELECT * FROM orders WHERE customer_id = 4242;');
+  await expectText(page, `${r} [data-plan]`, /SCAN orders[\s\S]*Read every row of orders: 200,000 rows, to return 10/, 15000);
+  await type(page, r, 'CREATE INDEX idx_orders_customer ON orders(customer_id);');
+  await expectText(page, `${r} [data-schema]`, /CREATE INDEX idx_orders_customer/, 15000);
+  await type(page, r, 'SELECT * FROM orders WHERE customer_id = 4242;');
+  await expectText(page, `${r} [data-plan]`, /SEARCH orders USING INDEX idx_orders_customer \(customer_id=\?\)/, 15000);
+  // The tempting fix: an index on email does not help lower(email).
+  await type(page, r, 'CREATE INDEX idx_email ON customers(email);');
+  await expectText(page, `${r} [data-schema]`, /idx_email ON/, 15000);
+  await type(page, r, "SELECT * FROM customers WHERE lower(email) = lower('Panda4242@Example.com');");
+  await expectText(page, `${r} [data-plan]`, /Read every row of customers/, 15000);
+  if (await doneSteps(page, r) !== 2) throw new Error(`an index on email ticked the lower(email) step (${await doneSteps(page, r)} done)`);
+  await type(page, r, 'CREATE INDEX idx_email_lower ON customers(lower(email));');
+  await expectText(page, `${r} [data-schema]`, /lower\(email\)/, 15000);
+  await type(page, r, "SELECT * FROM customers WHERE lower(email) = lower('Panda4242@Example.com');");
+  await expectText(page, `${r} [data-plan]`, /SEARCH customers USING INDEX idx_email_lower/, 15000);
+  await expectText(page, `${r} .m-debrief`, /Index the expression/);
+});
+
+await scenario('db-lost-update', '/learn/databases/transactions/', async (page) => {
+  const r = '[data-txn-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const sale = async (strategy, retry = false) => {
+    await page.selectOption(`${r} [data-strategy]`, strategy);
+    if (retry) await page.check(`${r} [data-retry]`); else if (strategy === 'repeatable') await page.uncheck(`${r} [data-retry]`);
+    await page.click(`${r} [data-run]`);
+    await page.waitForFunction((sel) => !document.querySelector(`${sel} [data-run]`).disabled, r, { timeout: 15000 });
+    return page.locator(`${r} [data-result]`).innerText();
+  };
+  if (!/^Stock 9 .*1 sale lost/.test(await sale('none'))) throw new Error('read-then-write did not lose a sale');
+  const txn = await sale('txn');
+  if (!/^Stock 9/.test(txn)) throw new Error(`BEGIN ... COMMIT should still lose a sale: ${txn}`);
+  if (!(await page.locator(`${r} [data-events] li.wait`).count())) throw new Error('clerk B never waited for the row lock');
+  const rr = await sale('repeatable');
+  if (!/1 refused/.test(rr)) throw new Error(`REPEATABLE READ should refuse one sale: ${rr}`);
+  await expectText(page, `${r} [data-events] li.err`, /could not serialize access due to concurrent update/);
+  if (await doneSteps(page, r) !== 2) throw new Error(`a transaction alone or a refused sale ticked step 3 (${await doneSteps(page, r)} done)`);
+  if (!/^Stock 8/.test(await sale('atomic'))) throw new Error('stock = stock - 1 did not end at 8');
+  if (!/^Stock 8/.test(await sale('repeatable', true))) throw new Error('retrying the refused sale did not end at 8');
+  await expectText(page, `${r} .m-debrief`, /real PostgreSQL 17\.6/);
+});
+
+await scenario('db-replica', '/learn/databases/replication/', async (page) => {
+  const r = '[data-replica-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const read = async (route) => { await page.selectOption(`${r} [data-route]`, route); await page.click(`${r} [data-save]`); return page.locator(`${r} [data-read]`).innerText(); };
+  const restore = async (method, target) => {
+    await page.selectOption(`${r} [data-method]`, method);
+    if (target) await page.selectOption(`${r} [data-target]`, target);
+    await page.click(`${r} [data-recover]`);
+    return page.locator(`${r} [data-recovered]`).innerText();
+  };
+  if (!/You see: Bao\b/.test(await read('replica'))) throw new Error('a lagging replica showed the new name');
+  if (!/You see: Bao\b/.test(await read('two-replicas'))) throw new Error('a second replica should lag just the same');
+  if (!/other users read\s*the primary/.test(await read('primary'))) throw new Error('all-reads-to-primary should leave the replicas idle');
+  if (!/orders does not exist/.test(await restore('promote'))) throw new Error('the promoted replica still had the table');
+  if (!/4,800 of 5,112/.test(await restore('nightly'))) throw new Error("last night's backup should miss today's orders");
+  if (!/orders does not exist/.test(await restore('pitr', '14:05:30'))) throw new Error('replaying past the DROP should replay it');
+  if (await doneSteps(page, r) !== 1) throw new Error(`tempting fixes ticked ${await doneSteps(page, r)} steps, expected 1`);
+  if (!/You see: Bamboo Bao/.test(await read('sticky'))) throw new Error('reading your own writes from the primary did not show the new name');
+  if (!/5,112 of 5,112/.test(await restore('pitr', '14:04:59'))) throw new Error('PITR to 14:04:59 did not bring every order back');
+  await expectText(page, `${r} .m-debrief`, /copies your mistakes/);
+});
+
 await browser.close();
 server?.kill();
 

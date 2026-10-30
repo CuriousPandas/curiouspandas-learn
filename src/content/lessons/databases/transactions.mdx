@@ -1,0 +1,114 @@
+---
+title: Transactions and the lost update
+summary: Two clerks sell the same tee at the same moment and the stock only drops by one. Find out why BEGIN and COMMIT alone don't fix it, and the three fixes that do - each checked against a real PostgreSQL.
+minutes: 18
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: PostgreSQL 17 - transaction isolation
+    url: https://www.postgresql.org/docs/17/transaction-iso.html
+  - title: PostgreSQL 17 - explicit locking (FOR UPDATE)
+    url: https://www.postgresql.org/docs/17/explicit-locking.html
+  - title: PostgreSQL 17 - serialization failure handling
+    url: https://www.postgresql.org/docs/17/mvcc-serialization-failure-handling.html
+---
+
+A **transaction** groups statements so they succeed or fail together. Move money between two accounts inside one, and you never see the money leave one account without arriving in the other. That's the promise most people know.
+
+There's a quieter problem a transaction doesn't solve on its own: two people changing the same row at the same time.
+
+## The lost update
+
+The shop has 10 panda tees. Two clerks each sell one, half a second apart. Each clerk's app does the obvious thing: read the stock, subtract one, and write the result back.
+
+<Diagram
+  id="db-lost-update"
+  title="Two sales, one decrement"
+  desc="Clerk A reads a stock of 10. Clerk B also reads 10 before A writes. A writes 9. B, working from its own read, also writes 9. Two tees were sold, but the stock only dropped by one: A's update was lost."
+  nodes={[
+    { id: 'ar', label: 'A reads 10', sub: 'SELECT stock', x: 0, y: 0, kind: 'info' },
+    { id: 'br', label: 'B reads 10', sub: 'before A writes', x: 1, y: 0, kind: 'info' },
+    { id: 'aw', label: 'A writes 9', sub: '10 - 1', x: 0, y: 1 },
+    { id: 'bw', label: 'B writes 9', sub: 'its own 10 - 1', x: 1, y: 1, kind: 'bad' },
+    { id: 'end', label: 'stock: 9', sub: 'two sold, one lost', x: 1, y: 2, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'ar', to: 'aw', label: 'minus 1' },
+    { from: 'br', to: 'bw', label: 'minus 1' },
+    { from: 'aw', to: 'end', label: 'overwritten', dashed: true },
+    { from: 'bw', to: 'end', label: 'last write' },
+  ]}
+  steps={[
+    { caption: 'Clerk A reads the stock: 10.', show: ['ar'], focus: ['ar'] },
+    { caption: 'Half a second later clerk B reads it too, before A has written anything. B also sees 10.', show: ['br'], focus: ['br'] },
+    { caption: 'A works out 10 - 1 and writes 9.', show: ['aw', 'ar->aw'], focus: ['aw'] },
+    { caption: "B works out 10 - 1 from its own read and also writes 9, overwriting A's change. Two tees sold, and the stock dropped by one.", show: ['bw', 'end', 'br->bw', 'aw->end', 'bw->end'], focus: ['bw', 'end'] },
+  ]}
+/>
+
+## Does BEGIN ... COMMIT fix it?
+
+Run it and see. Every strategy below replays what **PostgreSQL 17.6** actually did with two real `psql` sessions, recorded for this lesson, including the moment clerk B sat waiting.
+
+<TxnLab mission="db-lost-update" />
+
+## Why the transaction alone didn't help
+
+PostgreSQL's default isolation level is **Read Committed**: each statement sees the data committed before it began. Clerk B's `UPDATE` found the row locked by A, so it **waited for A to commit**, exactly as the documentation describes. Then it carried on and wrote its 9. The database protected the row. It couldn't know that B's 9 was based on a number that was no longer true.
+
+The three fixes all stop B from acting on a stale read:
+
+| Fix | What changes | Cost |
+|---|---|---|
+| `SELECT ... FOR UPDATE` | B's *read* waits until A commits, so B reads 9 | Clerks queue for the row |
+| `SET stock = stock - 1` | The database does the arithmetic on the current value; no stale read exists | Only works when the change is a simple calculation |
+| `REPEATABLE READ` | B's write is refused with a serialization error | The app must catch the error and retry |
+
+<Callout kind="trap">
+At `REPEATABLE READ` or `SERIALIZABLE`, PostgreSQL's documentation is direct: applications "must be prepared to retry transactions that fail due to serialization errors". An app that shows the error to the customer, or quietly swallows it, has swapped a lost sale for a refused one.
+</Callout>
+
+<Quiz
+  id="db-tx-1"
+  q="Both clerks run BEGIN; SELECT stock; UPDATE stock = (what they read - 1); COMMIT at READ COMMITTED. What happens?"
+  options={["The second clerk gets an error", "The second UPDATE waits for the first to commit, then writes its own stale number - one sale is lost", "The database adds both decrements automatically"]}
+  answer={1}
+  explain="Read Committed makes the second updater wait for the first, then proceed. It protects the row, not the arithmetic your application did with a value it read earlier."
+/>
+
+<Quiz
+  id="db-tx-2"
+  q="Which change removes the lost update with no extra locking statement in the app?"
+  options={["UPDATE items SET stock = stock - 1", "Reading the stock twice", "Adding an index on sku"]}
+  answer={0}
+  explain="The database computes stock - 1 from the row's current committed value. The second update waits for the first and then applies to the new row, so both decrements count."
+/>
+
+<Callout kind="real">
+The same bug turns up as double-booked seats, overdrawn balances and reused coupon codes, anywhere code reads a value, decides, and writes back. The pattern to look for in code review is a `SELECT` followed by an `UPDATE` that writes a number the application calculated.
+</Callout>
+
+<DoItForReal id="db-tx-real" profile="gitops">
+
+The `gitops` profile runs a CloudNativePG cluster called `demo-pg`. Open **two terminals** and connect both:
+
+```bash
+kubectl -n cnpg-system exec -it demo-pg-1 -- psql demo
+```
+
+Then, in each terminal in turn (A first, then B, then back to A):
+
+```sql
+CREATE TABLE IF NOT EXISTS items (sku text PRIMARY KEY, stock int);
+INSERT INTO items VALUES ('panda-tee', 10) ON CONFLICT (sku) DO UPDATE SET stock = 10;  -- terminal A only
+BEGIN;
+SELECT stock FROM items WHERE sku = 'panda-tee';           -- A, then B: both see 10
+UPDATE items SET stock = 9 WHERE sku = 'panda-tee';        -- A, then B: B hangs
+COMMIT;                                                    -- in A: watch B's UPDATE finish
+COMMIT;                                                    -- in B
+SELECT stock FROM items WHERE sku = 'panda-tee';           -- 9
+```
+
+Repeat with `SELECT ... FOR UPDATE`, and then with `BEGIN ISOLATION LEVEL REPEATABLE READ;`, and compare.
+
+</DoItForReal>

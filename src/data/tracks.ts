@@ -58,10 +58,10 @@ export const TRACKS: Track[] = [
   {
     id: 'databases', title: 'Databases', tagline: 'Where the data lives - and how not to lose it, corrupt it or wait on it.', icon: 'database', hue: 120,
     lessons: [
-      { slug: 'sql-basics', title: 'Tables, queries and joins', status: 'soon' },
-      { slug: 'indexes', title: 'Why one query takes 2 ms and another 20 s', status: 'soon' },
-      { slug: 'transactions', title: 'Transactions and the lost update', status: 'soon' },
-      { slug: 'replication', title: 'Replicas, lag and why a replica is not a backup', status: 'soon' },
+      { slug: 'sql-basics', title: 'Tables, queries and joins', status: 'ready' },
+      { slug: 'indexes', title: 'Why one query takes 2 ms and another 20 s', status: 'ready' },
+      { slug: 'transactions', title: 'Transactions and the lost update', status: 'ready' },
+      { slug: 'replication', title: 'Replicas, lag and why a replica is not a backup', status: 'ready' },
     ],
   },
   {
