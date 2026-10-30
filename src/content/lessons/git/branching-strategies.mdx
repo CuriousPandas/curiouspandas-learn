@@ -1,0 +1,172 @@
+---
+title: Git Flow, GitHub Flow and trunk-based
+summary: Every team agrees, out loud or not, on how work flows into main. Meet the three common models, what each one optimises for, and run two weeks of a feature to feel why long-lived branches hurt.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+sources:
+  - title: Vincent Driessen - A successful Git branching model (2010, with a note of reflection, 2020)
+    url: https://nvie.com/posts/a-successful-git-branching-model/
+  - title: GitHub Docs - GitHub flow
+    url: https://docs.github.com/en/get-started/using-github/github-flow
+  - title: trunkbaseddevelopment.com
+    url: https://trunkbaseddevelopment.com/
+  - title: DORA - Capabilities - Trunk-based development
+    url: https://dora.dev/capabilities/trunk-based-development/
+  - title: Pro Git, chapter 3.4 - Branching Workflows
+    url: https://git-scm.com/book/en/v2/Git-Branching-Branching-Workflows
+  - title: Pete Hodgson - Feature Toggles (aka Feature Flags), martinfowler.com (2017)
+    url: https://martinfowler.com/articles/feature-toggles.html
+---
+
+Branches cost nothing in git, so a team can arrange them any way it likes. That freedom is the problem: someone has to decide which branches live for years, which live for hours, and how work gets from one to another. That decision is a **branching strategy**, and the three you'll meet most are Git Flow, GitHub Flow and trunk-based development.
+
+None of them is "correct". Each optimises for something different.
+
+## Git Flow: release lines for versioned software
+
+In 2010 Vincent Driessen published a model that became known as git-flow. It keeps two branches forever: `master` (now usually `main`), where the code "always reflects a production-ready state", and `develop`, the integration branch that "reflects a state with the latest delivered development changes for the next release". Short-lived supporting branches feed them:
+
+- **feature** branches start from `develop` and merge back into it.
+- **release** branches "support preparation of a new production release". They start from `develop` and merge into both `main` and `develop`.
+- **hotfix** branches "arise from the necessity to act immediately upon an undesired state of a live production version". They start from `main` and merge into both.
+
+<Diagram
+  id="git-flow-shape"
+  title="Git Flow's branches"
+  desc="Two long-lived branches, main and develop. Feature branches merge into develop. A release branch is cut from develop and merged into main and back into develop. A hotfix branch is cut from main and merged back into main, and into develop as well."
+  nodes={[
+    { id: 'main', label: 'main', sub: 'production-ready', x: 0, y: 0, kind: 'ok' },
+    { id: 'develop', label: 'develop', sub: 'next release', x: 1, y: 0, kind: 'info' },
+    { id: 'feature', label: 'feature/*', sub: 'from develop', x: 2, y: 0 },
+    { id: 'hotfix', label: 'hotfix/*', sub: 'from main', x: 0, y: 1, kind: 'bad' },
+    { id: 'release', label: 'release/*', sub: 'prepare a release', x: 1, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'feature', to: 'develop', label: 'merge' },
+    { from: 'develop', to: 'release', label: 'branch' },
+    { from: 'release', to: 'main', label: 'merge' },
+    { from: 'main', to: 'hotfix', label: 'branch' },
+  ]}
+  steps={[
+    { caption: 'Two branches live forever: main, always production-ready, and develop, where the next release comes together.', show: ['main', 'develop'], focus: ['main', 'develop'] },
+    { caption: 'Each feature gets its own branch from develop and merges back into it when done.', show: ['feature', 'feature->develop'], focus: ['feature'] },
+    { caption: 'To ship, cut a release branch from develop, finish it there, then merge it into main - and back into develop.', show: ['release', 'develop->release', 'release->main'], focus: ['release'] },
+    { caption: 'A production emergency gets a hotfix branch from main, merged back into main and into develop.', show: ['hotfix', 'main->hotfix'], focus: ['hotfix'] },
+  ]}
+/>
+
+Driessen merges with `--no-ff`, which "causes the merge to always create a new commit object, even if the merge could be performed with a fast-forward", so the history keeps the fact that a feature branch existed.
+
+Ten years later he added a note of reflection that matters as much as the model. Web apps, he wrote, "are typically continuously delivered, not rolled back, and you don't have to support multiple versions of the software running in the wild" - not the kind of software he had in mind. "If your team is doing continuous delivery of software, I would suggest to adopt a much simpler workflow (like GitHub flow) instead of trying to shoehorn git-flow into your team." For software that "is explicitly versioned", or where you support several versions at once, git-flow "may still be as good of a fit". His last word: "Consider your own context."
+
+## GitHub Flow: one main, short branches, pull requests
+
+GitHub describes its flow as "a lightweight, branch-based workflow" with six steps:
+
+1. Create a branch
+2. Make changes
+3. Create a pull request
+4. Address review comments
+5. Merge your pull request
+6. Delete your branch
+
+There is no `develop` and no release branch: work branches from `main` and comes back to `main` through a [pull request](/learn/git/collaborate/), with your [pipeline](/learn/delivery/pipelines/) as the required checks.
+
+## Trunk-based development: integrate all the time
+
+trunkbaseddevelopment.com defines it as a model "where developers collaborate on code in a single branch called 'trunk'" and "resist any pressure to create other long-lived development branches". Short-lived feature branches are still used "for code-review and build checking (CI)".
+
+DORA's research is the reason many teams moved this way. Its capability page says branches in trunk-based development "typically last no more than a few hours", and that the higher-performing teams in its 2016 and 2017 data:
+
+- "Have three or fewer active branches in the application's code repository."
+- "Merge branches to trunk at least once a day."
+- "Don't have code freezes and don't have integration phases."
+
+The obvious objection: how do you merge a feature to trunk every day when it takes two weeks to build? With a **feature flag** (Pete Hodgson calls them feature toggles). A release toggle lets "incomplete and un-tested codepaths" ship "to production as latent code" - in trunk, built and tested with everything else, but switched off.
+
+<Diagram
+  id="trunk-shape"
+  title="Trunk-based, with a flag"
+  desc="Work lives on a branch for hours, goes through review and CI, and merges into trunk, which is always releasable. Trunk deploys to users. Unfinished work is merged too, but a feature flag keeps it switched off for users until it is done."
+  nodes={[
+    { id: 'branch', label: 'short branch', sub: 'hours, not weeks', x: 0, y: 0, kind: 'info' },
+    { id: 'ci', label: 'review + CI', sub: 'the pull request', x: 1, y: 0 },
+    { id: 'trunk', label: 'trunk', sub: 'always releasable', x: 2, y: 0, kind: 'ok' },
+    { id: 'users', label: 'users', sub: 'see finished work', x: 3, y: 0 },
+    { id: 'flag', label: 'feature flag', sub: 'off until done', x: 3, y: 1, kind: 'warn' },
+  ]}
+  edges={[
+    { from: 'branch', to: 'ci', label: 'open PR' },
+    { from: 'ci', to: 'trunk', label: 'merge' },
+    { from: 'trunk', to: 'users', label: 'deploy' },
+    { from: 'flag', to: 'users', label: 'hides WIP' },
+  ]}
+  steps={[
+    { caption: 'A change lives on its own branch for hours, not weeks.', show: ['branch'], focus: ['branch'] },
+    { caption: 'Review and CI run on the pull request, then it merges into trunk - at least once a day.', show: ['ci', 'trunk', 'branch->ci', 'ci->trunk'], focus: ['ci->trunk'] },
+    { caption: 'Trunk stays releasable and deploys to users.', show: ['users', 'trunk->users'], focus: ['trunk->users'] },
+    { caption: 'Half-built features merge too, behind a flag. They are integrated and tested every day, but users cannot reach them until the flag goes on.', show: ['flag', 'flag->users'], focus: ['flag'] },
+  ]}
+/>
+
+## Why long-lived branches hurt
+
+Pro Git calls a topic branch "a short-lived branch that you create and use for a single particular feature or related work". The longer one lives, the more the rest of the team changes underneath it, and every file both sides touched has to be reconciled when you finally merge - usually long after you remember why you changed it.
+
+Try it. In this model, you and the team each change a few files every day for two weeks. A merge has to reconcile every file both sides changed since you last integrated. Merging less often never removes that work; it piles it up.
+
+<BranchLab />
+
+<Callout kind="real">
+The model counts files both sides changed. Real git merges different lines of the same file cleanly, so not every one of those becomes a conflict - the count is the upper bound on what you might have to read and reconcile in one go. What the model gets right is the shape: the longer you wait, the bigger the pile.
+</Callout>
+
+## Choosing
+
+| Model | Optimises for | Fits when |
+|---|---|---|
+| Git Flow | Separate, stabilised release lines | Software that "is explicitly versioned", or several supported versions in the wild (Driessen) |
+| GitHub Flow | Simplicity: one `main`, short branches, review | Continuously delivered software - Driessen's own suggestion for it |
+| Trunk-based | Integrating constantly, so merges stay small | Teams that merge at least daily and can hide unfinished work behind flags (DORA) |
+
+<Quiz
+  id="git-strat-1"
+  q="Your team deploys a web app to production several times a day, and only one version is ever live. What did git-flow's own author suggest?"
+  options={["Use git-flow with a release branch per deploy", "A much simpler workflow, like GitHub flow", "Never branch at all"]}
+  answer={1}
+  explain="Driessen's 2020 note: for continuously delivered software, adopt a much simpler workflow (like GitHub flow) instead of shoehorning git-flow in. Git-flow fits explicitly versioned software with several supported versions."
+/>
+
+<Quiz
+  id="git-strat-2"
+  q="A feature takes two weeks. How does a trunk-based team still merge it to trunk every day?"
+  options={["It doesn't - big features get a long-lived branch", "It merges the unfinished code behind a feature flag that is off for users", "It merges only the tests"]}
+  answer={1}
+  explain="A release toggle lets incomplete code ship as latent code: in trunk, integrated and tested with everyone else's changes, but switched off until the feature is done."
+/>
+
+<Quiz
+  id="git-strat-3"
+  q="In the two-week model, why did merging every day mean less pain than merging once at the end?"
+  options={["Daily merges skip conflicting files", "Each merge only had the few files both sides changed that day, reconciled while the change was fresh", "Git resolves conflicts automatically on small merges"]}
+  answer={1}
+  explain="The total work is similar; the batch size isn't. Small merges reconcile one file while you still remember it. One big merge reconciles eight, two weeks later."
+/>
+
+<DoItForReal id="git-strategies-real" needs="terminal">
+
+Find out what strategy your own repository actually follows - by how long branches live, not by what the wiki says. In any clone with a remote:
+
+```bash
+git fetch --prune
+# remote branches, most recently updated last, with their age
+# (origin/HEAD is a pointer to the default branch, not a branch - skip it)
+git for-each-ref --sort=committerdate --format='%(committerdate:relative)%09%(refname:lstrip=2)' refs/remotes | grep -v '/HEAD$'
+# how many branches exist at all
+git for-each-ref --format='%(refname:lstrip=2)' refs/remotes | grep -vc '/HEAD$'
+```
+
+Branches that are weeks or months old are long-lived, whatever they're called. DORA's high performers had three or fewer active branches - how does yours compare?
+
+</DoItForReal>
