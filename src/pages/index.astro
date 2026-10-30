@@ -6,7 +6,13 @@ import { curriculum, totals } from '../lib/curriculum.ts';
 import { TIERS } from '../data/tracks.ts';
 const tracks = await curriculum();
 const t = totals(tracks);
-const first = tracks[0].lessons[0];
+// The first lesson that is written, not the first listed: when Linux & the
+// Shell went first with every lesson still 'soon', the home page's start
+// button linked to a page that did not exist.
+const startTrack = tracks.find((t) => t.lessons.some((l) => l.status === 'ready'))!;
+const first = startTrack.lessons.find((l) => l.status === 'ready')!;
+// The hash toy is about git specifically, wherever the course happens to start.
+const gitFirst = tracks.find((t) => t.id === 'git')!.lessons[0];
 ---
 <Base title="Curious Pandas">
   <section class="hero">
@@ -16,7 +22,7 @@ const first = tracks[0].lessons[0];
         <h1>Learn tech by <span class="hl">breaking things.</span></h1>
         <p class="lede">From your first git commit to Kubernetes, the CNCF toolbox, neural networks and how vLLM serves a language model. Every lesson is something you can poke, break and fix - right here in your browser.</p>
         <div class="cta">
-          <a class="btn primary" href={first.href}>Start with Git →</a>
+          <a class="btn primary" href={first.href}>Start with {startTrack.title} →</a>
           <a class="btn" href="/playground/">Just let me play</a>
         </div>
         <p class="muted small">{t.ready} lessons ready, {t.lessons - t.ready} more being written. Nothing to install.</p>
@@ -26,7 +32,7 @@ const first = tracks[0].lessons[0];
         <textarea rows="3" aria-label="Text to hash" data-in>hello, curious panda</textarea>
         <p class="muted small">This is the exact name git would give that text as a file:</p>
         <code class="hash" data-out>…</code>
-        <p class="muted small">Change one letter. The whole name changes - that is how git knows what changed without reading every byte. <a href={first.href}>See it in your first commit.</a></p>
+        <p class="muted small">Change one letter. The whole name changes - that is how git knows what changed without reading every byte. <a href={gitFirst.href}>See it in your first commit.</a></p>
       </div>
     </div>
   </section>

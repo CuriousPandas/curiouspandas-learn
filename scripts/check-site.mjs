@@ -142,6 +142,10 @@ async function scenario(name, path, fn, opts) {
 
 const type = async (page, root, cmd) => {
   const input = page.locator(`${root} .term-in input`).first();
+  // Look at the terminal first, as a person would. Simulations pause off screen
+  // (battery), and fill() does not scroll in WebKit: when a diagram pushed the
+  // cluster below the fold, kube-self-heal timed out in WebKit only.
+  await input.scrollIntoViewIfNeeded();
   await input.fill(cmd);
   await input.press('Enter');
 };

@@ -54,9 +54,8 @@ export async function storePassword(password: string, scheme: Scheme, salt = new
 /** The attacker's precomputed table: plain SHA-256 of every word, built once
  *  and reused against every unsalted database they ever steal. */
 export async function buildTable(words: string[]): Promise<Map<string, string>> {
-  const t = new Map<string, string>();
-  for (const w of words) t.set(await sha256(w), w);
-  return t;
+  const hashes = await Promise.all(words.map(sha256));
+  return new Map(hashes.map((h, i) => [h, words[i]]));
 }
 
 /** A table lookup only works when the stored hash is plain SHA-256 of the
@@ -68,6 +67,14 @@ export function lookup(stored: Stored, table: Map<string, string>): string | und
 
 export type CrackResult = { found?: string; tries: number; ms: number; gaveUp: boolean };
 
+// Fast hashes are guessed in parallel batches, as a real attacker would. One
+// awaited WebCrypto call at a time measured the browser's per-call overhead,
+// not SHA-256: WebKit managed 64 "fast" guesses a second, gave up on the plain
+// hash, and the fast-vs-slow lesson inverted on iPhones. PBKDF2 stays one at a
+// time - each guess is the expensive part, and that is what the lesson shows.
+const batchFor = (scheme: Scheme) => (scheme.kind === 'pbkdf2' ? 1 : 64);
+const yieldToPage = () => new Promise((r) => setTimeout(r, 0));
+
 /** Dictionary attack with a time budget, so a slow scheme on a phone stops
  *  instead of freezing the page. Giving up is the result the lesson wants. */
 export async function crack(
@@ -77,12 +84,17 @@ export async function crack(
   const now = opts.now ?? (() => performance.now());
   const start = now();
   let tries = 0;
-  for (const w of words) {
+  const size = batchFor(stored.scheme);
+  for (let i = 0; i < words.length; i += size) {
     if (now() - start > opts.budgetMs) return { tries, ms: now() - start, gaveUp: true };
-    tries++;
-    if ((await hashWith(stored.scheme, stored.salt, w)) === stored.hash) return { found: w, tries, ms: now() - start, gaveUp: false };
+    const batch = words.slice(i, i + size);
+    const hashes = await Promise.all(batch.map((w) => hashWith(stored.scheme, stored.salt, w)));
+    for (const [j, h] of hashes.entries()) {
+      tries++;
+      if (h === stored.hash) return { found: batch[j], tries, ms: now() - start, gaveUp: false };
+    }
     // Hand the page back to the browser now and then so progress can paint.
-    if (tries % 8 === 0) { opts.onProgress?.(tries, now() - start); await new Promise((r) => setTimeout(r, 0)); }
+    if (size > 1 || tries % 8 === 0) { opts.onProgress?.(tries, now() - start); await yieldToPage(); }
   }
   return { tries, ms: now() - start, gaveUp: false };
 }
@@ -92,10 +104,11 @@ export async function measure(scheme: Scheme, budgetMs: number, now: () => numbe
   const salt = 'measure-salt';
   const start = now();
   let n = 0;
+  const size = batchFor(scheme);
   while (n < 3 || now() - start < budgetMs) {
-    await hashWith(scheme, salt, `guess${n}`);
-    n++;
-    if (n % 16 === 0) await new Promise((r) => setTimeout(r, 0));
+    await Promise.all(Array.from({ length: size }, (_, k) => hashWith(scheme, salt, `guess${n + k}`)));
+    n += size;
+    if (size > 1 || n % 16 === 0) await yieldToPage();
   }
   return n / ((now() - start) / 1000);
 }
