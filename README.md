@@ -60,6 +60,8 @@ can be rebuilt:
 ```bash
 gh api -X POST repos/CuriousPandas/curiouspandas-learn/pages -f build_type=workflow
 gh api -X PUT  repos/CuriousPandas/curiouspandas-learn/pages -f cname=learn.curiouspandas.dev
+# after DNS resolves and GitHub reports the certificate as approved:
+gh api -X PUT  repos/CuriousPandas/curiouspandas-learn/pages -F https_enforced=true
 ```
 
 DNS is on Cloudflare: one record in the curiouspandas.dev zone, `learn` CNAME
@@ -68,6 +70,10 @@ cannot issue the certificate, and `.dev` only loads over HTTPS. The apex is
 left free on purpose, for other projects. Verify `curiouspandas.dev` in the
 CuriousPandas org's Pages settings (a TXT record): that covers every
 subdomain, so no other GitHub account can claim one.
+
+If the custom domain was set before its DNS record existed, GitHub may never
+request a certificate (`https_certificate` stays null and HTTPS serves the
+`*.github.io` certificate). Setting `cname` to null and back makes it try again.
 
 ## Adding a lesson
 
