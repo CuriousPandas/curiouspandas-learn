@@ -26,7 +26,7 @@ During the TLS stage the server hands over a **certificate**. It says, roughly, 
   title="Two checks on one certificate"
   desc="The server's certificate for shop.bamboo.example is signed by an intermediate, which is signed by a root. Check one compares the name you asked for with the certificate's name list; a miss is verify code 62. Check two follows the signatures up and needs the root to be in your trust store; a miss is verify code 20."
   nodes={[
-    { id: 'leaf', label: 'server certificate', sub: 'shop.bamboo.example', x: 0, y: 0 },
+    { id: 'leaf', label: 'server cert', sub: 'shop.bamboo.example', x: 0, y: 0 },
     { id: 'inter', label: 'intermediate', sub: 'Bamboo Issuing CA', x: 1, y: 0 },
     { id: 'root', label: 'root certificate', sub: 'Bamboo Root CA', x: 2, y: 0, kind: 'info' },
     { id: 'store', label: 'your trust store', sub: 'roots you trust', x: 3, y: 0, kind: 'ok' },

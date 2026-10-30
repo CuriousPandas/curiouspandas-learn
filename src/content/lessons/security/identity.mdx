@@ -43,7 +43,7 @@ The flow apps should use is the **authorization code flow with PKCE**. The 2025 
     { id: 'login', label: 'Keycloak login', sub: 'only it sees passwords', x: 1, y: 0, kind: 'ok' },
     { id: 'back', label: 'Back at the app', sub: '?code=one-time', x: 2, y: 0, kind: 'info' },
     { id: 'tokenep', label: 'Token endpoint', sub: 'checks the verifier', x: 3, y: 0, kind: 'ok' },
-    { id: 'tokens', label: 'ID + access token', sub: 'signed JWTs', x: 3, y: 1 },
+    { id: 'tokens', label: 'two tokens', sub: 'ID + access, signed', x: 3, y: 1 },
     { id: 'api', label: 'API', sub: 'checks every request', x: 2, y: 1 },
   ]}
   edges={[

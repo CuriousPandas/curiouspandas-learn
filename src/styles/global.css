@@ -62,6 +62,16 @@
 /* Any rule that sets display (".m-steps code { display: block }") beats the
    browser's own [hidden] style, so hidden hints showed. This restores it. */
 [hidden] { display: none !important; }
+/* Long unbroken inline code ("api.example.com.<namespace>.svc.cluster.local")
+   pushed phones 61px sideways in Firefox. Code blocks keep scrolling instead. */
+:not(pre) > code { overflow-wrap: anywhere; }
+/* Let fieldsets shrink with the page (their default min-width is min-content)
+   and let legends wrap. WebKit still keeps a <legend> at its desktop width
+   after the window narrows, ignoring max-width - neither rule fixes that, so
+   keep legends short enough to fit a phone on one line (the IaC widget's
+   "The cloud console - changes made by hand" scrolled a resized phone 13px). */
+legend { max-width: 100%; white-space: normal; }
+fieldset { min-width: 0; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans);

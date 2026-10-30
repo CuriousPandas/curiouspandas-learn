@@ -42,10 +42,10 @@ Two rules make RBAC easy to reason about. Permissions are **purely additive**: t
     { id: 'sa', label: 'ServiceAccount', sub: 'shop:reporter', x: 0, y: 0, kind: 'info' },
     { id: 'rb', label: 'RoleBinding', sub: 'in shop', x: 1, y: 0 },
     { id: 'role', label: 'Role', sub: 'settings-reader', x: 2, y: 0 },
-    { id: 'narrow', label: 'get shop-settings', sub: 'one name, one verb', x: 3, y: 0, kind: 'ok' },
-    { id: 'crb', label: 'ClusterRoleBinding', sub: 'cluster-wide', x: 1, y: 1 },
+    { id: 'narrow', label: 'one name, get', sub: 'shop-settings only', x: 3, y: 0, kind: 'ok' },
+    { id: 'crb', label: 'Cluster binding', sub: 'ClusterRoleBinding', x: 1, y: 1 },
     { id: 'admin', label: 'cluster-admin', sub: 'built in', x: 2, y: 1 },
-    { id: 'wide', label: 'any verb, anywhere', sub: 'incl. every Secret', x: 3, y: 1, kind: 'bad' },
+    { id: 'wide', label: 'everything', sub: 'incl. every Secret', x: 3, y: 1, kind: 'bad' },
   ]}
   edges={[
     { from: 'sa', to: 'rb', label: 'subject' },

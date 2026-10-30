@@ -54,6 +54,15 @@ export const TRACKS: Track[] = [
     ],
   },
   {
+    id: 'databases', title: 'Databases', tagline: 'Where the data lives - and how not to lose it, corrupt it or wait on it.', icon: 'database', hue: 120,
+    lessons: [
+      { slug: 'sql-basics', title: 'Tables, queries and joins', status: 'soon' },
+      { slug: 'indexes', title: 'Why one query takes 2 ms and another 20 s', status: 'soon' },
+      { slug: 'transactions', title: 'Transactions and the lost update', status: 'soon' },
+      { slug: 'replication', title: 'Replicas, lag and why a replica is not a backup', status: 'soon' },
+    ],
+  },
+  {
     id: 'containers', title: 'Containers', tagline: 'A process that thinks it is alone - and the images that ship it.', icon: 'box', hue: 25,
     lessons: [
       { slug: 'what-is-a-container', title: 'A process that thinks it is alone', status: 'ready' },
@@ -90,6 +99,24 @@ export const TRACKS: Track[] = [
     ],
   },
   {
+    id: 'sre', title: 'SRE & Observability', tagline: 'How reliable is reliable enough - and how you would know.', icon: 'gauge', hue: 165,
+    lessons: [
+      { slug: 'slos', title: 'SLOs and the error budget', status: 'soon' },
+      { slug: 'three-signals', title: 'Logs, metrics and traces', status: 'soon' },
+      { slug: 'autoscaling', title: 'Scaling before it hurts', status: 'soon' },
+    ],
+  },
+  {
+    id: 'resilience', title: 'Resilience: DR & Business Continuity', tagline: 'When the building, the region or the backups fail - what you lose, and how fast you are back.', icon: 'lifebuoy', hue: 345,
+    lessons: [
+      { slug: 'rpo-rto', title: 'How much can you lose?', status: 'soon' },
+      { slug: 'backups-that-restore', title: 'Backups that actually restore', status: 'soon' },
+      { slug: 'dr-strategies', title: 'From backup-and-restore to active-active', status: 'soon' },
+      { slug: 'business-continuity', title: 'Keeping the business running', status: 'soon' },
+      { slug: 'incidents', title: 'Incidents and blameless postmortems', status: 'soon' },
+    ],
+  },
+  {
     // Every exercise attacks a toy inside the page and is taught from the
     // defender's side. Nothing here points a learner at a system they do not own.
     id: 'security', title: 'Security', tagline: 'How things get broken into - and the habits that stop it.', icon: 'lock', hue: 0,
@@ -121,11 +148,34 @@ export const TRACKS: Track[] = [
     ],
   },
   {
+    // Agents here run against simulated models and tools in the page: no API
+    // keys, no calls out (the sandbox test forbids fetch). The real thing is a
+    // "Do it for real" on the learner's own machine and account.
+    id: 'agents', title: 'Build AI Agents', tagline: 'A model, a loop and some tools - and how to trust it with real work.', icon: 'bot', hue: 15,
+    lessons: [
+      { slug: 'what-is-an-agent', title: 'A model, a loop and some tools', status: 'soon' },
+      { slug: 'tools', title: 'Tools: how a model touches the world', status: 'soon' },
+      { slug: 'workflows-vs-agents', title: 'Workflows first, agents when you must', status: 'soon' },
+      { slug: 'guardrails-and-evals', title: 'Guardrails, approvals and evals', status: 'soon' },
+      { slug: 'business-agents', title: 'Agents that help run a business', status: 'soon' },
+    ],
+  },
+  {
     id: 'frontiers', title: 'SI Frontiers', tagline: 'Agents, alignment and superintelligence - what is known, and what is not.', icon: 'compass', hue: 180,
     lessons: [
       { slug: 'agents', title: 'Agents are loops with tools', status: 'ready' },
       { slug: 'alignment', title: 'Getting what you asked for', status: 'ready' },
       { slug: 'superintelligence', title: 'Superintelligence, honestly', status: 'ready' },
+    ],
+  },
+  {
+    id: 'launch', title: 'Idea to Market', tagline: 'From a problem worth solving to people paying for the solution.', icon: 'flag', hue: 75,
+    lessons: [
+      { slug: 'validate', title: 'Is the problem real?', status: 'soon' },
+      { slug: 'mvp', title: 'The smallest thing worth shipping', status: 'soon' },
+      { slug: 'pricing', title: 'Pricing and the numbers that keep you alive', status: 'soon' },
+      { slug: 'first-users', title: 'Launch and find your first users', status: 'soon' },
+      { slug: 'business-basics', title: 'The boring essentials: company, terms, taxes', status: 'soon' },
     ],
   },
 ];

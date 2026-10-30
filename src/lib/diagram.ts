@@ -16,7 +16,9 @@ export const BOX = { w: 168, h: 58, gapX: 100, gapY: 52, pad: 14 };
 export const NARROW_GAP_X = 56;
 // Past these a label overflows its box. Measured against the widest glyphs at
 // the sizes Diagram.astro draws; a longer label belongs in the caption.
-export const MAX_LABEL = 18;
+// 18 was too generous: "ns1.bamboo.example" (18) in bold 16px overflowed its
+// box on desktop and was clipped on phones (writer N). 16 clears it.
+export const MAX_LABEL = 16;
 export const MAX_SUB = 22;
 // An arrow label has to fit the gap between two columns (100 units). At about
 // 7 units a character, 13-14 character labels ("closes the gap") still ran into
