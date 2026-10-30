@@ -102,9 +102,9 @@ export const TRACKS: Track[] = [
   {
     id: 'sre', title: 'SRE & Observability', tagline: 'How reliable is reliable enough - and how you would know.', icon: 'gauge', hue: 165,
     lessons: [
-      { slug: 'slos', title: 'SLOs and the error budget', status: 'soon' },
-      { slug: 'three-signals', title: 'Logs, metrics and traces', status: 'soon' },
-      { slug: 'autoscaling', title: 'Scaling before it hurts', status: 'soon' },
+      { slug: 'slos', title: 'SLOs and the error budget', status: 'ready' },
+      { slug: 'three-signals', title: 'Logs, metrics and traces', status: 'ready' },
+      { slug: 'autoscaling', title: 'Scaling before it hurts', status: 'ready' },
     ],
   },
   {

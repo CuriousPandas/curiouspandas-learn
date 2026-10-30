@@ -1,0 +1,152 @@
+---
+import '../styles/widgets.css';
+import { SERVICES } from '../lib/sre/trace.ts';
+---
+<div class="widget card trace-lab" data-trace-lab>
+  <div class="widget-head">
+    <strong>Checkout is slow for some people</strong>
+    <span class="pill info">400 checkouts, simulated</span>
+  </div>
+  <div class="tr-grid">
+    <div class="tr-main">
+      <section class="tr-box">
+        <div class="tr-row"><span class="eyebrow">Dashboard: latency by service</span>
+          <span class="tr-toggle" role="group" aria-label="Statistic">
+            <button class="btn small" type="button" data-stat="avg" aria-pressed="true">Average</button>
+            <button class="btn small" type="button" data-stat="p99" aria-pressed="false">p99</button>
+          </span>
+        </div>
+        <table class="tr-dash">
+          <thead><tr><th scope="col">service</th><th scope="col" data-stat-head>average</th><th scope="col">target 300 ms</th></tr></thead>
+          <tbody data-dash></tbody>
+        </table>
+      </section>
+      <section class="tr-box">
+        <span class="eyebrow">Recent checkouts - pick one to open its trace</span>
+        <div class="tr-list" data-list></div>
+      </section>
+      <section class="tr-box" data-trace-box hidden>
+        <span class="eyebrow" data-trace-title>Trace</span>
+        <ol class="tr-fall" data-fall aria-label="Spans in this trace"></ol>
+        <div class="controls tr-blame">
+          <label>The service that made it slow
+            <select data-blame>{SERVICES.map((s) => <option value={s}>{s}</option>)}</select>
+          </label>
+          <button class="btn small" type="button" data-blame-go>Blame it</button>
+          <button class="btn small" type="button" data-logs>Logs for this trace</button>
+        </div>
+        <p class="tr-verdict" data-verdict aria-live="polite"></p>
+        <ol class="tr-logs" data-loglines aria-label="Log lines for this trace" hidden></ol>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { generate, serviceStats, selfTime } from '../lib/sre/trace.ts';
+  import { TRACE_MISSION } from '../lib/sre/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const { traces, logs } = generate();
+  const stats = serviceStats(traces);
+  // The last 14 checkouts, so a slow one is always among them (1 in 20).
+  const recent = traces.slice(-14).reverse();
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-trace-lab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = TRACE_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), TRACE_MISSION, () => state, () => {});
+    let open: (typeof traces)[number] | null = null;
+
+    const drawDash = (stat: 'avg' | 'p99') => {
+      if (stat === 'avg') state.sawAvg = true; else state.sawP99 = true;
+      root.querySelectorAll<HTMLButtonElement>('[data-stat]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.stat === stat)));
+      q('[data-stat-head]').textContent = stat === 'avg' ? 'average' : 'p99';
+      q('[data-dash]').replaceChildren(...stats.map((s) => {
+        const v = stat === 'avg' ? s.avg : s.p99;
+        const over = v > 300;
+        return el('tr', { class: over ? 'over' : '' }, el('td', {}, s.service), el('td', {}, `${v} ms`), el('td', {}, over ? 'over' : 'ok'));
+      }));
+      refresh();
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-stat]').forEach((b) => b.addEventListener('click', () => drawDash(b.dataset.stat as 'avg' | 'p99')));
+
+    q('[data-list]').replaceChildren(...recent.map((t) => {
+      const b = el('button', { type: 'button', class: `btn small${t.total > 1000 ? ' slow' : ''}`, 'data-trace': t.traceId }, `${t.total} ms`);
+      b.addEventListener('click', () => openTrace(t));
+      return b;
+    }));
+
+    const openTrace = (t: (typeof traces)[number]) => {
+      open = t;
+      if (t.slow) state.openedSlow = t.traceId;
+      q('[data-trace-box]').hidden = false;
+      q('[data-trace-title]').textContent = `Trace ${t.traceId.slice(0, 12)}... - ${t.total} ms`;
+      const depth = (id: string | null): number => { let d = 0, p = t.spans.find((s) => s.id === id)?.parent ?? null; while (p) { d++; p = t.spans.find((s) => s.id === p)!.parent; } return d; };
+      q('[data-fall]').replaceChildren(...t.spans.map((s) => {
+        const bar = el('span', { class: `tr-bar svc-${s.service}` });
+        bar.style.marginLeft = `${(s.start / t.total) * 100}%`;
+        bar.style.width = `${Math.max(0.6, (s.ms / t.total) * 100)}%`;
+        const label = el('span', { class: 'tr-name' }, `${'  '.repeat(depth(s.id))}${s.service}`);
+        return el('li', {}, label, el('span', { class: 'tr-track' }, bar), el('span', { class: 'tr-ms' }, `${s.ms} ms`));
+      }));
+      q('[data-verdict]').textContent = '';
+      q('[data-loglines]').hidden = true;
+      refresh();
+    };
+
+    q('[data-blame-go]').addEventListener('click', () => {
+      if (!open) return;
+      const pick = q<HTMLSelectElement>('[data-blame]').value;
+      const culprit = selfTime(open)[0].service;
+      const out = q('[data-verdict]');
+      if (!open.slow) { out.className = 'tr-verdict'; out.textContent = 'This checkout was fast - open one that took over 2 seconds.'; return; }
+      if (pick === culprit) { state.blamed = pick; out.className = 'tr-verdict ok'; out.textContent = `Yes - ${pick} spent ${selfTime(open)[0].ms} ms on its own. Every bar above it is long only because it waits for this one.`; }
+      else { out.className = 'tr-verdict bad'; out.textContent = `${pick} is slow only while it waits for a call it made. Look for the long bar with nothing nested inside it.`; }
+      refresh();
+    });
+
+    q('[data-logs]').addEventListener('click', () => {
+      if (!open) return;
+      state.logsFor = open.traceId;
+      const lines = logs.filter((l) => l.traceId === open!.traceId);
+      const box = q('[data-loglines]');
+      box.hidden = false;
+      box.replaceChildren(...lines.map((l) => el('li', { class: l.level }, `{"level":"${l.level}","service":"${l.service}","trace_id":"${l.traceId.slice(0, 12)}...","msg":"${l.msg}"}`)));
+      refresh();
+    });
+
+    drawDash('avg');
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: rows, bars and log lines are created by the script. */
+  .trace-lab .tr-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .trace-lab .tr-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+  .trace-lab .tr-main { min-width: 0; display: grid; gap: 12px; }
+  .trace-lab .tr-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); min-width: 0; }
+  .trace-lab .tr-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .trace-lab .tr-toggle { display: inline-flex; gap: 6px; }
+  .trace-lab .tr-toggle .btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .trace-lab .tr-dash { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 6px; }
+  .trace-lab .tr-dash th, .trace-lab .tr-dash td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  .trace-lab .tr-dash tr.over td { color: var(--berry); font-weight: 650; }
+  .trace-lab .tr-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .trace-lab .tr-list .btn.slow { border-color: var(--berry); color: var(--berry); }
+  .trace-lab .tr-fall { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+  .trace-lab .tr-fall li { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px; gap: 8px; align-items: center; font: 0.8rem var(--mono); }
+  .trace-lab .tr-name { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  .trace-lab .tr-track { display: block; height: 14px; background: var(--bg-2); border-radius: 4px; overflow: hidden; }
+  .trace-lab .tr-bar { display: block; height: 100%; border-radius: 4px; background: var(--sky); }
+  .trace-lab .tr-bar.svc-tax { background: var(--sun); }
+  .trace-lab .tr-bar.svc-gateway, .trace-lab .tr-bar.svc-checkout { background: var(--muted); }
+  .trace-lab .tr-ms { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .trace-lab .tr-blame label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .trace-lab .tr-verdict { margin: 8px 0 0; font-size: 0.9rem; font-weight: 600; }
+  .trace-lab .tr-verdict.ok { color: var(--bamboo); }
+  .trace-lab .tr-verdict.bad { color: var(--berry); }
+  .trace-lab .tr-logs { list-style: none; margin: 8px 0 0; padding: 10px 12px; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; font: 0.78rem/1.5 var(--mono); overflow-wrap: anywhere; display: grid; gap: 4px; }
+  .trace-lab .tr-logs li.warn { color: var(--term-hint); }
+</style>
