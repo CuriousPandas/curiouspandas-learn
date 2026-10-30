@@ -519,6 +519,75 @@ await scenario('sec-sql-lab', '/learn/security/web-flaws/', async (page) => {
   if (await page.locator(`${r} [data-goal].done`).count() !== 2) throw new Error('sql goals did not both tick');
 });
 
+// ---- security 4-6 (writer B)
+// Each widget: play its mission the way a learner would, and check that the
+// wrong-but-tempting move (cluster-admin, alg none, one control) shows as wrong.
+
+await scenario('supply-chain', '/learn/security/supply-chain/', async (page) => {
+  const r = '[data-supply]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.check(`${r} input[value="takeover"]`);
+  await page.click(`${r} [data-install]`);
+  await expectText(page, `${r} [data-verdict]`, /^Got in: toy-flatmap/);
+  if (!(await page.locator(`${r} .sc-tree li.bad.missed`).count())) throw new Error('the installed bad package is not marked in the tree');
+  await page.check(`${r} .sc-controls input[value="lockfile"]`);
+  await page.click(`${r} [data-install]`);
+  await expectText(page, `${r} [data-verdict]`, /^Delayed - not stopped/);
+  await page.check(`${r} input[value="tarball"]`);
+  await page.uncheck(`${r} .sc-controls input[value="lockfile"]`);
+  await page.check(`${r} .sc-controls input[value="provenance"]`);
+  await page.click(`${r} [data-install]`);
+  await expectText(page, `${r} [data-verdict]`, /^Blocked: toy-compress/);
+  await page.check(`${r} .sc-controls input[value="lockfile"]`);
+  await page.check(`${r} .sc-controls input[value="review"]`);
+  await page.click(`${r} [data-all]`);
+  await expectText(page, `${r} [data-verdict]`, /All five blocked/);
+  await page.uncheck(`${r} .sc-controls input[value="review"]`);
+  await page.click(`${r} [data-all]`);
+  await expectText(page, `${r} [data-verdict]`, /of 5 got in/);
+  await expectText(page, `${r} .m-debrief`, /blind to something/);
+  // Script-created rows must be styled (scoped CSS never reaches them).
+  const bg = await page.locator(`${r} .sc-all tr.missed td`).last().evaluate((e) => getComputedStyle(e).color);
+  const ink = await page.evaluate(() => getComputedStyle(document.body).color);
+  if (bg === ink) throw new Error('results table is unstyled - widget styles are not applying');
+});
+
+await scenario('rbac-least', '/learn/security/cluster-access/', async (page) => {
+  const r = '[data-rbac]';
+  await page.locator(`${r} .term-in input`).scrollIntoViewIfNeeded();
+  await type(page, r, 'kubectl auth can-i get configmaps/shop-settings -n shop --as=system:serviceaccount:shop:reporter');
+  await expectText(page, `${r} .term-out`, /\bno\s*$/);
+  // The tempting fix works and must read as wrong.
+  await type(page, r, 'kubectl create clusterrolebinding reporter-admin --clusterrole=cluster-admin --serviceaccount=shop:reporter');
+  await expectText(page, `${r} [data-audit]`, /OPEN/);
+  if (await page.locator(`${r} [data-audit] li.bad`).count() !== 4) throw new Error('cluster-admin should fail exactly the four least-privilege checks');
+  if (await doneSteps(page, r) !== 2) throw new Error(`cluster-admin should tick only the first two steps, ticked ${await doneSteps(page, r)}`);
+  await type(page, r, 'kubectl delete clusterrolebinding reporter-admin');
+  await type(page, r, 'kubectl create role settings-reader --verb=get --resource=configmaps --resource-name=shop-settings -n shop');
+  await type(page, r, 'kubectl create rolebinding reporter-settings --role=settings-reader --serviceaccount=shop:reporter -n shop');
+  if (await page.locator(`${r} [data-audit] li.bad`).count()) throw new Error('least-privilege grant still fails an audit check');
+  await type(page, r, 'kubectl auth can-i get secrets -n shop --as=system:serviceaccount:shop:reporter');
+  await expectText(page, `${r} .m-debrief`, /one verb, one resource, one name/);
+});
+
+await scenario('jwt-forge', '/learn/security/identity/', async (page) => {
+  const r = '[data-jwtlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} [data-token]`, /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+$/);
+  await page.click(`${r} [data-send]`);
+  await expectText(page, `${r} [data-api="strict"] [data-res]`, /Accepted - you are "viewer"/);
+  const box = page.locator(`${r} [data-payload]`);
+  await box.fill((await box.inputValue()).replace('"viewer"', '"admin"'));
+  await page.click(`${r} [data-send]`);
+  await expectText(page, `${r} [data-api="naive"] [data-res]`, /Refused · signature does not match/);
+  await page.click(`${r} [data-none]`);
+  await expectText(page, `${r} [data-api="naive"] [data-res]`, /Accepted - you are "admin"/);
+  await expectText(page, `${r} [data-api="strict"] [data-res]`, /alg "none" is not on this server's allow-list/);
+  await page.click(`${r} [data-other]`);
+  await expectText(page, `${r} [data-api="strict"] [data-res]`, /audience/);
+  await expectText(page, `${r} .m-debrief`, /someone else's app/);
+});
+
 await browser.close();
 server?.kill();
 

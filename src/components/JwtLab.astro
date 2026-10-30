@@ -1,0 +1,118 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card jwtlab" data-jwtlab>
+  <div class="widget-head">
+    <strong>Token workbench</strong>
+    <span class="pill info">real HMAC-SHA-256, toy key</span>
+    <span class="spacer"></span>
+    <button class="btn small" type="button" data-reset>Get a fresh token</button>
+  </div>
+  <div class="jw-grid">
+    <div class="jw-left">
+      <div class="eyebrow">The token you send · header . payload . signature</div>
+      <p class="jw-token" data-token aria-label="Token"></p>
+      <label class="eyebrow" for="jw-payload">Payload (decoded - edit it)</label>
+      <textarea id="jw-payload" rows="10" spellcheck="false" data-payload></textarea>
+      <p class="jw-err" data-err hidden></p>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-send>Send to both APIs</button>
+        <button class="btn small" type="button" data-none>Strip signature, alg: none</button>
+        <button class="btn small" type="button" data-other>Token for another app</button>
+      </div>
+    </div>
+    <div class="jw-right">
+      <div class="jw-apis">
+        <div class="jw-api" data-api="naive"><div class="eyebrow">Naive API · trusts the token's header</div><p class="jw-res" data-res>Nothing sent yet.</p></div>
+        <div class="jw-api" data-api="strict"><div class="eyebrow">Strict API · HS256 only, checks iss, aud, exp</div><p class="jw-res" data-res>Nothing sent yet.</p></div>
+      </div>
+      <div data-mission-panel></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { sign, unsigned, decode, verifyNaive, verifyStrict, claims, encodeJson } from '../lib/jwt/jwt.ts';
+  import { JWT_MISSION, type JwtEvent } from '../lib/security/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-jwtlab]')) {
+    const state = JWT_MISSION.setup();
+    const q = (s: string) => root.querySelector<HTMLElement>(s)!;
+    const payloadBox = q('[data-payload]') as HTMLTextAreaElement;
+    const refresh = mountMission(q('[data-mission-panel]'), JWT_MISSION, () => state, () => {});
+    let issued = '';          // the token as the identity provider signed it
+    let token = '';           // what will be sent
+    let kind: JwtEvent['token'] = 'signed';
+
+    const showToken = () => {
+      const [h, p, s] = token.split('.');
+      q('[data-token]').replaceChildren(el('span', { class: 'jh' }, h), '.', el('span', { class: 'jp' }, p), '.', el('span', { class: 'js' }, s || '(no signature)'));
+      payloadBox.value = JSON.stringify(decode(token).payload, null, 2);
+      q('[data-err]').hidden = true;
+    };
+
+    const send = async () => {
+      const [naive, strict] = await Promise.all([verifyNaive(token), verifyStrict(token)]);
+      let role: unknown;
+      try { role = decode(token).payload.role; } catch { role = undefined; }
+      state.history.push({ token: kind, naive, strict, role });
+      for (const [name, v] of [['naive', naive], ['strict', strict]] as const) {
+        const box = q(`[data-api="${name}"]`);
+        box.className = `jw-api ${v.ok ? 'ok' : 'no'}`;
+        box.querySelector('[data-res]')!.replaceChildren(
+          el('b', {}, v.ok ? `Accepted - you are "${String(v.claims?.role)}"` : 'Refused'),
+          el('span', {}, ` · ${v.reason}`));
+      }
+      refresh();
+    };
+
+    const fresh = async () => { issued = token = await sign(claims()); kind = 'signed'; showToken(); };
+
+    // Editing the payload keeps the old header and signature: exactly what an
+    // attacker can do without the key.
+    payloadBox.addEventListener('input', () => {
+      let p: object;
+      try { p = JSON.parse(payloadBox.value); } catch {
+        const e = q('[data-err]'); e.hidden = false; e.textContent = 'That is not valid JSON yet - the token still carries the last valid payload.'; return;
+      }
+      q('[data-err]').hidden = true;
+      const [h, , s] = (kind === 'none' ? token : issued).split('.');
+      token = `${h}.${encodeJson(p)}.${s}`;
+      if (kind !== 'none') kind = token === issued ? 'signed' : 'edited';
+      const [hh, pp, ss] = token.split('.');
+      q('[data-token]').replaceChildren(el('span', { class: 'jh' }, hh), '.', el('span', { class: 'jp' }, pp), '.', el('span', { class: 'js' }, ss || '(no signature)'));
+    });
+    q('[data-send]').addEventListener('click', send);
+    q('[data-none]').addEventListener('click', async () => {
+      let p: object;
+      try { p = JSON.parse(payloadBox.value); } catch { p = decode(token).payload; }
+      token = unsigned(p); kind = 'none'; showToken(); await send();
+    });
+    q('[data-other]').addEventListener('click', async () => {
+      token = await sign(claims({ aud: 'billing-app' })); kind = 'other-app'; showToken(); await send();
+    });
+    q('[data-reset]').addEventListener('click', fresh);
+    fresh();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: token parts and results are created by the script. */
+  .jwtlab .jw-grid { display: grid; gap: 14px; }
+  @media (min-width: 900px) { .jwtlab .jw-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+  .jwtlab .jw-left, .jwtlab .jw-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .jwtlab .jw-token { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2); font: 13px/1.5 var(--mono); overflow-wrap: anywhere; }
+  .jwtlab .jw-token .jh { color: var(--sky); }
+  .jwtlab .jw-token .jp { color: var(--bamboo); }
+  .jwtlab .jw-token .js { color: var(--berry); }
+  .jwtlab textarea { width: 100%; font: 13px/1.5 var(--mono); padding: 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--term-bg); color: var(--term-ink); resize: vertical; }
+  .jwtlab .jw-err { margin: 0; color: var(--berry); font-size: 0.85rem; }
+  .jwtlab .jw-apis { display: grid; gap: 10px; }
+  .jwtlab .jw-api { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); }
+  .jwtlab .jw-api.ok { border-color: var(--bamboo); background: var(--bamboo-soft); }
+  .jwtlab .jw-api.no { border-color: var(--berry); background: var(--berry-soft); }
+  .jwtlab .jw-res { margin: 6px 0 0; font-size: 0.9rem; overflow-wrap: anywhere; }
+  .jwtlab .jw-api.ok b { color: var(--bamboo); }
+  .jwtlab .jw-api.no b { color: var(--berry); }
+</style>

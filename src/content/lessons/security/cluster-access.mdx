@@ -1,0 +1,183 @@
+---
+title: Who can do what in a cluster
+summary: An app gets "forbidden". The one-line fix makes the error vanish and hands its stolen token the whole cluster. Grant exactly enough with RBAC, then see what NetworkPolicy and Pod Security add.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+sources:
+  - title: Kubernetes docs - Using RBAC Authorization
+    url: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+  - title: Kubernetes docs - Network Policies
+    url: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+  - title: Kubernetes docs - Pod Security Admission
+    url: https://kubernetes.io/docs/concepts/security/pod-security-admission/
+  - title: kind v0.24.0 release notes (network policy support)
+    url: https://github.com/kubernetes-sigs/kind/releases/tag/v0.24.0
+  - title: TemplateMechanics/tilt - tilt-config-server RBAC
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/tilt-config-server/rbac.yaml
+  - title: TemplateMechanics/tilt - Velero ClusterRoleBinding
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/velero/clusterrolebinding.yaml
+---
+
+Every pod runs as a **service account**, and every request it makes to the Kubernetes API carries that account's token. So the question "what can this app do?" is really "what could *anyone holding this token* do?" - because if the app is ever broken into, that's exactly who will be holding it.
+
+Out of the box the answer is close to nothing. The RBAC docs are explicit: the default policies give "*no permissions* to service accounts outside the `kube-system` namespace" beyond basic API discovery. Every permission an app has, somebody granted.
+
+## Four objects, one question
+
+| Object | Says | Scope |
+|---|---|---|
+| **Role** | these verbs on these resources | one namespace |
+| **ClusterRole** | the same, defined once | not namespaced |
+| **RoleBinding** | this subject gets that role | one namespace - even when the role is a ClusterRole |
+| **ClusterRoleBinding** | this subject gets that ClusterRole | every namespace |
+
+Two rules make RBAC easy to reason about. Permissions are **purely additive**: there are no deny rules, so access is the union of every binding that applies. And a RoleBinding that points at a ClusterRole grants it **only in the binding's own namespace**. That's how you reuse one definition, such as the built-in `view`, without handing it out everywhere.
+
+<Diagram
+  id="rbac-chain"
+  title="Two ways to make 'forbidden' go away"
+  desc="A service account is linked by a RoleBinding to a Role that allows getting one named ConfigMap. Alternatively it is linked by a ClusterRoleBinding to cluster-admin, which allows any verb on any resource in every namespace."
+  nodes={[
+    { id: 'sa', label: 'ServiceAccount', sub: 'shop:reporter', x: 0, y: 0, kind: 'info' },
+    { id: 'rb', label: 'RoleBinding', sub: 'in shop', x: 1, y: 0 },
+    { id: 'role', label: 'Role', sub: 'settings-reader', x: 2, y: 0 },
+    { id: 'narrow', label: 'get shop-settings', sub: 'one name, one verb', x: 3, y: 0, kind: 'ok' },
+    { id: 'crb', label: 'ClusterRoleBinding', sub: 'cluster-wide', x: 1, y: 1 },
+    { id: 'admin', label: 'cluster-admin', sub: 'built in', x: 2, y: 1 },
+    { id: 'wide', label: 'any verb, anywhere', sub: 'incl. every Secret', x: 3, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'sa', to: 'rb', label: 'subject' },
+    { from: 'rb', to: 'role', label: 'roleRef' },
+    { from: 'role', to: 'narrow', label: 'allows' },
+    { from: 'sa', to: 'crb', label: 'subject' },
+    { from: 'crb', to: 'admin', label: 'roleRef' },
+    { from: 'admin', to: 'wide', label: 'allows' },
+  ]}
+  steps={[
+    { caption: 'The app runs as a service account. On its own it may do almost nothing.', show: ['sa'], focus: ['sa'] },
+    { caption: 'A RoleBinding in the shop namespace names the account as its subject and points at a Role.', show: ['rb', 'sa->rb'], focus: ['rb'] },
+    { caption: 'The Role allows one verb on one ConfigMap, by name. That is all a stolen token from this pod is worth.', show: ['role', 'narrow', 'rb->role', 'role->narrow'], focus: ['narrow'] },
+    { caption: 'The one-line alternative: a ClusterRoleBinding to cluster-admin. Same error gone - and the token now opens everything.', show: ['crb', 'admin', 'wide', 'sa->crb', 'crb->admin', 'admin->wide'], focus: ['wide'] },
+  ]}
+/>
+
+## Just enough access
+
+The reporter app logs a real-format error: it may not `get` the ConfigMap it needs. Find out what it's allowed to do, make it work, then make it *only* work. The audit panel re-checks five questions after every command.
+
+<RbacSim />
+
+<Callout kind="trap">
+`cluster-admin` passes step two and fails every check that matters, and so does the built-in `edit` role: the docs warn that `edit` "allows accessing Secrets", and a Secret can hold another service account's credentials. The built-in `view` deliberately leaves Secrets out for exactly that reason - but it still lets the app read *every* ConfigMap in the namespace. Only `--resource-name` narrows a rule to the one object.
+</Callout>
+
+The finished shape - one verb, one resource, one name, one namespace - isn't a classroom ideal. It's exactly the Role tilt's own config server runs with:
+
+```yaml
+kind: Role
+metadata:
+  name: tilt-config-manager
+  namespace: tilt-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["tilt-config"]
+    verbs: ["get", "update", "patch"]
+```
+
+The same platform binds Velero's service account to `cluster-admin`. Velero backs up and restores whole namespaces, so it genuinely needs very broad access - which makes its token one of the most valuable in the cluster. (It's off unless you turn it on in `tilt-config.json`.)
+
+## Who may talk to whom
+
+RBAC governs the **API**: who may read and change Kubernetes objects. It says nothing about network traffic between pods. That's **NetworkPolicy**, and its defaults surprise people: a pod that no policy selects is "non-isolated", and all inbound and outbound connections are allowed.
+
+<Diagram
+  id="netpol"
+  title="Default-open, then one rule"
+  desc="Without a NetworkPolicy every pod can reach the database, including a compromised pod. With a policy selecting the database that allows ingress only from the api pods, the compromised pod's connection is not allowed."
+  nodes={[
+    { id: 'web', label: 'web', sub: 'app=web', x: 0, y: 0 },
+    { id: 'api', label: 'api', sub: 'app=api', x: 1, y: 0 },
+    { id: 'db', label: 'db', sub: 'app=db', x: 2, y: 0, kind: 'info' },
+    { id: 'evil', label: 'compromised pod', sub: 'any labels', x: 1, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'web', to: 'api', label: 'HTTP' },
+    { from: 'api', to: 'db', label: 'SQL' },
+    { from: 'evil', to: 'db', label: 'allowed?', dashed: true },
+  ]}
+  steps={[
+    { caption: 'web calls api, api calls the database. That is the traffic the app needs.', show: ['web', 'api', 'db', 'web->api', 'api->db'] },
+    { caption: 'With no policy selecting db, any pod in the cluster can connect to it - including one an attacker controls.', show: ['evil', 'evil->db'], focus: ['evil', 'evil->db'] },
+    { caption: 'A policy that selects app=db and allows ingress only from app=api makes db isolated. Every other connection to it is dropped.', focus: ['api->db', 'db'] },
+  ]}
+/>
+
+Policies are **additive**, like RBAC: the traffic allowed is the union of every policy that selects a pod. Selecting a pod at all is what isolates it; the rules then list what's let back in.
+
+<Callout kind="trap" title="A policy nobody enforces">
+The docs put it bluntly: "Creating a NetworkPolicy resource without a controller that implements it will have no effect." Kubernetes stores the object either way. Whether anything drops packets depends on the network plugin. kind added out-of-the-box support in v0.24.0, through `kube-network-policies`; plenty of other clusters still ship without it. Test a policy by attempting the connection it should refuse.
+</Callout>
+
+## What pods may be
+
+The third control is about the pod itself: may it run privileged, mount the host's disks, run as root? **Pod Security admission** applies one of three built-in levels - `privileged`, `baseline` or `restricted` - per namespace, with a label:
+
+```yaml
+metadata:
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+```
+
+Each level can be applied in three modes. **enforce** rejects the pod. **audit** records the violation in the audit log and lets it through. **warn** shows the user a warning and lets it through. It's the same audit-versus-enforce trap as Kyverno in the [policy and scanning](/learn/platform/policy-and-security/) lesson: a namespace labelled `audit: restricted` *looks* locked down and admits everything.
+
+<Quiz
+  id="sec-access-1"
+  q="An app needs to read one ConfigMap. Which grant is least privilege?"
+  options={["A ClusterRoleBinding to view", "A RoleBinding to the built-in view ClusterRole in the app's namespace", "A Role with verb get on configmaps, resourceNames set to that one ConfigMap, bound in the app's namespace"]}
+  answer={2}
+  explain="view in the namespace is far better than cluster-wide, but it still reads every ConfigMap there. resourceNames narrows the rule to the one object the app actually uses."
+/>
+
+<Quiz
+  id="sec-access-2"
+  q="A RoleBinding in namespace shop points at the ClusterRole edit. Can the subject read Secrets in kube-system?"
+  options={["Yes: edit is a ClusterRole, so it applies everywhere", "No: a RoleBinding grants a ClusterRole only in the binding's own namespace", "Only if it also has view"]}
+  answer={1}
+  explain="The kind of role doesn't decide the scope; the kind of binding does. A ClusterRoleBinding would grant it in every namespace."
+/>
+
+<Quiz
+  id="sec-access-3"
+  q="You apply a NetworkPolicy that should block traffic to the database, and kubectl shows it was created. What have you proved?"
+  options={["The database is now protected", "Only that the object is stored - whether anything enforces it depends on the network plugin, so try the connection that should fail", "That the pods were restarted"]}
+  answer={1}
+  explain="The API server stores NetworkPolicies whether or not anything implements them. A policy without an enforcing plugin has no effect - configured, and inert."
+/>
+
+<DoItForReal id="sec-access-real" profile="gitops">
+
+With the platform up on profile `gitops` or above, ask the API server about a real service account. The config server's Role allows exactly one ConfigMap:
+
+```bash
+SA=system:serviceaccount:tilt-system:tilt-config-server
+kubectl auth can-i get configmaps/tilt-config -n tilt-system --as=$SA      # yes
+kubectl auth can-i get configmaps/kube-root-ca.crt -n tilt-system --as=$SA  # no: wrong name
+kubectl auth can-i get secrets -n tilt-system --as=$SA                    # no
+kubectl auth can-i --list -n tilt-system --as=$SA
+```
+
+Then look for the broadest grants on your cluster, and for what's actually enforcing network and pod rules:
+
+```bash
+kubectl get clusterrolebindings -o wide | grep cluster-admin
+kubectl get networkpolicy -A
+kubectl get ns -L pod-security.kubernetes.io/enforce,pod-security.kubernetes.io/audit
+```
+
+Every `cluster-admin` line is a token worth stealing. Ask of each one: does it need all of that?
+
+</DoItForReal>
