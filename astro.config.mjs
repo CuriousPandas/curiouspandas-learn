@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 
 export default defineConfig({
-  site: 'https://curiouspandas.dev',
+  site: 'https://learn.curiouspandas.dev',
   integrations: [mdx()],
   // Static output only. There is no server to scale, secure or pay for - the
   // learner's browser does all the work. See src/pages/about/index.astro.

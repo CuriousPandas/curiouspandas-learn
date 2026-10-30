@@ -6,7 +6,7 @@ serves a language model. Every lesson is something you can poke, break and fix
 in the browser, and the infrastructure lessons end with doing it for real on
 [TemplateMechanics/tilt](https://github.com/TemplateMechanics/tilt).
 
-Destined for **curiouspandas.dev**.
+Lives at **learn.curiouspandas.dev**.
 
 ## Why it stays free
 
@@ -59,13 +59,15 @@ can be rebuilt:
 
 ```bash
 gh api -X POST repos/TemplateMechanics/curiouspandas-learn/pages -f build_type=workflow
-gh api -X PUT  repos/TemplateMechanics/curiouspandas-learn/pages -f cname=curiouspandas.dev
+gh api -X PUT  repos/TemplateMechanics/curiouspandas-learn/pages -f cname=learn.curiouspandas.dev
 ```
 
-DNS for curiouspandas.dev is on Cloudflare: the GitHub Pages apex A/AAAA
-records plus `www` CNAME `templatemechanics.github.io`, set **DNS only** (grey
-cloud) so GitHub can issue the certificate. curiouspandas.us and
-curiouspanda.codes redirect to it with Cloudflare redirect rules.
+DNS is on Cloudflare: one record in the curiouspandas.dev zone, `learn` CNAME
+`templatemechanics.github.io`, set **DNS only** (grey cloud) - proxied, GitHub
+cannot issue the certificate, and `.dev` only loads over HTTPS. The apex is
+left free on purpose, for other projects. Verify `curiouspandas.dev` in the
+TemplateMechanics org's Pages settings (a TXT record): that covers every
+subdomain, so no other GitHub account can claim one.
 
 ## Adding a lesson
 

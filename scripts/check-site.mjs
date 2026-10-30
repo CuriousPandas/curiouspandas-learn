@@ -6,7 +6,7 @@
 // types into the playgrounds and asserts on what appears on screen.
 //
 //   npm run build && npm run check:site            (screenshots in .site-check/)
-//   SITE_URL=https://curiouspandas.dev npm run check:site   (check the live site)
+//   SITE_URL=https://learn.curiouspandas.dev npm run check:site   (check the live site)
 //   BROWSER=webkit npm run check:site              (Safari's engine; also firefox)
 //
 // WebKit matters most: every browser on an iPhone is WebKit underneath, and
