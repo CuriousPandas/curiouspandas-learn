@@ -1,0 +1,53 @@
+// An expedition that uses a lesson before teaching what it builds on fails no
+// link check and no build of its own: the learner just meets a term nobody
+// explained. These pin the order against each lesson's builds_on.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { EXPEDITIONS, type ExpeditionPlan } from '../src/data/expeditions.ts';
+import { TRACKS } from '../src/data/tracks.ts';
+import { checkExpeditions, type LessonFacts } from '../src/lib/expeditions.ts';
+import { collect } from '../scripts/progress-ids.ts';
+
+const dir = 'src/content/lessons';
+const ready = new Set(TRACKS.flatMap((t) => t.lessons.filter((l) => l.status === 'ready').map((l) => `${t.id}/${l.slug}`)));
+const lessons = new Map<string, LessonFacts>();
+for (const t of readdirSync(dir)) for (const f of readdirSync(join(dir, t))) {
+  const front = readFileSync(join(dir, t, f), 'utf8').split(/^---$/m)[1];
+  const list = front.match(/^builds_on: \[(.*)\]$/m);
+  assert.ok(list, `${t}/${f} has no builds_on line (an empty one is "builds_on: []")`);
+  lessons.set(`${t}/${f.replace(/\.mdx$/, '')}`, {
+    title: front.match(/^title: (.*)$/m)![1],
+    minutes: Number(front.match(/^minutes: (\d+)$/m)![1]),
+    ready: ready.has(`${t}/${f.replace(/\.mdx$/, '')}`),
+    buildsOn: list[1].split(',').map((s) => s.trim()).filter(Boolean),
+  });
+}
+
+test('every expedition, ready or planned, teaches before it relies', () => {
+  assert.deepEqual(checkExpeditions(EXPEDITIONS, lessons), []);
+});
+
+test('all eight are planned and the first four are ready', () => {
+  assert.equal(EXPEDITIONS.length, 8);
+  assert.deepEqual(EXPEDITIONS.filter((e) => e.status === 'ready').map((e) => e.id), ['first-steps', 'platform-engineer', 'ai-builder', 'founder']);
+});
+
+const plan = (lessons: string[]): ExpeditionPlan => ({ id: 'x', title: 'X', who: '', tagline: '', badge: 'B', icon: 'star', hue: 0, status: 'soon', lessons });
+
+test('the check refuses a skipped prerequisite, a wrong order and a cycle', () => {
+  assert.match(checkExpeditions([plan(['git/branches'])], lessons).join(), /git\/branches builds on git\/what-is-git, which the expedition skips/);
+  assert.match(checkExpeditions([plan(['git/branches', 'git/what-is-git'])], lessons).join(), /comes before git\/what-is-git/);
+  const looped = new Map(lessons);
+  looped.set('git/what-is-git', { ...lessons.get('git/what-is-git')!, buildsOn: ['git/conflicts'] });
+  assert.match(checkExpeditions([], looped).join(), /cycle: .*git\/what-is-git/);
+  assert.match(checkExpeditions([plan(['git/nope'])], lessons).join(), /does not exist/);
+});
+
+test('each ready expedition\'s badge XP is a guarded progress id', async () => {
+  // The badge is stored as a mission; if this id were not collected, renaming
+  // an expedition would strand everyone who had earned it.
+  const missions = (await collect()).missions;
+  for (const e of EXPEDITIONS.filter((x) => x.status === 'ready')) assert.ok(missions.includes(`expedition-${e.id}`), e.id);
+});

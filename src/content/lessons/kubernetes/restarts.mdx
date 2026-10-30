@@ -4,6 +4,7 @@ summary: Two pods crash forever, both with exit code 137, and they need opposite
 minutes: 18
 xp: 45
 tiers: [browser, machine]
+builds_on: [kubernetes/desired-state, linux/processes-and-signals]
 tiltLab: 09-why-did-it-restart
 sources:
   - title: Kubernetes docs - Pod Lifecycle (container restarts and probes)

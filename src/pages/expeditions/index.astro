@@ -1,0 +1,70 @@
+---
+import Base from '../../layouts/Base.astro';
+import ExpeditionBadge from '../../components/ExpeditionBadge.astro';
+import { expeditions, hours } from '../../lib/curriculum.ts';
+const all = await expeditions();
+const ready = all.filter((e) => e.status === 'ready');
+---
+<Base title="Expeditions" description="Routes across the trails for one kind of learner, each ending in a badge.">
+  <section class="wrap page">
+    <p class="eyebrow">Expeditions</p>
+    <h1>Not sure which trail? Pick an expedition</h1>
+    <p class="lede">A trail is one subject. An expedition crosses several, picked for one kind of learner, in an order where nothing is used before it is taught - the site checks that every time it is built. Finish one for its badge and bonus XP. Lessons you have already finished count.</p>
+    <div class="grid two xlist" data-xdefs={JSON.stringify(ready.map((e) => e.def))}>
+      {all.map((e) => e.status === 'ready' ? (
+        <a class="xcard card" href={e.href} style={`--hue:${e.hue}`} data-xcard={e.id}>
+          <ExpeditionBadge id={e.id} icon={e.icon} hue={e.hue} size={56} />
+          <span class="xtxt">
+            <strong>{e.title}</strong>
+            <span class="who">"{e.who}"</span>
+            <span class="tag">{e.tagline}</span>
+            <span class="facts">{e.steps.length} lessons · about {hours(e.minutes)} · {e.badge} badge, +{e.xp} XP</span>
+            <span class="xbar" aria-hidden="true"><i data-xbar></i></span>
+            <span class="muted small" data-xcount>Not started</span>
+          </span>
+        </a>
+      ) : (
+        <div class="xcard card soon" style={`--hue:${e.hue}`}>
+          <ExpeditionBadge id={e.id} icon={e.icon} hue={e.hue} size={56} />
+          <span class="xtxt">
+            <strong>{e.title} <span class="pill">planned</span></strong>
+            <span class="who">"{e.who}"</span>
+            <span class="tag">{e.tagline}</span>
+            <span class="facts">{e.steps.length} lessons · about {hours(e.minutes)} · route mapped, opening soon</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  </section>
+</Base>
+<script>
+  import { store } from '../../lib/progress.ts';
+  import { done, earned, settle, type ExpeditionDef } from '../../lib/expedition-progress.ts';
+  const defs: ExpeditionDef[] = JSON.parse(document.querySelector<HTMLElement>('[data-xdefs]')!.dataset.xdefs!);
+  settle(defs);
+  store().subscribe((p) => {
+    for (const d of defs) {
+      const card = document.querySelector<HTMLElement>(`[data-xcard="${d.id}"]`)!;
+      const n = done(p, d), got = earned(p, d);
+      card.querySelector<HTMLElement>('[data-xbadge]')!.classList.toggle('got', got);
+      card.querySelector<HTMLElement>('[data-xbar]')!.style.width = `${(n / d.lessons.length) * 100}%`;
+      card.querySelector<HTMLElement>('[data-xcount]')!.textContent = got ? `Complete - ${d.badge} badge earned` : n ? `${n} of ${d.lessons.length} done` : 'Not started';
+    }
+  });
+</script>
+<style>
+  .page { padding-top: 32px; }
+  .lede { max-width: 700px; color: var(--ink-2); font-size: 1.06rem; margin-bottom: 28px; }
+  .xcard { display: flex; gap: 16px; align-items: flex-start; padding: 18px; text-decoration: none; color: var(--ink); min-width: 0; }
+  a.xcard:hover { border-color: hsl(var(--hue) 50% 50%); }
+  .xtxt { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+  .xtxt strong { font-size: 1.12rem; }
+  .who { font-style: italic; color: var(--ink-2); }
+  .tag { font-size: 0.93rem; color: var(--ink-2); }
+  .facts { font-size: 0.84rem; color: var(--muted); }
+  .xbar { height: 5px; background: var(--bg-2); border-radius: 99px; overflow: hidden; margin-top: 4px; }
+  .xbar i { display: block; height: 100%; width: 0; background: hsl(var(--hue) 55% 42%); }
+  .small { font-size: 0.84rem; }
+  /* Dashed, not faded - the site never uses opacity to mean a state. */
+  .soon { box-shadow: none; border-style: dashed; background: transparent; }
+</style>

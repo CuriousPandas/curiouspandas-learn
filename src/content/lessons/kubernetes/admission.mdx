@@ -4,6 +4,7 @@ summary: The deployment wants six and has three. Nothing is crashing, nothing is
 minutes: 16
 xp: 40
 tiers: [browser, machine]
+builds_on: [kubernetes/scheduling]
 tiltLab: 10-why-wont-it-schedule
 sources:
   - title: Kubernetes docs - Resource Quotas

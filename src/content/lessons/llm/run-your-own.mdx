@@ -4,6 +4,7 @@ summary: Serve a real language model on your own laptop with the tilt platform, 
 minutes: 30
 xp: 50
 tiers: [machine]
+builds_on: [platform/bring-it-home, llm/next-token]
 sources:
   - title: Lewis et al. - Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks (2020)
     url: https://arxiv.org/abs/2005.11401
@@ -87,7 +88,7 @@ curl -s -X PUT https://qdrant.localhost/collections/pandas \
 From here, storing documents and searching them are two more calls. A guided, graded version is planned as a tilt lab. Until then, the [Qdrant API reference](https://api.qdrant.tech/api-reference) covers the rest.
 
 <Callout kind="trap">
-If the deployment isn't called `ollama`, `kubectl -n ollama get deploy` shows its real name. And if `curl` complains about the certificate, your machine doesn't trust the platform's local CA yet. The platform's setup guide covers that, and [Two TLS errors, one message](/tracks/web/) explains why.
+If the deployment isn't called `ollama`, `kubectl -n ollama get deploy` shows its real name. And if `curl` complains about the certificate, your machine doesn't trust the platform's local CA yet. The platform's setup guide covers that, and [Two TLS errors, one message](/learn/web/tls-trust/) explains why.
 </Callout>
 
 ## Step 3: watch what it does

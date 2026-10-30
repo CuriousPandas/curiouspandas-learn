@@ -1,9 +1,10 @@
 ---
 title: A model, a loop and some tools
 summary: An agent is a language model that can ask your code to do things, in a loop, until it has an answer. Step through one call at a time, watch the context grow, and find out who actually decides when it stops.
-minutes: 14
+minutes: 17
 xp: 35
 tiers: [browser, machine]
+builds_on: [llm/tokens]
 sources:
   - title: Anthropic docs - Tool use with Claude (how a tool call round trip works)
     url: https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
@@ -13,7 +14,7 @@ sources:
     url: https://arxiv.org/abs/2210.03629
 ---
 
-[Agents are loops with tools](/learn/frontiers/agents/) told you what an agent is and how it can go wrong. This track is about building one: the moving parts, which part does what, and which of those parts you control.
+This track is about building an agent: the moving parts, which part does what, and which of those parts you control.
 
 Start with the uncomfortable fact. **A language model can't do anything.** It reads text and writes text. It can't open a file, look up an invoice or send an email. What it *can* write is a request: "please call `find_invoice` with `1042`". Your program reads that request, runs the real function, and pastes the result back into the conversation. Then it asks the model again.
 
@@ -63,6 +64,32 @@ The agent below has three tools and one question about an overdue invoice. Its "
 A real model isn't four rules. It reads the whole conversation, can call several tools in one turn, and sometimes surprises you - in both directions. What it shares with this simulation is everything around it: it writes requests, your code runs them, and every turn it reads the whole conversation again.
 </Callout>
 
+## The pattern has a name
+
+Write a run out as plain text and you get the shape the 2022 *ReAct* paper made famous. It had models write "reasoning traces and task-specific actions in an interleaved manner", and letting them look things up (through a simple Wikipedia API) made them invent fewer facts. Most agents today still run some version of it:
+
+1. **Think.** The model writes what it's trying to do next.
+2. **Act.** It writes a tool call in a fixed format.
+3. **Observe.** Your code runs the tool and pastes the result into the conversation.
+4. Repeat until the model answers, or the loop stops it.
+
+An illustrative trace (the search result is written for the example, not real output):
+
+```
+GOAL: How tall can a bamboo plant get in a week?
+
+THINK   I need a growth rate. Let me search.
+ACT     search("fastest growing bamboo rate per day")
+OBSERVE "...some species have been measured growing close to a metre a day..."
+THINK   Roughly a metre a day, times 7 days. I should say it's an upper bound.
+ACT     calculator("0.9 * 7")
+OBSERVE 6.3
+ANSWER  Under ideal conditions, a fast species could grow around 6 m in a week -
+        an upper bound; most bamboo grows far more slowly.
+```
+
+Every `THINK`, `ACT` and `ANSWER` line is the model writing tokens. Every `OBSERVE` line is the outside world being pasted in - which is exactly where [the tools lesson](/learn/agents/tools/) finds its biggest danger.
+
 ## The context only grows
 
 Look at the bars beside the trace. Every model call reads **everything so far**: the instructions, the tool definitions, the task, every tool call and every result. The model doesn't remember the last call. It is handed the whole transcript again.
@@ -70,7 +97,7 @@ Look at the bars beside the trace. Every model call reads **everything so far**:
 Two costs follow from that:
 
 - **Money.** You pay for every token every call reads. Tool definitions count too: the docs list "tool names, descriptions, and schemas" as part of the input, plus a fixed tool-use instruction the API adds (286 tokens on Claude Opus 5.5). A ten-step run pays for its early steps ten times. The "tokens read in total" counter shows the sum.
-- **Attention.** A long, cluttered context is harder for the model to use well, which is one more reason to give an agent fewer, clearer tools and shorter results. [Tokens, not words](/learn/llm/tokens/) covers what a token is.
+- **Attention.** A long, cluttered context is harder for the model to use well, which is one more reason to give an agent fewer, clearer tools and shorter results. [Text becomes tokens](/learn/llm/tokens/) covers what a token is.
 
 ## Who decides when it stops
 

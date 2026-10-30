@@ -8,6 +8,8 @@
 //  - "Not saving" and "saved" never look the same. In a private window or with
 //    storage blocked, the header says progress is not being kept.
 
+import { migrate } from './progress-renames.ts';
+
 export const KEY = 'curiouspandas.progress.v1';
 
 export type Progress = {
@@ -92,6 +94,7 @@ export class Store {
       if (!valid(parsed)) throw new Error('shape');
       this.data = parsed;
       this.state = 'ok';
+      if (migrate(this.data)) this.save();
     } catch {
       this.state = 'corrupt';
       this.raw = raw;

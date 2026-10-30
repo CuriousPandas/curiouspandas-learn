@@ -15,4 +15,10 @@ export default defineConfig({
   // Astro's default github-dark draws comments at 3:1, below WCAG AA, and the
   // comments are where the lessons put "leave this running in another terminal".
   markdown: { shikiConfig: { theme: 'github-dark-default' } },
+  // Removed lessons keep their URL alive, so a bookmark or a link someone shared
+  // lands on the lesson that absorbed it instead of the 404 panda. Progress
+  // follows separately, through src/lib/progress-renames.ts.
+  redirects: {
+    '/learn/frontiers/agents': '/learn/agents/what-is-an-agent/',
+  },
 });

@@ -4,6 +4,7 @@ summary: A service mesh encrypts and measures traffic between services without t
 minutes: 14
 xp: 35
 tiers: [browser, machine]
+builds_on: [web/tls-trust, kubernetes/desired-state]
 tiltLab: 03-join-the-mesh
 sources:
   - title: Istio docs - Add workloads to the ambient mesh

@@ -1,9 +1,10 @@
 ---
 title: Guardrails, approvals and evals
 summary: A demo shows an agent working once. An eval shows whether it still works after you change it. Improve a support agent's prompt, watch the demo stay green while two real cases break, and fix it with a line of code instead of a sentence.
-minutes: 16
+minutes: 18
 xp: 40
 tiers: [browser]
+builds_on: [agents/tools]
 sources:
   - title: Anthropic docs - Define success criteria and build evaluations
     url: https://platform.claude.com/docs/en/test-and-evaluate/develop-tests
@@ -78,6 +79,10 @@ Look at what happened:
 Never fix a guardrail failure by editing the prompt and re-running the one case that failed. That's a second demo. The next prompt change can undo it, and you'll only find out from finance. Put the rule in code, keep the case in the eval, and run all of them.
 </Callout>
 
+<Callout kind="trap">
+"The agent said it finished" isn't evidence that it did. An agent's final report is more generated text: it can say a test passed that never ran, or that a refund went out that didn't. Check the actual state - the file, the test output, the order record - not the summary. An eval that grades the summary instead of the state grades the agent's storytelling.
+</Callout>
+
 <Callout kind="real">
 Real eval sets grow with every incident. When a customer finds a new way to confuse the agent, the email becomes a test case, so that failure can never quietly come back. Teams also run their evals on every new model version before switching, because a "better" model can still change behaviour you relied on.
 </Callout>
@@ -105,3 +110,15 @@ Real eval sets grow with every incident. When a customer finds a new way to conf
   answer={1}
   explain="Checks on what the agent did - tools called, amounts, languages, data that appeared - can be graded by code in milliseconds. Questions of tone need a person or another model to judge. Have both, but lean on the ones code can grade."
 />
+
+<Quiz
+  id="frontier-agents-3"
+  q="Which safeguard would you trust most for an agent that can run shell commands?"
+  options={["Telling it in the prompt to be careful", "Running it in a sandbox with only the permissions the task needs, and requiring confirmation for anything destructive", "Asking it afterwards whether it did anything dangerous"]}
+  answer={1}
+  explain="Instructions in a prompt can be overridden - by injection or by plain mistakes. Permissions enforced outside the model can't be talked out of. Asking afterwards is asking the same unreliable narrator."
+/>
+
+<Callout kind="real">
+Coding assistants, research assistants and "computer use" agents that click through websites are all this loop with different tools. What makes them safe to use is mostly ordinary software engineering: least privilege, a log of every action, limits, and a human approving the irreversible steps.
+</Callout>

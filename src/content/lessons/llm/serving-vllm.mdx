@@ -4,6 +4,7 @@ summary: Serving a language model to many people at once is mostly a memory prob
 minutes: 18
 xp: 45
 tiers: [browser, machine]
+builds_on: [llm/attention]
 sources:
   - title: Kwon et al., "Efficient Memory Management for Large Language Model Serving with PagedAttention", SOSP 2023
     url: https://arxiv.org/abs/2309.06180
@@ -75,7 +76,7 @@ The simulator is crude on purpose. Every step generates one token per conversati
 
 <DoItForReal id="llm-vllm-real" profile="full">
 
-A real vLLM server needs a supported GPU. The tilt platform runs [Ollama](https://ollama.com) instead, which serves small models on an ordinary CPU. Turn it on in `tilt-config.json` (`flux_apps.ollama.enabled: true`) and see [Run your own model](/tracks/llm/). With a GPU:
+A real vLLM server needs a supported GPU. The tilt platform runs [Ollama](https://ollama.com) instead, which serves small models on an ordinary CPU. Turn it on in `tilt-config.json` (`flux_apps.ollama.enabled: true`) and see [Run your own model](/learn/llm/run-your-own/). With a GPU:
 
 ```bash
 pip install vllm

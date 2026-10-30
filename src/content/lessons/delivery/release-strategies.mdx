@@ -4,6 +4,7 @@ summary: Every release strategy eventually puts the new version in front of user
 minutes: 18
 xp: 45
 tiers: [browser, machine]
+builds_on: [kubernetes/rollouts]
 tiltLab: 06-canary
 sources:
   - title: Flagger docs - Deployment strategies (canary stages, failed-checks threshold, rollback)

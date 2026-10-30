@@ -81,6 +81,8 @@ inline scripts, and has not been added yet.
 | Every mission can be finished, and the wrong fix does not pass | `tests/missions.test.ts` plays each mission from its own hints |
 | The ML and serving lessons' claims | `tests/ai.test.ts`: backprop vs a numerical gradient, XOR needs a hidden layer, paging beats reserving |
 | A corrupt progress store is never overwritten | `tests/progress.test.ts` |
+| A renamed lesson, quiz or mission never strands a learner's progress | `tests/progress-ids.test.ts`: every id ever shipped is in `tests/progress-ids.json`; one that disappears needs an entry in `src/lib/progress-renames.ts`, which moves learners' records on their next visit. After adding content, run `node scripts/progress-ids.ts --write` |
+| Expeditions never use a lesson before what it builds on | `tests/expeditions.test.ts` and the build itself check each lesson's `builds_on` against every expedition's order, planned ones included |
 | Pages actually work in a browser | `scripts/check-site.mjs` renders every page, drives every widget, asserts on screen text, checks every internal link and 375 px overflow - in Chromium, WebKit (every iPhone browser) and Firefox |
 | Readable and navigable for everyone | the same script runs axe (WCAG 2.1 A/AA) on every page in light and dark mode, and fails on any serious or critical violation |
 | CNCF maturity in the Tool Atlas | `scripts/sync-cncf.mjs` reads the CNCF landscape and writes a dated snapshot |

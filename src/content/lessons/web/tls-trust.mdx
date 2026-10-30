@@ -4,6 +4,7 @@ summary: A wrong name and an untrusted issuer look identical in a browser and in
 minutes: 15
 xp: 40
 tiers: [browser, machine]
+builds_on: [web/request-journey]
 tiltLab: 04-break-tls
 sources:
   - title: OpenSSL x509_vfy.h - verification error codes

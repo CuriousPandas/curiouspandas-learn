@@ -9,7 +9,7 @@ import Icon from '../../../components/Icon.astro';
 // misspelled tag shows up there as a widget that never appeared.
 const modules = import.meta.glob<{ default: unknown }>('../../../components/*.astro', { eager: true });
 const components = Object.fromEntries(Object.entries(modules).map(([p, m]) => [p.split('/').pop()!.replace('.astro', ''), m.default]));
-import { curriculum } from '../../../lib/curriculum.ts';
+import { curriculum, expeditions } from '../../../lib/curriculum.ts';
 
 export async function getStaticPaths() {
   const tracks = await curriculum();
@@ -25,6 +25,13 @@ const entry = lesson.entry!;
 const { Content } = await render(entry);
 const fm = entry.data;
 const nextPlanned = track.lessons.slice(lesson.index + 1).find((l) => !l.entry);
+// Every ready expedition this lesson is on, with its next step. The box stays
+// hidden unless the learner follows one of them.
+const onExpeditions = (await expeditions()).filter((e) => e.status === 'ready' && e.lessons.includes(entry.id)).map((e) => {
+  const i = e.lessons.indexOf(entry.id);
+  const n = e.steps[i + 1];
+  return { ...e.def, href: e.href, step: i + 1, next: n ? { href: n.href, title: n.title } : null };
+});
 ---
 <Base title={fm.title} description={fm.summary}>
   <article class="wrap lesson" style={`--hue:${track.hue}`}>
@@ -53,6 +60,11 @@ const nextPlanned = track.lessons.slice(lesson.index + 1).find((l) => !l.entry);
       </div>
       <button class="btn primary" type="button" data-done>Mark lesson complete · +{fm.xp} XP</button>
     </section>
+    <aside class="xnext card" data-xnext data-defs={JSON.stringify(onExpeditions)} hidden>
+      <span class="eyebrow">Your expedition</span>
+      <p><a data-xname></a> <span class="muted" data-xwhere></span></p>
+      <a class="btn primary" data-xgo></a>
+    </aside>
     <nav class="pager" aria-label="Lessons">
       {prev ? <a class="btn" href={prev.href}>← {prev.title}</a> : <span></span>}
       {next ? <a class="btn primary" href={next.href}>Next: {next.title} →</a>
@@ -65,15 +77,36 @@ const nextPlanned = track.lessons.slice(lesson.index + 1).find((l) => !l.entry);
 <script>
   import { award } from '../../../lib/ui.ts';
   import { store } from '../../../lib/progress.ts';
+  import { done, earned, following, settle, type ExpeditionDef } from '../../../lib/expedition-progress.ts';
   const box = document.querySelector<HTMLElement>('[data-finish]')!;
   const btn = box.querySelector<HTMLButtonElement>('[data-done]')!;
   const mark = () => { btn.disabled = true; btn.textContent = 'Lesson complete ✓'; box.classList.add('done'); };
   if (store().has('lessons', box.dataset.finish!)) mark();
-  btn.addEventListener('click', () => { award('lessons', box.dataset.finish!, Number(box.dataset.xp), 'Lesson complete'); mark(); });
+  const xbox = document.querySelector<HTMLElement>('[data-xnext]')!;
+  const xs: (ExpeditionDef & { href: string; step: number; next: { href: string; title: string } | null })[] = JSON.parse(xbox.dataset.defs!);
+  btn.addEventListener('click', () => { award('lessons', box.dataset.finish!, Number(box.dataset.xp), 'Lesson complete'); mark(); settle(xs); });
+  settle(xs);
+  const mine = xs.find((x) => x.id === following());
+  if (mine) {
+    xbox.hidden = false;
+    const name = xbox.querySelector<HTMLAnchorElement>('[data-xname]')!;
+    name.href = mine.href;
+    name.textContent = mine.title;
+    const go = xbox.querySelector<HTMLAnchorElement>('[data-xgo]')!;
+    store().subscribe((p) => {
+      xbox.querySelector('[data-xwhere]')!.textContent = `- step ${mine.step} of ${mine.lessons.length}, ${done(p, mine)} done`;
+      if (mine.next) { go.href = mine.next.href; go.textContent = `Next in your expedition: ${mine.next.title} →`; }
+      else if (earned(p, mine)) { go.href = mine.href; go.textContent = `${mine.badge} badge earned - see your expedition →`; }
+      else { go.href = mine.href; go.textContent = `Last step. Finish every lesson for the ${mine.badge} badge →`; }
+    });
+  }
 </script>
 
 <style>
   .lesson { padding-top: 24px; }
+  .xnext { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 12px 16px; margin: 18px 0 0; max-width: 980px; }
+  .xnext p { margin: 0; flex: 1; min-width: 0; }
+  .xnext .eyebrow { flex-basis: 100%; }
   .crumbs { font-size: 0.88rem; color: var(--muted); }
   .crumbs a { color: var(--muted); }
   .l-head { display: flex; gap: 16px; align-items: flex-start; margin: 12px 0 8px; max-width: 860px; }

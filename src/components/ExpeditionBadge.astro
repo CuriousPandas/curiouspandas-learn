@@ -1,0 +1,24 @@
+---
+// An expedition's badge. Drawn locked; the page's script adds .got once the
+// learner has earned it. Locked is a dashed outline in muted ink rather than a
+// faded copy of the earned one: fading is how earlier badges failed contrast,
+// and the site never uses opacity to mean a state. The words beside a badge
+// ("Earned" / "Not yet") carry the state too, so colour is never the only cue.
+import Icon from './Icon.astro';
+interface Props { id: string; icon: string; hue: number; size?: number }
+const { id, icon, hue, size = 64 } = Astro.props;
+---
+<span class="xb" style={`--hue:${hue};--s:${size}px`} data-xbadge={id}>
+  <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
+    <path class="xb-shape" d="M32 3.5 56.5 17.75v28.5L32 60.5 7.5 46.25v-28.5z" />
+  </svg>
+  <span class="xb-icon"><Icon name={icon} size={Math.round(size * 0.42)} /></span>
+</span>
+<style>
+  .xb { display: inline-grid; place-items: center; width: var(--s); height: var(--s); flex: none; }
+  .xb > * { grid-area: 1 / 1; }
+  .xb-icon { display: grid; place-items: center; color: var(--muted); }
+  .xb-shape { fill: var(--bg-2); stroke: var(--muted); stroke-width: 2.5; stroke-dasharray: 6 5; }
+  .xb.got .xb-shape { fill: hsl(var(--hue) 55% 38%); stroke: hsl(var(--hue) 60% 26%); stroke-dasharray: none; }
+  .xb.got .xb-icon { color: #fff; }
+</style>

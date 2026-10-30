@@ -1,0 +1,108 @@
+---
+import Base from '../../layouts/Base.astro';
+import ExpeditionBadge from '../../components/ExpeditionBadge.astro';
+import { expeditions, hours } from '../../lib/curriculum.ts';
+
+export async function getStaticPaths() {
+  // Planned expeditions get no page: their card says they are coming, and a
+  // page with a Start button would invite a learner onto an unfinished route.
+  return (await expeditions()).filter((e) => e.status === 'ready').map((e) => ({ params: { expedition: e.id }, props: { e } }));
+}
+const { e } = Astro.props;
+const step = new Map(e.steps.map((s, i) => [s.id, i + 1]));
+---
+<Base title={`${e.title} expedition`} description={e.tagline}>
+  <section class="wrap page" style={`--hue:${e.hue}`} data-xdef={JSON.stringify(e.def)} data-steps={JSON.stringify(e.steps.map((s) => ({ id: s.id, href: s.href, title: s.title })))}>
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/expeditions/">Expeditions</a> / <span>{e.title}</span></nav>
+    <header class="x-head">
+      <ExpeditionBadge id={e.id} icon={e.icon} hue={e.hue} size={96} />
+      <div>
+        <h1>{e.title}</h1>
+        <p class="who">"{e.who}"</p>
+        <p class="lede">{e.tagline}</p>
+        <div class="meta"><span class="pill">{e.steps.length} lessons</span><span class="pill">about {hours(e.minutes)}</span><span class="pill gold">{e.badge} badge · +{e.xp} XP</span></div>
+        <p class="state" data-xstate>Badge: {e.badge} - not earned yet. 0 of {e.steps.length} lessons done.</p>
+      </div>
+    </header>
+    <div class="actions">
+      <a class="btn primary" href={e.steps[0].href} data-continue>Start: {e.steps[0].title} →</a>
+      <button class="btn" type="button" data-follow aria-pressed="false">Follow this expedition</button>
+    </div>
+    <p class="muted small" data-follow-help>Following adds a "next in your expedition" link to each of its lessons. You can follow one at a time; the choice is kept in this browser.</p>
+    {e.note && <p class="note card">{e.note}</p>}
+    <ol class="steps">
+      {e.steps.map((s, i) => (
+        <li data-lesson={s.id}>
+          <a href={s.href} class="card row">
+            <span class="num">{i + 1}</span>
+            <span class="txt">
+              <strong>{s.title}</strong>
+              <span class="muted">{s.track}{s.buildsOn.length > 0 && <> · builds on step {s.buildsOn.map((d) => step.get(d)).sort((a, b) => a! - b!).join(', ')}</>}</span>
+            </span>
+            <span class="pill">{s.minutes} min</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  </section>
+</Base>
+<script>
+  import { store } from '../../lib/progress.ts';
+  import { done, earned, follow, following, settle, type ExpeditionDef } from '../../lib/expedition-progress.ts';
+  const root = document.querySelector<HTMLElement>('[data-xdef]')!;
+  const d: ExpeditionDef = JSON.parse(root.dataset.xdef!);
+  const steps: { id: string; href: string; title: string }[] = JSON.parse(root.dataset.steps!);
+  const cont = root.querySelector<HTMLAnchorElement>('[data-continue]')!;
+  const btn = root.querySelector<HTMLButtonElement>('[data-follow]')!;
+  const help = root.querySelector<HTMLElement>('[data-follow-help]')!;
+
+  settle([d]);
+  store().subscribe((p) => {
+    for (const li of root.querySelectorAll<HTMLElement>('[data-lesson]')) li.classList.toggle('complete', !!p.lessons[li.dataset.lesson!]);
+    const n = done(p, d), got = earned(p, d);
+    root.querySelector('[data-xbadge]')!.classList.toggle('got', got);
+    root.querySelector('[data-xstate]')!.textContent = got
+      ? `Badge: ${d.badge} - earned. All ${d.lessons.length} lessons done.`
+      : `Badge: ${d.badge} - not earned yet. ${n} of ${d.lessons.length} lessons done.`;
+    const next = steps.find((s) => !p.lessons[s.id]);
+    if (next) { cont.href = next.href; cont.textContent = `${n ? 'Continue' : 'Start'}: ${next.title} →`; }
+    else { cont.href = steps[0].href; cont.textContent = 'Revisit from the start →'; }
+  });
+
+  const show = () => {
+    const on = following() === d.id;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? 'Following ✓ (stop)' : 'Follow this expedition';
+  };
+  btn.addEventListener('click', () => {
+    // Says so when the browser refuses, rather than a button that looks
+    // pressed and does nothing on the next lesson.
+    if (!follow(following() === d.id ? null : d.id)) help.textContent = 'This browser is not letting the site store anything (a private window?), so following cannot be kept.';
+    show();
+  });
+  show();
+</script>
+<style>
+  .page { padding-top: 24px; max-width: 900px; }
+  .crumbs { font-size: 0.88rem; color: var(--muted); } .crumbs a { color: var(--muted); }
+  .x-head { display: flex; gap: 20px; align-items: flex-start; margin: 12px 0 18px; }
+  .x-head h1 { margin: 0; }
+  .who { font-style: italic; color: var(--ink-2); margin: 4px 0; }
+  .lede { margin: 0 0 10px; color: var(--ink-2); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .state { font-weight: 600; margin: 10px 0 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 6px; }
+  .small { font-size: 0.85rem; }
+  .note { padding: 12px 16px; margin: 14px 0; font-size: 0.93rem; }
+  .steps { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+  .row { display: flex; gap: 14px; align-items: center; padding: 12px 16px; text-decoration: none; color: var(--ink); min-width: 0; }
+  a.row:hover { border-color: hsl(var(--hue) 50% 50%); }
+  /* Theme ink on a theme background, with the hue only in the ring: hue-coloured
+     digits failed axe contrast for some hues (orange in light, most in dark). */
+  .num { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--bg-2); color: var(--ink); border: 2px solid hsl(var(--hue) 55% 45%); position: relative; }
+  .complete .num { background: var(--bamboo); border-color: var(--bamboo); color: transparent; }
+  .complete .num::after { content: "✓"; position: absolute; color: var(--bamboo-ink); }
+  .txt { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .txt .muted { font-size: 0.88rem; }
+  @media (max-width: 600px) { .x-head { flex-direction: column; gap: 10px; } .row .pill { display: none; } }
+</style>

@@ -4,6 +4,7 @@ summary: One address, many servers. Watch round robin feed a crashed backend, wa
 minutes: 16
 xp: 40
 tiers: [browser, machine]
+builds_on: [network/ports-and-tcp]
 tiltLab: 02-route-a-hostname
 sources:
   - title: NGINX - ngx_http_upstream_module (round robin, least_conn, max_fails)

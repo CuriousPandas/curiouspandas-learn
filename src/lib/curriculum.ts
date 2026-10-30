@@ -1,5 +1,7 @@
 import { getCollection, type CollectionEntry } from 'astro:content';
 import { TRACKS } from '../data/tracks.ts';
+import { EXPEDITIONS } from '../data/expeditions.ts';
+import { bonusXp, checkExpeditions, type LessonFacts } from './expeditions.ts';
 
 export type LessonEntry = CollectionEntry<'lessons'>;
 
@@ -36,3 +38,29 @@ export function totals(tracks: Awaited<ReturnType<typeof curriculum>>) {
   const words = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty'];
   return { lessons: all.length, ready: all.filter((l) => l.status === 'ready').length, tracks: tracks.length, tracksWord: words[tracks.length] ?? String(tracks.length) };
 }
+
+/**
+ * Expeditions joined to their lessons. Refuses to build if any expedition uses
+ * a lesson before one it builds on - the same check tests/expeditions.test.ts
+ * runs, here against the content Astro actually loaded.
+ */
+export async function expeditions() {
+  const tracks = await curriculum();
+  const lessons = new Map(tracks.flatMap((t) => t.lessons.map((l) => [l.id, {
+    title: l.title, minutes: l.entry?.data.minutes ?? 0, ready: !!l.entry, buildsOn: l.entry?.data.builds_on ?? [],
+    href: l.href, track: t.title,
+  }])));
+  const problems = checkExpeditions(EXPEDITIONS, lessons as Map<string, LessonFacts>);
+  if (problems.length) throw new Error(`Expeditions and lessons disagree:\n  - ${problems.join('\n  - ')}`);
+  return EXPEDITIONS.map((e) => {
+    const steps = e.lessons.map((id) => ({ id, ...lessons.get(id)! }));
+    return {
+      ...e, steps, xp: bonusXp(e), href: `/expeditions/${e.id}/`,
+      minutes: steps.reduce((n, s) => n + s.minutes, 0),
+      // For the browser: just enough to tick lessons and award the badge.
+      def: { id: e.id, title: e.title, badge: e.badge, xp: bonusXp(e), lessons: e.lessons },
+    };
+  });
+}
+
+export const hours = (minutes: number) => `${Math.round(minutes / 6) / 10} h`;

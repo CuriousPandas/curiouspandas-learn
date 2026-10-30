@@ -15,7 +15,7 @@
 import * as engines from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';
 import { spawn } from 'node:child_process';
-import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const ENGINE = process.env.BROWSER ?? 'chromium';
@@ -75,6 +75,16 @@ async function visit(path, { dark = false, width = 1280 } = {}) {
 // internal link must name a built page (or a file in public/).
 const known = new Set([...pages('dist'), '/favicon.svg']);
 for (const path of pages('dist')) {
+  // A redirect page has no content of its own to check; what matters is that
+  // it lands on a real page rather than forwarding a bookmark into a 404.
+  const html = readFileSync(join('dist', path === '/404.html' ? path : path + 'index.html'), 'utf8');
+  const refresh = html.match(/http-equiv="refresh" content="\d+;url=([^"]+)"/);
+  if (refresh) {
+    const to = new URL(refresh[1], base + path).pathname;
+    if (!known.has(to)) fail(path, `redirects to ${to}, which is not a page`);
+    report.push({ path, redirect: to });
+    continue;
+  }
   const { ctx, page, errors, failed } = await visit(path);
   const h1 = (await page.locator('h1').first().textContent().catch(() => null))?.trim() ?? null;
   const text = (await page.locator('main').innerText().catch(() => '')).trim();
@@ -1459,12 +1469,92 @@ await scenario('git-integrate', '/learn/git/merge-rebase-squash/', async (page) 
   if (await page.locator(`${r} .hl-node`).count() < 5) throw new Error('commit graph did not draw');
 });
 
+// ---- expeditions ------------------------------------------------------------
+// Progress is seeded straight into localStorage, the way a returning learner's
+// browser holds it, so these also prove a store saved before expeditions
+// existed is read and completed rather than ignored.
+const seed = (lessons, extra = {}) => JSON.stringify({ v: 1, xp: 100, lessons: Object.fromEntries(lessons.map((id) => [id, '2026-10-01T10:00:00.000Z'])), quizzes: {}, missions: {}, real: {}, days: ['2026-10-01'], ...extra });
+const stepsOf = async (page) => JSON.parse(await page.locator('[data-steps]').getAttribute('data-steps'));
+const xpNow = async (page) => Number(JSON.parse(await page.evaluate(() => localStorage.getItem('curiouspandas.progress.v1'))).xp);
+
+await scenario('expeditions-index', '/expeditions/', async (page) => {
+  const ready = await page.locator('a.xcard').count(), planned = await page.locator('.xcard.soon').count();
+  if (ready !== 4 || planned !== 4) throw new Error(`expected 4 open and 4 planned expeditions, saw ${ready} and ${planned}`);
+  // A planned card must not be a way onto an unfinished route.
+  if (await page.locator('.xcard.soon a, a.xcard.soon').count()) throw new Error('a planned expedition card is a link');
+  await expectText(page, '[data-xcard="first-steps"] [data-xcount]', /Not started/);
+});
+
+await scenario('expedition-walk', '/expeditions/first-steps/', async (page) => {
+  const steps = await stepsOf(page);
+  const last = steps[steps.length - 1];
+  await page.evaluate((v) => localStorage.setItem('curiouspandas.progress.v1', v), seed(steps.slice(0, -1).map((s) => s.id)));
+  await page.reload({ waitUntil: 'networkidle' });
+  await expectText(page, '[data-xstate]', new RegExp(`not earned yet\. ${steps.length - 1} of ${steps.length}`));
+  const cont = await page.locator('[data-continue]').getAttribute('href');
+  if (cont !== last.href) throw new Error(`Continue points at ${cont}, not the one unfinished lesson ${last.href}`);
+  await page.locator('[data-follow]').click();
+  if (await page.locator('[data-follow]').getAttribute('aria-pressed') !== 'true') throw new Error('Follow did not stick');
+  // Walk the route by its own "next" links: a dead end or a wrong turn is
+  // what a learner following it would hit.
+  await page.goto(base + steps[0].href, { waitUntil: 'networkidle' });
+  for (let i = 0; i < steps.length - 1; i++) {
+    const go = page.locator('[data-xnext] [data-xgo]');
+    if (!(await page.locator('[data-xnext]').isVisible())) throw new Error(`no expedition box on step ${i + 1} (${steps[i].href})`);
+    const href = await go.getAttribute('href');
+    if (href !== steps[i + 1].href) throw new Error(`step ${i + 1} sends you to ${href}, expected ${steps[i + 1].href}`);
+    await go.click();
+    await page.waitForURL(base + steps[i + 1].href);
+    await page.waitForLoadState('networkidle');
+  }
+  const before = await xpNow(page);
+  await expectText(page, '[data-xnext] [data-xgo]', /Last step/);
+  await page.locator('[data-finish] [data-done]').click();
+  await expectText(page, '[data-xnext] [data-xgo]', /Trailhead badge earned/);
+  const lessonXp = Number(await page.locator('[data-finish]').getAttribute('data-xp'));
+  const gained = (await xpNow(page)) - before;
+  if (gained !== lessonXp + 10 * steps.length) throw new Error(`finishing the last lesson gave ${gained} XP, expected ${lessonXp} + ${10 * steps.length} badge`);
+  await page.goto(base + '/expeditions/first-steps/', { waitUntil: 'networkidle' });
+  await expectText(page, '[data-xstate]', /Trailhead - earned/);
+  if (!(await page.locator('[data-xbadge].got').count())) throw new Error('earned badge still drawn locked');
+  await page.reload({ waitUntil: 'networkidle' });
+  if ((await xpNow(page)) !== before + gained) throw new Error('reloading awarded the badge XP again');
+  // A lesson that is not on the followed expedition stays quiet.
+  await page.goto(base + '/learn/kubernetes/scheduling/', { waitUntil: 'networkidle' });
+  if (await page.locator('[data-xnext]').isVisible()) throw new Error('expedition box shown on a lesson outside the followed expedition');
+});
+
+await scenario('expedition-retroactive', '/expeditions/founder/', async (page) => {
+  // Someone who finished every Founder lesson before expeditions shipped gets
+  // the badge on their next visit, without redoing anything.
+  const steps = await stepsOf(page);
+  await page.evaluate((v) => localStorage.setItem('curiouspandas.progress.v1', v), seed(steps.map((s) => s.id)));
+  await page.goto(base + '/progress/', { waitUntil: 'networkidle' });
+  await expectText(page, '[data-badges]', /Trailblazer\s*Earned/);
+  if ((await xpNow(page)) !== 100 + 10 * steps.length) throw new Error(`XP after the retroactive badge is ${await xpNow(page)}`);
+});
+
+await scenario('merged-lesson-progress', '/learn/agents/what-is-an-agent/', async (page) => {
+  // frontiers/agents was merged into this lesson on 2026-10-30. A learner who
+  // had finished it must see this one ticked, keep their XP, and not be able
+  // to earn the same lesson's XP twice.
+  await page.evaluate((v) => localStorage.setItem('curiouspandas.progress.v1', v), seed(['frontiers/agents']));
+  await page.reload({ waitUntil: 'networkidle' });
+  await expectText(page, '[data-finish] [data-done]', /Lesson complete ✓/);
+  const stored = JSON.parse(await page.evaluate(() => localStorage.getItem('curiouspandas.progress.v1')));
+  if (stored.lessons['frontiers/agents'] || !stored.lessons['agents/what-is-an-agent']) throw new Error(`record not moved: ${Object.keys(stored.lessons)}`);
+  if (stored.xp !== 100) throw new Error(`XP changed on migration: ${stored.xp}`);
+  await page.goto(base + '/learn/frontiers/agents/', { waitUntil: 'networkidle' });
+  if (!page.url().endsWith('/learn/agents/what-is-an-agent/')) throw new Error(`old URL ended at ${page.url()}`);
+});
+
 await browser.close();
 server?.kill();
 
 writeFileSync(join(OUT, 'report.json'), JSON.stringify({ base, failures, report }, null, 2));
 for (const r of report) {
-  if (r.path) console.log(`${r.errors.length || r.failed.length || r.overflow > 1 || !r.h1 ? '✗' : '✓'} ${r.path.padEnd(36)} h1=${JSON.stringify(r.h1)} text=${r.chars} errors=${r.errors.length} failed=${r.failed.length}`);
+  if (r.redirect) console.log(`↪ ${r.path.padEnd(36)} redirects to ${r.redirect}`);
+  else if (r.path) console.log(`${r.errors.length || r.failed.length || r.overflow > 1 || !r.h1 ? '✗' : '✓'} ${r.path.padEnd(36)} h1=${JSON.stringify(r.h1)} text=${r.chars} errors=${r.errors.length} failed=${r.failed.length}`);
   else console.log(`✓ scenario ${r.scenario}`);
 }
 if (failures.length) {

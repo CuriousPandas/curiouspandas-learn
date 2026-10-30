@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
-import { curriculum } from '../../lib/curriculum.ts';
+import { curriculum, expeditions } from '../../lib/curriculum.ts';
 import { RANKS } from '../../lib/progress.ts';
 const tracks = await curriculum();
 const lessonTitles = Object.fromEntries(tracks.flatMap((t) => t.lessons.filter((l) => l.entry).map((l) => [l.id, `${t.title}: ${l.title}`])));
@@ -21,6 +21,8 @@ const badges = [
   { id: 'streak3', name: 'Three-Day Streak', desc: 'Learn three days in a row', rule: 'streak:3' },
   { id: 'streak7', name: 'Week of Bamboo', desc: 'Learn seven days in a row', rule: 'streak:7' },
 ];
+const ready = (await expeditions()).filter((e) => e.status === 'ready');
+badges.push(...ready.map((e) => ({ id: `expedition-${e.id}`, name: e.badge, desc: `Finish the ${e.title} expedition`, rule: `mission:expedition-${e.id}` })));
 ---
 <Base title="Your progress" description="XP, rank, streak and badges - stored only in this browser.">
   <section class="wrap page">
@@ -34,7 +36,7 @@ const badges = [
     </div>
 
     <h2>Badges</h2>
-    <div class="badges" data-badges data-defs={JSON.stringify(badges)}></div>
+    <div class="badges" data-badges data-defs={JSON.stringify(badges)} data-xdefs={JSON.stringify(ready.map((e) => e.def))}></div>
 
     <h2>Ranks</h2>
     <ol class="ranks">{RANKS.map((r) => <li data-rank-xp={r.xp}><strong>{r.name}</strong> <span class="muted">{r.xp} XP</span></li>)}</ol>
@@ -57,10 +59,13 @@ const badges = [
 <script>
   import { store, rank, streak } from '../../lib/progress.ts';
   import { toast } from '../../lib/ui.ts';
+  import { settle } from '../../lib/expedition-progress.ts';
   const s = store();
   const $ = <T extends Element = HTMLElement>(q: string) => document.querySelector<T>(q)!;
   const defs: { id: string; name: string; desc: string; rule: string }[] = JSON.parse($('[data-badges]').dataset.defs!);
   const titles: Record<string, string> = JSON.parse($('[data-done-list]').dataset.titles!);
+  // Lessons finished before expeditions existed still complete one.
+  settle(JSON.parse($('[data-badges]').dataset.xdefs!));
 
   s.subscribe((p) => {
     const r = rank(p.xp), n = streak(p.days);

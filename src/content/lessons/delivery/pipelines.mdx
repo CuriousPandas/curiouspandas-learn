@@ -4,6 +4,7 @@ summary: A pipeline turns every push into the same checks, in the same order, en
 minutes: 17
 xp: 45
 tiers: [browser, machine]
+builds_on: [containers/tags-and-digests, git/collaborate]
 sources:
   - title: GitHub Docs - Caching dependencies to speed up workflows (cache keys, exact-match hits)
     url: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/caching-dependencies-to-speed-up-workflows
