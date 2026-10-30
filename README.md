@@ -58,15 +58,15 @@ deploy. Two one-time settings live outside the repo, recorded here so the setup
 can be rebuilt:
 
 ```bash
-gh api -X POST repos/TemplateMechanics/curiouspandas-learn/pages -f build_type=workflow
-gh api -X PUT  repos/TemplateMechanics/curiouspandas-learn/pages -f cname=learn.curiouspandas.dev
+gh api -X POST repos/CuriousPandas/curiouspandas-learn/pages -f build_type=workflow
+gh api -X PUT  repos/CuriousPandas/curiouspandas-learn/pages -f cname=learn.curiouspandas.dev
 ```
 
 DNS is on Cloudflare: one record in the curiouspandas.dev zone, `learn` CNAME
-`templatemechanics.github.io`, set **DNS only** (grey cloud) - proxied, GitHub
+`curiouspandas.github.io`, set **DNS only** (grey cloud) - proxied, GitHub
 cannot issue the certificate, and `.dev` only loads over HTTPS. The apex is
 left free on purpose, for other projects. Verify `curiouspandas.dev` in the
-TemplateMechanics org's Pages settings (a TXT record): that covers every
+CuriousPandas org's Pages settings (a TXT record): that covers every
 subdomain, so no other GitHub account can claim one.
 
 ## Adding a lesson
