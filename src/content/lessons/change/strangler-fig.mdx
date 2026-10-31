@@ -1,0 +1,143 @@
+---
+title: Strangle it one route at a time
+summary: A façade lets the old and new systems run side by side while you move traffic across a route at a time. Migrate a small shop in the Strangler Lab, catch the differences nobody logged, and switch the old system off without breaking the caller nobody listed.
+minutes: 25
+xp: 60
+tiers: [browser]
+builds_on: [change/prove-it-in-production, databases/replication]
+sources:
+  - title: Martin Fowler - Strangler Fig (bliki, rewritten 22 Aug 2024)
+    url: https://martinfowler.com/bliki/StranglerFigApplication.html
+  - title: Martin Fowler - Original Strangler Fig Application (29 June 2004, renamed 29 April 2019)
+    url: https://martinfowler.com/bliki/OriginalStranglerFigApplication.html
+  - title: Microsoft Azure Architecture Center - Strangler Fig pattern
+    url: https://learn.microsoft.com/en-us/azure/architecture/patterns/strangler-fig
+  - title: AWS Prescriptive Guidance - Strangler fig pattern
+    url: https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/strangler-fig.html
+  - title: Ian Cartwright, Rob Horn, James Lewis - Patterns of Legacy Displacement (2021, revised 2024)
+    url: https://martinfowler.com/articles/patterns-legacy-displacement/
+  - title: Martin Kleppmann - Using logs to build a solid data infrastructure (or why dual writes are a bad idea), Confluent (2015)
+    url: https://www.confluent.io/blog/using-logs-to-build-a-solid-data-infrastructure-or-why-dual-writes-are-a-bad-idea/
+  - title: Microsoft Azure Well-Architected Framework - Safe deployment practices
+    url: https://learn.microsoft.com/en-us/azure/well-architected/operational-excellence/safe-deployments
+  - title: Atlassian - Post-incident review, April 2022 outage
+    url: https://www.atlassian.com/blog/how-we-build/post-incident-review-april-2022-outage
+  - title: Atlassian - April 2022 outage update (CTO)
+    url: https://www.atlassian.com/blog/how-we-build/april-2022-outage-update
+  - title: SEC - In the Matter of Knight Capital Americas LLC, Release No. 70694 (16 Oct 2013)
+    url: https://www.sec.gov/files/litigation/admin/2013/34-70694.pdf
+  - title: Vicent Martí - Move Fast and Fix Things, GitHub (15 Dec 2015)
+    url: https://github.blog/engineering/engineering-principles/move-fast/
+---
+
+The riskiest way to replace a system is to build the new one beside it for a year, then switch everything over in one night. Every bug the old system had learned to avoid, and every caller nobody wrote down, arrives at once, and switching back may be impossible by morning.
+
+The alternative has a name. In 2004 Martin Fowler wrote a short post, originally "entitled 'Strangler Application'", after the strangler fig: a vine that grows around a host tree until it stands on its own. In 2019 he renamed it Strangler Fig Application, because the short name "takes on a unpleasantly [sic] violent connotation", and in August 2024 he rewrote the entry as "Strangler Fig". The idea hasn't changed: put something in front of the old system, and move its work to the new one a piece at a time, while both keep running.
+
+## Four phases, and the last one gets skipped
+
+Microsoft's Azure Architecture Center gives the clearest sequence:
+
+1. **Put a façade in front.** A proxy or router that every request goes through. "Initially, the façade routes most requests to the legacy system."
+2. **Move routes across.** One at a time, each route's rule changes from legacy to new. The previous lesson's shadow lives here: compare first, then move.
+3. **Retire the legacy system.** Only once nothing reaches it.
+4. **Remove the façade.** "You remove the façade and reconfigure the client app to communicate directly with the new system. This step marks the completion of the migration." Azure also allows keeping it: "Alternatively, you can maintain the façade as an adapter for legacy clients".
+
+<Diagram
+  id="change-strangler"
+  title="The façade decides, route by route"
+  desc="Clients send every request to a façade. The façade has one rule per route. Routes still on legacy go to the legacy app and its database; routes that have moved go to the new system and its database. A sync process keeps the two databases in step while both are live."
+  nodes={[
+    { id: 'clients', label: 'clients', sub: 'unchanged', x: 0, y: 0 },
+    { id: 'facade', label: 'façade', sub: 'one rule per route', x: 1, y: 0, kind: 'info' },
+    { id: 'legacy', label: 'legacy app', sub: 'shrinking', x: 2, y: 0 },
+    { id: 'new', label: 'new system', sub: 'growing', x: 2, y: 1, kind: 'ok' },
+    { id: 'ldb', label: 'legacy DB', x: 3, y: 0 },
+    { id: 'ndb', label: 'new DB', x: 3, y: 1 },
+  ]}
+  edges={[
+    { from: 'clients', to: 'facade' },
+    { from: 'facade', to: 'legacy', label: 'not moved' },
+    { from: 'facade', to: 'new', label: 'moved' },
+    { from: 'legacy', to: 'ldb' },
+    { from: 'new', to: 'ndb' },
+    { from: 'ldb', to: 'ndb', label: 'in step' },
+  ]}
+  steps={[
+    { caption: 'The façade goes in first. Clients talk to it and notice nothing, because every rule still points at legacy.', show: ['clients', 'facade', 'legacy', 'ldb', 'clients->facade', 'facade->legacy', 'legacy->ldb'], focus: ['facade'] },
+    { caption: 'One route moves. Its rule now points at the new system. Every other route still goes to legacy.', show: ['new', 'ndb', 'facade->new', 'new->ndb'], focus: ['new', 'facade->new'] },
+    { caption: 'Both systems are live, so both stores must agree. This is where most of the hard work, and most of the silent failures, live.', show: ['ldb->ndb'], focus: ['ldb->ndb'] },
+    { caption: 'When nothing reaches legacy any more, it can be switched off, and finally the façade itself removed.', show: [], focus: ['legacy'] },
+  ]}
+/>
+
+The payoff is reversibility. A route that misbehaves goes back to legacy by changing one rule. The cost is what Ian Cartwright, Rob Horn and James Lewis call transitional architecture: the façade, the sync, the comparisons, all of it built to be thrown away. Their advice: "Be explicit and transparent in this 'value of risk mitigation' vs 'cost of transitional architecture' trade-off."
+
+## What Azure warns about
+
+The Azure page's list of problems reads like a list of ways this goes quietly wrong:
+
+- "Make sure that the façade keeps up with the migration." Every route that moves is a rule someone has to change, and a rule that doesn't match its path does nothing.
+- "Make sure that the façade doesn't become a single point of failure or a performance bottleneck." Every request now passes through one more hop.
+- Data. Once legacy's tables are dropped, rolling back means "you must restore those objects and replay data changes. However, this process significantly increases effort and risk."
+
+Keeping two stores in step is the hardest part. Writing to both from the application looks simple, and Martin Kleppmann explains why it isn't: two writes can land in different orders in the two stores, and "you probably won't even notice that your database and your search indexes have gone out of sync, because no errors occurred." Azure's alternative is "change data capture processing", "reading the transaction log instead". AWS says to treat its own queue-based sync "as a tactical solution until you can establish a long-term solution". Whatever carries the data across is transitional too.
+
+## Try it: the Strangler Lab
+
+A small shop, six routes on a façade, and a new system to take them over. The traffic is invented, and each step is one day. The data sync is simplified, so its change data capture is instant and runs both ways, unlike the real thing. Every trap in it is either one a source above documents or one marked as *constructed* in the debrief.
+
+Two rules hold throughout, and they're the whole lesson:
+
+- **compared** always appears next to **differed**. A route nobody checked is amber and says "not checked".
+- **served by** is counted per request. It is not read from the mode you picked.
+
+<StranglerLab />
+
+<Callout kind="trap">
+The cart rule is a constructed trap, not a documented incident: a teammate's rule ends in a slash, `/cart/`, and the path is `/cart`. The rule never matches, so the catch-all sends every request to legacy, whatever the mode says. Setting it to "new" changes the configuration and nothing else. Only the per-request "served by" count shows it.
+</Callout>
+
+## The traps in the lab, and where they come from
+
+- **Noise, and the rule that hides a bug.** Timestamps and request IDs differ on every request; that's Shopify's point from the last lesson. Scrubbing exactly those fields is right. "Ignore all numeric fields" also makes the wrong sale price match, which is the price of a normaliser broader than its evidence.
+- **Legacy is the buggy side.** The search difference is legacy listing a product twice. GitHub's comparison found "2 serious merge-related bugs in the original Git implementation which had gone undetected for years". When old and new disagree, either side can be the wrong one.
+- **The rare bug.** One order in five hundred breaks the new code. One day of comparisons misses it. The SRE Workbook: "Terminating a canary deployment after receiving just a handful of queries doesn't provide a useful signal." The same is true of a shadow.
+- **Dual writes.** They diverge with no errors, which is Kleppmann's point exactly. Only comparing the stores shows it.
+- **The caller nobody listed.** Finance's export runs once a month, has no façade rule, and only appears in legacy's own access log. Azure's guidance on retiring anything: "Define clear indicators of inactivity across a full user or business cycle," and "Disable before deleting." Switching legacy off is reversible. Deleting it isn't.
+
+## Removal is a production change
+
+The last step looks like housekeeping, and it is where two famous failures happened.
+
+Atlassian's April 2022 outage began with a script retiring an old app. "Instead of providing the IDs of the intended app being marked for deletion, the team provided the IDs of the entire cloud site where the apps were to be deleted." Its CTO's update adds the second half: "The script was executed with the wrong execution mode and the wrong list of IDs." It ran in permanent-delete mode, not the recoverable one.
+
+Knight Capital's 2012 loss came from code that should have been removed and wasn't. When a new release went out, according to the SEC's order, "one of Knight's technicians did not copy the new code to one of the eight SMARS computer servers". That server still held old, unused code, and a reused flag woke it up. Knight "lost over $460 million" in "a 45-minute period". The lab's version is smaller: archive before you delete, and don't delete until a full cycle has gone by with nothing reaching legacy.
+
+<Callout kind="tip">
+A strangler migration can stop partway and still have been worth doing. Every route that moved is one the old system no longer has to carry. What it can't do is stop *silently*, with half the façade's rules pointing at new and nobody measuring what actually serves them. Cartwright, Horn and Lewis also give the wider warning: "technology is at most only 50% of the legacy problem".
+</Callout>
+
+<Quiz
+  id="change-strangler-1"
+  q="You set GET /cart to 'new' on the façade. The new system's dashboards show no cart traffic. What's the first thing to check?"
+  options={["Whether the new system is down", "Whether the façade rule actually matches the requests - configured is not served", "Whether users have stopped buying"]}
+  answer={1}
+  explain="A rule that never matches sends requests to the catch-all, which is legacy. The mode reads 'new' and changes nothing. Count which system served each request, not which mode you picked."
+/>
+
+<Quiz
+  id="change-strangler-2"
+  q="Shadowing GET /search shows legacy returning one product twice where the new system returns it once. What should you do?"
+  options={["Fix the new system to match legacy - legacy is the reference", "Decide which answer is correct; here legacy is wrong, so keep the new behaviour and record why", "Ignore search differences in the comparator"]}
+  answer={1}
+  explain="A difference only tells you the two disagree. GitHub's comparison found two long-hidden bugs in old Git. Copying legacy's bug into the new system would make the comparison match and the users worse off."
+/>
+
+<Quiz
+  id="change-strangler-3"
+  q="Legacy has been switched off for twelve days and nothing has failed. Why not delete it now?"
+  options={["No reason - twelve quiet days is proof", "Something might call it less often than every twelve days; watch a full business cycle, and archive before deleting", "Deleting is reversible anyway"]}
+  answer={1}
+  explain="Azure says to define inactivity 'across a full user or business cycle', and to disable before deleting. A monthly job is invisible for 29 days out of 30. Switching off is the reversible step; deletion is not."
+/>

@@ -1,0 +1,138 @@
+---
+title: A mirror that compares nothing
+summary: The strongest evidence that a replacement behaves like the old system is both of them answering the same real requests. Set up a shadow, and find the five ways it can report "no differences" while comparing nothing at all.
+minutes: 18
+xp: 45
+tiers: [browser]
+builds_on: [delivery/release-strategies, platform/observability]
+sources:
+  - title: Vicent Martí - Move Fast and Fix Things, GitHub (15 Dec 2015)
+    url: https://github.blog/engineering/engineering-principles/move-fast/
+  - title: github/scientist - README
+    url: https://github.com/github/scientist
+  - title: Istio docs - Mirroring (v1.31)
+    url: https://istio.io/latest/docs/tasks/traffic-management/mirroring/
+  - title: Envoy docs - RouteAction.RequestMirrorPolicy
+    url: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto
+  - title: NGINX docs - ngx_http_mirror_module
+    url: https://nginx.org/en/docs/http/ngx_http_mirror_module.html
+  - title: twitter/diffy - README (archived 2020)
+    url: https://github.com/twitter-archive/diffy
+  - title: Shopify Engineering - How Shopify reduced storefront response times with a rewrite (2020)
+    url: https://shopify.engineering/how-shopify-reduced-storefront-response-times-rewrite
+  - title: Warner, Davidovič et al. - Canarying Releases, The Site Reliability Workbook, ch. 16 (Google, 2018; CC BY-NC-ND 4.0)
+    url: https://sre.google/workbook/canarying-releases/
+  - title: Google Cloud - Introducing Kayenta (2018)
+    url: https://cloud.google.com/blog/products/gcp/introducing-kayenta-an-open-automated-canary-analysis-tool-from-google-and-netflix
+  - title: Clare Liguori - Automating safe, hands-off deployments, Amazon Builders' Library (now AWS Builder Center)
+    url: https://builder.aws.com/content/3ErTKQOTKc5NIw031UePBPxTQ6I/automating-safe-hands-off-deployments
+---
+
+Tests catch the bugs you thought of. When you replace a piece of a running system, the bugs that hurt are the ones nobody thought of: the odd input, the edge case the old code handled by accident, the behaviour a customer quietly depends on. The best evidence you have is to run the old and the new side by side on **real requests** and compare their answers before any user sees the new one.
+
+GitHub did this when it rewrote how pull requests are merged. The first step was to "enable it for a tiny fraction (1%) of all the requests". After four days of fixing what the comparisons found, the experiment ran "for 100% of the requests, for 24 hours, and with no mismatches nor slow cases during the whole run". In total it "verified tens of millions of merge commits", and along the way it found "2 serious merge-related bugs in the original Git implementation which had gone undetected for years". The comparison found bugs in the **old** code, which is a reminder that the old system is not automatically the right answer.
+
+That result is evidence because of the numbers next to it: how many were compared, and for how long. This lesson is about the setups where those numbers quietly come out as zero.
+
+## Three ways to get two answers
+
+<Diagram
+  id="change-shadow"
+  title="A shadow: two answers, one user"
+  desc="A user's request reaches a proxy, which sends it to the legacy system and returns legacy's answer to the user. The proxy also sends a copy to the new system. The new system's answer goes nowhere unless a comparator receives both answers and records whether they match."
+  nodes={[
+    { id: 'user', label: 'user', sub: 'gets one answer', x: 0, y: 0 },
+    { id: 'proxy', label: 'proxy', sub: 'Envoy / Istio / NGINX', x: 1, y: 0, kind: 'info' },
+    { id: 'legacy', label: 'legacy', sub: 'the control', x: 2, y: 0, kind: 'ok' },
+    { id: 'new', label: 'new system', sub: 'the candidate', x: 2, y: 1, kind: 'warn' },
+    { id: 'cmp', label: 'comparator', sub: 'compared / differed', x: 1, y: 1 },
+  ]}
+  edges={[
+    { from: 'user', to: 'proxy' },
+    { from: 'proxy', to: 'legacy', label: 'request' },
+    { from: 'proxy', to: 'new', label: 'copy' },
+    { from: 'legacy', to: 'cmp', label: 'answer' },
+    { from: 'new', to: 'cmp', label: 'answer' },
+  ]}
+  steps={[
+    { caption: 'The user\'s request goes to legacy, and legacy\'s answer goes back to the user. Nothing changes for them.', show: ['user', 'proxy', 'legacy', 'user->proxy', 'proxy->legacy'], focus: ['legacy'] },
+    { caption: 'The proxy sends a copy to the new system. Istio and Envoy call this "fire and forget": the proxy does not wait for the copy\'s answer.', show: ['new', 'proxy->new'], focus: ['new', 'proxy->new'] },
+    { caption: 'The new system\'s answer is thrown away unless something else collects both answers and compares them. That something is a separate piece you have to build or run.', show: ['cmp', 'legacy->cmp', 'new->cmp'], focus: ['cmp'] },
+  ]}
+/>
+
+- **In the application.** GitHub's [Scientist](https://github.com/github/scientist) library wraps the old code path (the *control*) and the new one (the *candidate*). It runs both, and "`experiment.run` will always return whatever the `use` block returns": the user always gets the old answer while the new one is recorded.
+- **In the proxy.** Envoy, Istio and NGINX can mirror each request to a second service. This needs no code change, which is why it is tempting.
+- **In a diff service.** Twitter's Diffy (archived in 2020) replayed requests against the old and new versions and reported the differences.
+
+## The proxy throws the answer away
+
+Mirroring sends the copy. It does not compare anything. Istio says mirrored requests are sent "as 'fire and forget', which means that the responses are discarded." Envoy's docs use the same words: Envoy "will not wait for the shadow cluster to respond before returning the response from the primary cluster". NGINX says: "Responses to mirror subrequests are ignored."
+
+None of these is a bug. Each proxy does exactly what it documents. But a team that turns mirroring on, sees the new system taking traffic, and watches its error graph stay flat has checked one thing only: that the new system *answers*. Whether it answers *the same* was never asked.
+
+## Configs that mirror nothing, or everything
+
+The mirror itself has quiet failure modes, all of them valid configuration:
+
+- **A header-named target.** Envoy's `cluster_header` reads the mirror target from a request header, and "no shadow request will happen if the value is not found in headers". If your clients never send the header, nothing is mirrored. The docs don't describe any error for this case.
+- **A missing primary.** Also from Envoy: "Shadowing will not be triggered if the primary cluster does not exist."
+- **No fraction.** Envoy's `runtime_fraction`: "If not specified, all requests to the target cluster will be mirrored." Istio's `mirrorPercentage` works the same way: "If this field is absent, all traffic will be mirrored." A new system sized for a 10% shadow gets all of production instead.
+
+The comparison side has its own. Scientist's README warns: "Because `enabled?` and `run_if` determine when a candidate runs, it's impossible to guarantee that it will run every time." It also says of its own first example: "The `try` blocks don't run yet and none of the results get published." A sampling rule that matches nobody compares nobody.
+
+## Try it
+
+The bench below runs five minutes of a small shop's traffic through an Envoy route. The YAML updates as you change the controls. Every result shows **compared** next to **differed**, and a run that compared nothing is shown amber as "not checked", never as a pass.
+
+<ShadowBench />
+
+<Callout kind="trap">
+"0 differences" is a claim about the comparisons you made. With zero comparisons it says nothing at all, and it looks exactly like a pass. Whatever tool you use, put the count of comparisons, and the count of requests that were *not* compared and why, next to the count of differences.
+</Callout>
+
+## Noise is not a difference, until it hides one
+
+Two correct systems still disagree. Shopify rebuilt its storefront rendering this way, and wrote: "Time-related and randomness-related exceptions make it impossible to have exactly byte-equal responses, so we ignore certain patterns in the verifier service to relax the equivalence criteria." Its verifier "uses a fixed time value during the comparison process and sets any random values to a known value".
+
+Diffy handled noise by measurement rather than by guesswork. Its README lists "A secondary instance running the same known-good code as the primary instance", and any field that differed between the two copies of the *old* code was noise by definition. Scientist lets you `ignore` a mismatch with your own rule. Every one of those rules is also a place to hide a real bug. An ignore rule broad enough to silence the noise can silence a wrong price too. You'll meet that one in the next lesson's lab.
+
+## Writes: the proxy discards the answer, not the side effect
+
+Comparing a read is safe. Comparing a write is not, because the copy runs too. Scientist "is only safe for wrapping methods that aren't changing data". Diffy's README says: "For safety reasons `POST`, `PUT`, `DELETE` are ignored by default." It takes a command-line flag to turn them back on.
+
+A mirrored `POST /checkout` reaches the new system, which talks to the real payment provider and charges the card. The proxy throws away the *response*, but nothing undoes the charge. That last step is our inference from the documented behaviour, not a quote from a vendor, but it follows directly from "fire and forget". The usual answer is to compare writes against a copy of the new system whose side effects are stubbed, or to leave writes out and say so in the "not compared" count.
+
+<Quiz
+  id="change-shadow-1"
+  q="You turn on Istio mirroring to the new search service. Its dashboards show traffic arriving and no errors for a week. What has that proved?"
+  options={["The new service gives the same answers as the old one", "The new service answers requests without erroring; nobody compared its answers with the old ones", "Nothing - mirroring sends no traffic"]}
+  answer={1}
+  explain="Istio sends mirrored requests 'fire and forget' and discards the responses. The new service answered, and that is all. Whether it answered the same needs a comparator that receives both responses."
+/>
+
+<Quiz
+  id="change-shadow-2"
+  q="A comparison report says '0 differences' for POST /checkout. What do you need to see before you trust it?"
+  options={["Nothing else - 0 is 0", "How many checkouts were actually compared, and why the rest were not", "The new system's CPU graph"]}
+  answer={1}
+  explain="Diffy, for one, skips POST by default. A report of 0 differences from 0 comparisons looks identical to a real pass. The count of comparisons, and the reasons requests were not compared, are what make the 0 mean anything."
+/>
+
+## What a canary adds
+
+A shadow shows that the new system gives the same answers. A canary shows that real users are fine with its answers. The [release strategies lesson](/learn/delivery/release-strategies/) covers how canaries promote and roll back. The SRE Workbook's chapter on canarying adds three things about the *comparison* side that bite exactly the way a shadow does:
+
+- **Compare at the same time, not before and after.** A heading in the chapter reads "Before/After Evaluation Is Risky", and the text explains: "Because time is one of the biggest sources of change in observed metrics, it is difficult to assess degradation of performance with before/after evaluation." Compare a canary population with a control population running at the same moment.
+- **Volume.** "Terminating a canary deployment after receiving just a handful of queries doesn't provide a useful signal." A bug in one request in five hundred needs thousands of requests before you can say you looked for it.
+- **Windows.** The chapter's failure example comes from "using a metric that is computed hourly to evaluate a deployment that is only 30 minutes long". The metric could not show the change, so it didn't.
+
+Two more refinements from practice. Kayenta, Google and Netflix's canary analyser, compares the canary against a newly created baseline rather than the long-running fleet: "Creating a new baseline helps minimize startup effects and limit the system variations between it and the canary." AWS deploys first to a single box, and notes that "issues introduced by a one-box deployment might not trigger the service's high-severity rollback alarm", which is why it gives that box alarms of its own. Each refinement exists for the same reason: a check that cannot see the change looks just like a check that passed.
+
+<Quiz
+  id="change-shadow-3"
+  q="A canary runs for 30 minutes and is judged on an hourly error-rate metric. The metric doesn't move. What do you conclude?"
+  options={["The canary is healthy", "Nothing - the metric's window is longer than the canary, so it could not show the change", "The canary should run for 30 more minutes and pass"]}
+  answer={1}
+  explain="This is the SRE Workbook's own failure example. A metric computed hourly can't show the effect of a 30-minute deployment. A check that cannot see the change looks just like a check that passed."
+/>
