@@ -1566,6 +1566,104 @@ await scenario('merged-lesson-progress', '/learn/agents/what-is-an-agent/', asyn
   if (!page.url().endsWith('/learn/agents/what-is-an-agent/')) throw new Error(`old URL ended at ${page.url()}`);
 });
 
+// ---- changing running software
+// Each trap must show as "not checked" or as a measured gap, never as a pass:
+// zero differences from zero comparisons is the failure these widgets teach.
+
+await scenario('shadow-bench', '/learn/change/prove-it-in-production/', async (page) => {
+  const r = '[data-shadow]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const send = async () => { await page.click(`${r} [data-send]`); await page.waitForTimeout(100); };
+  await page.check(`${r} [data-mirror]`);
+  await expectText(page, `${r} [data-yaml]`, /request_mirror_policies:[\s\S]*cluster: shop-v2[\s\S]*numerator: 10/);
+  await send();
+  await expectText(page, `${r} [data-status]`, /No search was compared/);
+  await expectText(page, `${r} [data-table]`, /compared 0 · matched 0 · differed 0[\s\S]*no comparator[\s\S]*not checked/);
+  await page.check(`${r} [data-comparator]`);
+  await page.selectOption(`${r} [data-target]`, 'header');
+  await send();
+  await expectText(page, `${r} [data-table]`, /2500 requests · 0 mirrored/);
+  await page.selectOption(`${r} [data-target]`, 'cluster');
+  await page.selectOption(`${r} [data-fraction]`, 'absent');
+  await expectText(page, `${r} [data-yaml]`, /^(?![\s\S]*runtime_fraction)/);
+  await send();
+  await expectText(page, `${r} [data-table]`, /shadow timed out/);
+  if (!(await page.locator(`${r} .stat.bad [data-load]`).count())) throw new Error('an overloaded shadow is not marked bad');
+  await page.selectOption(`${r} [data-fraction]`, '10');
+  await page.selectOption(`${r} [data-sample]`, 'beta');
+  await send();
+  await expectText(page, `${r} [data-table]`, /outside sample/);
+  await page.selectOption(`${r} [data-sample]`, 'all');
+  await send();
+  await expectText(page, `${r} [data-status]`, /^5 of 250 compared searches differed/);
+  await expectText(page, `${r} [data-example]`, /out of stock/);
+  // The tempting option: mirroring writes compares them and charges customers again.
+  await page.selectOption(`${r} [data-writes]`, 'mirror');
+  await send();
+  await expectText(page, `${r} [data-charges]`, /^[1-9]/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 5) throw new Error('mirroring real writes ticked the last step');
+  await page.selectOption(`${r} [data-writes]`, 'stub');
+  await send();
+  await expectText(page, `${r} [data-charges]`, /^0$/);
+  await expectText(page, `${r} .m-debrief`, /compared with its side effects stubbed/);
+});
+
+await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {
+  const r = '[data-strangler]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const run = async (n) => { await page.click(`${r} [data-run="${n}"]`); await page.waitForTimeout(80); };
+  const mode = (id, m) => page.selectOption(`${r} [data-mode="${id}"]`, m);
+  const rule = (id) => `${r} [data-rule="${id}"]`;
+  await expectText(page, rule('product'), /not checked[\s\S]*compared 0\/500/);
+  await mode('product', 'shadow'); await run(1);
+  await expectText(page, rule('product'), /differences[\s\S]*compared 350\/500 · matched 0 · differed 350/);
+  await page.selectOption(`${r} [data-normaliser]`, 'scrub'); await run(1);
+  await expectText(page, `${r} [data-diffs]`, /sale price differs/);
+  await page.click(`${r} [data-verdict="price:fix-new"]`);
+  await mode('search', 'shadow'); await run(1);
+  await expectText(page, `${r} [data-diffs]`, /legacy lists one product twice/);
+  await page.click(`${r} [data-verdict="dupes:legacy-wrong"]`);
+  // Configured is not served: the planted rule never matches.
+  await mode('cart', 'new'); await run(1);
+  await expectText(page, rule('cart'), /configured new, but served today: 0 new · 150 legacy/);
+  await mode('cart', 'shadow');
+  await page.fill(`${r} [data-match="cart"]`, '/cart');
+  await page.locator(`${r} [data-match="cart"]`).dispatchEvent('change');
+  await run(1);
+  await expectText(page, `${r} [data-diffs]`, /new store doesn't have this cart/);
+  await page.selectOption(`${r} [data-sync]`, 'cdc');
+  await page.selectOption(`${r} [data-writes]`, 'stub');
+  for (const id of ['add', 'checkout', 'orders']) await mode(id, 'shadow');
+  await run(7); await run(1); await run(1); await run(1);
+  await expectText(page, `${r} [data-diffs]`, /large orders cut off at 50 lines/);
+  await page.click(`${r} [data-verdict="bigorder:fix-new"]`);
+  for (const id of ['cart', 'add']) await mode(id, 'new');
+  await run(1);
+  await page.click(`${r} [data-reconcile]`);
+  await expectText(page, `${r} [data-recon]`, /0 diverged/);
+  for (const id of ['product', 'search', 'checkout', 'orders']) await mode(id, 'new');
+  await run(1);
+  await expectText(page, `${r} .m-steps`, /./);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 6) throw new Error(`expected 6 steps done before the export, got ${await page.locator(`${r} .m-steps li.done`).count()}`);
+  // The caller nobody listed shows up only in legacy's log, after a month end.
+  await run('month');
+  await expectText(page, `${r} [data-log]`, /\/export[\s\S]*no façade rule/);
+  await page.click(`${r} [data-add-rule="export"]`);
+  await mode('export', 'shadow'); await run('month');
+  await mode('export', 'new');
+  await page.click(`${r} [data-legacy]`);
+  await run('month');
+  await expectText(page, `${r} [data-watch]`, /Watch window: 30 clean days/);
+  await page.click(`${r} [data-archive]`);
+  await page.click(`${r} [data-delete]`);
+  await run(1);
+  await expectText(page, `${r} .m-debrief`, /compared, not compared, served by/);
+  // A finished migration must not read as broken: the history stays in the
+  // counts, but no route's pill may still say "differences".
+  if (await page.locator(`${r} .st-rule.differences`).count()) throw new Error('a finished migration still shows open differences');
+  await expectText(page, `${r} [data-harm]`, /wrong answers served\s*0[\s\S]*charged twice\s*0[\s\S]*items lost\s*0[\s\S]*failed requests\s*0/);
+});
+
 await browser.close();
 server?.kill();
 

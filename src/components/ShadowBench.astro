@@ -1,0 +1,129 @@
+---
+import '../styles/widgets.css';
+import { PER_MINUTE, MINUTES_PER_RUN, SHADOW_CAPACITY_PER_MINUTE } from '../lib/change/shadow.ts';
+---
+<div class="widget card shadow" data-shadow>
+  <div class="widget-head">
+    <strong>Shadow bench</strong>
+    <span class="pill info">simulated: {PER_MINUTE.search} searches + {PER_MINUTE.checkout} checkouts a minute; shop-v2 sized for {SHADOW_CAPACITY_PER_MINUTE}/min</span>
+  </div>
+  <div class="controls sh-controls">
+    <label><input type="checkbox" data-mirror /> mirror</label>
+    <label>target
+      <select data-target><option value="cluster">cluster: shop-v2</option><option value="header">cluster_header: x-shadow-cluster</option></select>
+    </label>
+    <label>fraction
+      <select data-fraction><option value="10">10%</option><option value="1">1%</option><option value="absent">(absent)</option></select>
+    </label>
+    <label><input type="checkbox" data-comparator /> comparator</label>
+    <label>sample
+      <select data-sample><option value="all">everyone</option><option value="beta">beta users only</option></select>
+    </label>
+    <label>writes
+      <select data-writes><option value="skip">skip (Diffy's default)</option><option value="mirror">mirror</option><option value="stub">mirror, side effects stubbed</option></select>
+    </label>
+    <button class="btn small primary" type="button" data-send>Send {MINUTES_PER_RUN} minutes of traffic</button>
+  </div>
+  <div class="sh-grid">
+    <div class="sh-main">
+      <pre class="sh-yaml" data-yaml aria-label="Envoy route config"></pre>
+      <div class="sh-status" data-status aria-live="polite">Nothing sent yet. Set up the mirror, then send traffic.</div>
+      <div class="sh-table" data-table></div>
+      <div class="stats">
+        <div class="stat">shop-v2 load<b data-load>0%</b></div>
+        <div class="stat">customers charged twice<b data-charges>0</b></div>
+      </div>
+      <div class="sh-example" data-example hidden></div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { verdict, envoyYaml, type Counts, type ShadowConfig } from '../lib/change/shadow.ts';
+  import { SHADOW_MISSION } from '../lib/change/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const VERDICT = { 'not checked': 'not checked', matched: 'matched', differences: 'differences' } as const;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-shadow]')) {
+    const state = SHADOW_MISSION.setup();
+    const b = state.bench;
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), SHADOW_MISSION, () => state, () => {});
+
+    const read = (): Partial<ShadowConfig> => {
+      const f = q<HTMLSelectElement>('[data-fraction]').value;
+      return {
+        mirror: q<HTMLInputElement>('[data-mirror]').checked,
+        target: q<HTMLSelectElement>('[data-target]').value as ShadowConfig['target'],
+        fraction: f === 'absent' ? 'absent' : (Number(f) as 10 | 1),
+        comparator: q<HTMLInputElement>('[data-comparator]').checked,
+        sample: q<HTMLSelectElement>('[data-sample]').value as ShadowConfig['sample'],
+        writes: q<HTMLSelectElement>('[data-writes]').value as ShadowConfig['writes'],
+      };
+    };
+
+    const row = (name: string, c: Counts) => {
+      const v = verdict(c);
+      const reasons = Object.entries(c.notCompared).map(([r, n]) => `${n} ${r}`).join(' · ') || 'none';
+      // "differed" never appears without "compared" beside it: 0 of 0 is amber.
+      return el('div', { class: `sh-row ${v.replace(' ', '-')}` },
+        el('strong', {}, name),
+        el('span', {}, `${c.requests} requests · ${c.mirrored} mirrored`),
+        el('span', {}, `compared ${c.compared} · matched ${c.matched} · differed ${c.differed}`),
+        el('span', { class: 'sh-nc' }, `not compared: ${reasons}`),
+        el('span', { class: 'pill' }, VERDICT[v]));
+    };
+
+    const draw = () => {
+      b.set(read());
+      q('[data-yaml]').textContent = envoyYaml(b.config);
+      const r = b.runs.at(-1);
+      if (r) {
+        q('[data-table]').replaceChildren(row('GET /search', r.search), row('POST /checkout', r.checkout));
+        q('[data-load]').textContent = `${Math.round(r.shadowLoad * 100)}%`;
+        q('[data-load]').parentElement!.classList.toggle('bad', r.shadowLoad > 1);
+        q('[data-charges]').textContent = String(r.doubleCharges);
+        q('[data-charges]').parentElement!.classList.toggle('bad', r.doubleCharges > 0);
+        const v = verdict(r.search);
+        const s = q('[data-status]');
+        s.className = `sh-status ${v.replace(' ', '-')}`;
+        s.textContent = v === 'not checked'
+          ? `No search was compared, so "0 differed" means nothing. The config is valid, so nothing flags it.`
+          : v === 'differences' ? `${r.search.differed} of ${r.search.compared} compared searches differed.` : `All ${r.search.compared} compared searches matched.`;
+        const ex = q('[data-example]');
+        ex.hidden = !r.example;
+        if (r.example) ex.replaceChildren(el('strong', {}, 'One difference'), el('code', {}, `legacy:  ${r.example.legacy}`), el('code', {}, `shop-v2: ${r.example.candidate}`));
+      }
+      refresh();
+    };
+
+    root.querySelectorAll('select, input').forEach((c) => c.addEventListener('change', draw));
+    q('[data-send]').addEventListener('click', () => { b.set(read()); b.run(); draw(); });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the rows are created by the script. */
+  .shadow .sh-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 900px) { .shadow .sh-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); } }
+  .shadow .sh-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .shadow .sh-yaml { margin: 0; font-size: 0.8rem; overflow-x: auto; }
+  .shadow .sh-status { padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .shadow .sh-status.matched { background: var(--bamboo-soft); color: var(--bamboo); }
+  .shadow .sh-status.not-checked { background: var(--sun-soft); color: var(--sun-text); }
+  .shadow .sh-status.differences { background: var(--berry-soft); color: var(--berry); }
+  .shadow .sh-table { display: grid; gap: 6px; }
+  .shadow .sh-row { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+  .shadow .sh-row .pill { justify-self: start; }
+  .shadow .sh-row.not-checked .pill { background: var(--sun-soft); color: var(--sun-text); }
+  .shadow .sh-row.matched .pill { background: var(--bamboo-soft); color: var(--bamboo); }
+  .shadow .sh-row.differences .pill { background: var(--berry-soft); color: var(--berry); }
+  .shadow .sh-nc { color: var(--ink-2); overflow-wrap: anywhere; }
+  .shadow .stat.bad { border-color: var(--berry); }
+  .shadow .stat.bad b { color: var(--berry); }
+  .shadow .sh-example { display: grid; gap: 4px; font-size: 0.82rem; }
+  .shadow .sh-example code { overflow-wrap: anywhere; white-space: pre-wrap; }
+</style>

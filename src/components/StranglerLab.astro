@@ -1,0 +1,239 @@
+---
+import '../styles/widgets.css';
+import { MONTH } from '../lib/change/strangler.ts';
+---
+<div class="widget card strangler" data-strangler>
+  <div class="widget-head">
+    <strong>Strangler Lab</strong>
+    <span class="pill info">simulated: invented traffic, one day per step, simplified data sync</span>
+    <span class="spacer"></span>
+    <span class="pill" data-day>day 0</span>
+  </div>
+  <div class="controls">
+    <button class="btn small primary" type="button" data-run="1">Run a day</button>
+    <button class="btn small" type="button" data-run="7">Run a week</button>
+    <button class="btn small" type="button" data-run="month">Run to month end</button>
+    <button class="btn small" type="button" data-reset>Reset lab</button>
+  </div>
+  <div class="st-grid">
+    <div class="st-main">
+      <section class="st-panel">
+        <h4>Façade rules <span class="muted">first match wins; anything unmatched goes to legacy</span></h4>
+        <div class="st-rules" data-rules></div>
+        <div class="controls st-compare">
+          <label>normaliser
+            <select data-normaliser>
+              <option value="none">none: compare every byte</option>
+              <option value="scrub">scrub generatedAt and requestId</option>
+              <option value="numbers">ignore all numeric fields</option>
+            </select>
+          </label>
+          <label>writes in shadow
+            <select data-writes>
+              <option value="skip">skip (not compared)</option>
+              <option value="mirror">mirror with real side effects</option>
+              <option value="stub">mirror, side effects stubbed</option>
+            </select>
+          </label>
+        </div>
+      </section>
+      <section class="st-panel">
+        <h4>Differences found</h4>
+        <div class="st-diffs" data-diffs><p class="muted">None yet - nothing has been compared.</p></div>
+      </section>
+      <section class="st-panel st-two">
+        <div>
+          <h4>Data</h4>
+          <div class="controls">
+            <label>keep stores in step
+              <select data-sync>
+                <option value="none">nothing (new store empty)</option>
+                <option value="dual">dual writes from the façade</option>
+                <option value="cdc">change data capture</option>
+              </select>
+            </label>
+            <button class="btn small" type="button" data-reconcile>Compare stores</button>
+          </div>
+          <p class="st-recon" data-recon aria-live="polite">Stores never compared.</p>
+        </div>
+        <div>
+          <h4>Legacy app</h4>
+          <div class="controls">
+            <button class="btn small" type="button" data-legacy aria-pressed="true">Legacy is on</button>
+            <button class="btn small" type="button" data-archive>Archive its data</button>
+            <button class="btn small" type="button" data-delete>Delete legacy</button>
+          </div>
+          <p class="st-watch" data-watch></p>
+          <h5>Legacy's access log, last {MONTH} days</h5>
+          <ul class="st-log" data-log></ul>
+        </div>
+      </section>
+      <div class="stats" data-harm>
+        <div class="stat">wrong answers served<b data-h="wrongAnswers">0</b></div>
+        <div class="stat">customers charged twice<b data-h="doubleCharges">0</b></div>
+        <div class="stat">cart items lost<b data-h="lostItems">0</b></div>
+        <div class="stat">failed requests<b data-h="failedRequests">0</b></div>
+      </div>
+      <ol class="st-events" data-events aria-label="What happened" aria-live="polite"></ol>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { Strangler, ENDPOINTS, DIFFS, MIN_COMPARED, MONTH, endpoint, type Mode, type Normaliser, type WritePolicy, type Sync, type Verdict } from '../lib/change/strangler.ts';
+  import { STRANGLER_MISSION } from '../lib/change/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const MODES: Mode[] = ['legacy', 'shadow', 'new'];
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-strangler]')) {
+    const state = STRANGLER_MISSION.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), STRANGLER_MISSION, () => state, () => {});
+    const lab = () => state.lab;
+
+    const ruleRow = (id: string) => {
+      const l = lab(), r = l.rule(id)!, e = endpoint(id), st = l.stats[id];
+      const match = el('input', { type: 'text', value: r.match, 'aria-label': `${e.label} rule match prefix`, 'data-match': id, spellcheck: 'false' });
+      match.addEventListener('change', () => { l.setMatch(id, (match as HTMLInputElement).value); draw(); });
+      const mode = el('select', { 'aria-label': `${e.label} mode`, 'data-mode': id }, ...MODES.map((m) => el('option', m === r.mode ? { value: m, selected: '' } : { value: m }, m)));
+      mode.addEventListener('change', () => { l.setMode(id, (mode as HTMLSelectElement).value as Mode); draw(); });
+      const served = st.today.legacy + st.today.new === 0 ? 'no traffic today' : `served today: ${st.today.new} new · ${st.today.legacy} legacy`;
+      const mismatch = r.mode === 'new' && st.today.legacy > 0;
+      // "differed" never appears without "compared": a route nobody checked is
+      // amber. The pill is about now - differences still open on this route -
+      // while the counts beside it keep the whole history.
+      const open = l.openDiffs().some((c) => DIFFS[c].endpoint === id);
+      const resolved = [...l.seen.keys()].some((c) => DIFFS[c].endpoint === id);
+      const v = st.compared === 0 ? 'not-checked' : open ? 'differences' : resolved ? 'resolved' : 'matched';
+      const nc = Object.entries(st.notCompared).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, n]) => `${n} ${k}`).join(' · ');
+      return el('div', { class: `st-rule ${v}`, 'data-rule': id },
+        el('div', { class: 'st-rhead' }, el('strong', {}, e.label), el('span', {}, el('code', {}, `${r.method} prefix`), ' ', match), mode),
+        el('div', { class: `st-served${mismatch ? ' bad' : ''}` }, mismatch ? `configured new, but ${served}` : served),
+        el('div', { class: 'st-counts' },
+          el('span', { class: 'pill' }, v === 'resolved' ? 'all differences resolved' : v.replace('-', ' ')),
+          ` compared ${st.compared}/${MIN_COMPARED[id]} · matched ${st.matched} · differed ${st.differed}${st.explained ? ` · legacy's bug ${st.explained}` : ''}`),
+        el('div', { class: 'st-nc' }, nc ? `not compared: ${nc}` : ''));
+    };
+
+    const diffCard = (id: string) => {
+      const l = lab(), d = DIFFS[id], seen = l.seen.get(id)!;
+      const open = l.openDiffs().includes(id);
+      const card = el('div', { class: `st-diff ${open ? 'open' : 'closed'}` },
+        el('strong', {}, `${endpoint(d.endpoint).label}: ${d.title}`), el('span', { class: 'muted' }, ` ${seen.count} seen, last on day ${seen.lastDay}`),
+        el('code', {}, `legacy: ${d.legacy}`), el('code', {}, `new:    ${d.candidate}`));
+      if (d.kind === 'bug') {
+        const btn = (v: Verdict, label: string) => {
+          const b = el('button', { type: 'button', class: 'btn small', 'data-verdict': `${id}:${v}`, 'aria-pressed': String(l.verdicts[id] === v) }, label);
+          b.addEventListener('click', () => { l.setVerdict(id, v); draw(); });
+          return b;
+        };
+        card.append(el('div', { class: 'controls' }, btn('fix-new', 'New is wrong: fix the new code'), btn('legacy-wrong', 'Legacy is wrong: keep new')));
+      } else if (d.kind === 'noise') {
+        card.append(el('p', { class: 'st-lane' }, 'Noise lane: two copies of legacy differ in generatedAt and requestId on every request, so those fields carry no signal.'));
+      } else card.append(el('p', { class: 'st-lane' }, open ? 'Not a code bug: the new system is reading a store that is not kept in step with legacy.' : 'Gone: the stores are now kept in step.'));
+      card.append(el('p', { class: 'st-src' }, d.source));
+      return card;
+    };
+
+    const draw = () => {
+      const l = lab();
+      q('[data-day]').textContent = `day ${l.day} · month end every ${MONTH}`;
+      q('[data-rules]').replaceChildren(...l.rules.map((r) => ruleRow(r.id)), el('div', { class: 'st-rule catch' }, el('strong', {}, 'everything else'), ' → legacy'));
+      q<HTMLSelectElement>('[data-normaliser]').value = l.normaliser;
+      q<HTMLSelectElement>('[data-writes]').value = l.writes;
+      q<HTMLSelectElement>('[data-sync]').value = l.sync;
+      q('[data-diffs]').replaceChildren(...(l.seen.size ? [...l.seen.keys()].map(diffCard) : [el('p', { class: 'muted' }, 'None yet. That only means something next to how many were compared.')]));
+      const rec = l.reconciles.at(-1);
+      q('[data-recon]').textContent = rec ? `Day ${rec.day}: compared ${rec.rows} rows, ${rec.diverged} diverged.` : 'Stores never compared.';
+      q('[data-recon]').className = `st-recon${rec ? (rec.diverged ? ' bad' : ' ok') : ''}`;
+      const lg = q('[data-legacy]');
+      lg.textContent = l.deleted ? 'Legacy deleted' : l.legacyOn ? 'Legacy is on: switch off' : 'Legacy is off: switch on';
+      lg.setAttribute('aria-pressed', String(l.legacyOn));
+      q<HTMLButtonElement>('[data-legacy]').disabled = l.deleted;
+      q<HTMLButtonElement>('[data-archive]').disabled = l.archived || l.deleted;
+      q<HTMLButtonElement>('[data-delete]').disabled = l.deleted || l.legacyOn;
+      q('[data-watch]').textContent = l.deleted ? `Deleted after a ${l.deletedAfterWatch}-day clean watch window${l.archived ? ', archive kept' : ', with no archive'}.` : l.legacyOn ? 'Switch legacy off to start a watch window.' : `Watch window: ${l.watchDays} clean day${l.watchDays === 1 ? '' : 's'} with nothing reaching legacy.`;
+      const recent = [...l.legacyLog.entries()].filter(([, v]) => l.day - v.lastDay < MONTH).sort((a, b) => b[1].count - a[1].count);
+      q('[data-log]').replaceChildren(...(recent.length ? recent.map(([path, v]) => {
+        const ep = ENDPOINTS.find((e) => e.path(0).replace(/\/\d+$/, '/:id') === path);
+        const li = el('li', { class: v.unmatched ? 'unmatched' : '' }, el('code', {}, path), ` ${v.count} requests, last day ${v.lastDay}`);
+        if (v.unmatched && ep && !l.rule(ep.id)) {
+          const b = el('button', { type: 'button', class: 'btn small', 'data-add-rule': ep.id }, 'no façade rule: add one');
+          b.addEventListener('click', () => { l.addRule(ep.id); draw(); });
+          li.append(' ', b);
+        }
+        return li;
+      }) : [el('li', { class: 'muted' }, 'Nothing has reached legacy in the last month.')]));
+      for (const [k, v] of Object.entries(l.harm)) {
+        const b = q(`[data-h="${k}"]`);
+        b.textContent = String(v);
+        b.parentElement!.classList.toggle('bad', v > 0);
+      }
+      q('[data-events]').replaceChildren(...l.events.slice(-6).reverse().map((e) => el('li', { class: e.kind }, el('b', {}, `day ${e.day}`), ` ${e.text}`)));
+      refresh();
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-run]').forEach((b) => b.addEventListener('click', () => {
+      const n = b.dataset.run!;
+      if (n === 'month') lab().runToMonthEnd(); else lab().runDays(Number(n));
+      draw();
+    }));
+    q('[data-reset]').addEventListener('click', () => { state.lab = new Strangler(); draw(); });
+    q('[data-normaliser]').addEventListener('change', (e) => { lab().normaliser = (e.target as HTMLSelectElement).value as Normaliser; draw(); });
+    q('[data-writes]').addEventListener('change', (e) => { lab().writes = (e.target as HTMLSelectElement).value as WritePolicy; draw(); });
+    q('[data-sync]').addEventListener('change', (e) => { lab().setSync((e.target as HTMLSelectElement).value as Sync); draw(); });
+    q('[data-reconcile]').addEventListener('click', () => { lab().reconcile(); draw(); });
+    q('[data-legacy]').addEventListener('click', () => { lab().switchLegacy(!lab().legacyOn); draw(); });
+    q('[data-archive]').addEventListener('click', () => { lab().archive(); draw(); });
+    q('[data-delete]').addEventListener('click', () => { lab().deleteLegacy(); draw(); });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the rule rows, cards and log are created by the script. */
+  .strangler .st-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 1000px) { .strangler .st-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
+  .strangler .st-main { min-width: 0; display: grid; gap: 12px; align-content: start; }
+  .strangler .st-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .strangler h4 { margin: 0 0 8px; font-size: 0.95rem; }
+  .strangler h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .strangler h5 { margin: 10px 0 4px; font-size: 0.85rem; }
+  .strangler .st-two { display: grid; gap: 12px; }
+  @media (min-width: 700px) { .strangler .st-two { grid-template-columns: 1fr 1fr; } }
+  .strangler .st-rules { display: grid; gap: 6px; }
+  .strangler .st-rule { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 0.83rem; font-variant-numeric: tabular-nums; }
+  .strangler .st-rule.catch { color: var(--ink-2); border-style: dashed; display: block; }
+  .strangler .st-rhead { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .strangler .st-rhead strong { min-width: 9.5em; }
+  .strangler .st-rhead input { font: inherit; font-family: var(--mono); width: 8.5em; max-width: 100%; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .strangler .st-rhead select { font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .strangler .st-served { color: var(--ink-2); }
+  .strangler .st-served.bad { color: var(--berry); font-weight: 650; }
+  .strangler .st-rule.not-checked .pill { background: var(--sun-soft); color: var(--sun-text); }
+  .strangler .st-rule.matched .pill, .strangler .st-rule.resolved .pill { background: var(--bamboo-soft); color: var(--bamboo); }
+  .strangler .st-rule.differences .pill { background: var(--berry-soft); color: var(--berry); }
+  .strangler .st-nc { color: var(--ink-2); overflow-wrap: anywhere; }
+  .strangler .st-diffs { display: grid; gap: 8px; }
+  .strangler .st-diff { display: grid; gap: 4px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.83rem; }
+  .strangler .st-diff.open { border-color: var(--berry); }
+  .strangler .st-diff.closed { opacity: 0.85; border-style: dashed; }
+  .strangler .st-diff code { overflow-wrap: anywhere; white-space: pre-wrap; }
+  .strangler .st-diff p { margin: 0; }
+  .strangler .st-diff [aria-pressed="true"] { background: var(--sky); color: var(--bg); border-color: var(--sky); }
+  .strangler .st-src { color: var(--ink-2); font-style: italic; }
+  .strangler .st-recon.bad, .strangler .st-watch.bad { color: var(--berry); font-weight: 650; }
+  .strangler .st-recon.ok { color: var(--bamboo); font-weight: 650; }
+  .strangler .st-recon, .strangler .st-watch { margin: 6px 0 0; font-size: 0.85rem; }
+  .strangler .st-log { margin: 0; padding-left: 18px; font-size: 0.82rem; display: grid; gap: 4px; }
+  .strangler .st-log li.unmatched { color: var(--berry); }
+  .strangler .stat.bad { border-color: var(--berry); }
+  .strangler .stat.bad b { color: var(--berry); }
+  .strangler .st-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 0.82rem; }
+  .strangler .st-events li { padding: 3px 8px; border-radius: 8px; }
+  .strangler .st-events li.bad { background: var(--berry-soft); }
+  .strangler .st-events li.ok { background: var(--bamboo-soft); }
+  .strangler .st-events b { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+</style>
