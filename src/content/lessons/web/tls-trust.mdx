@@ -100,22 +100,30 @@ Tilt lab 04 does this for real, against a certificate that cert-manager issues o
 ./scripts/platform.sh lab 04
 ```
 
-Without the platform, you can make the same failure yourself:
+Without the platform, you can make both failures yourself with OpenSSL: a throwaway root, an intermediate it signs, and a server certificate for `other.example` that the intermediate signs. That is the same shape as the diagram above. On Windows, use WSL; in Git Bash, run `export MSYS_NO_PATHCONV=1` first, or Git Bash turns `/CN=...` into a Windows path and `openssl req` stops with an error.
 
 ```bash
-# A throwaway CA, and a leaf certificate whose name is deliberately wrong
-printf 'subjectAltName=DNS:other.example' > /tmp/san.cnf
-openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/ca.key -out /tmp/ca.pem -days 1 -subj "/CN=Test Root" 2>/dev/null
-openssl req -new -newkey rsa:2048 -nodes -keyout /tmp/leaf.key -out /tmp/leaf.csr -subj "/CN=other.example" 2>/dev/null
-openssl x509 -req -in /tmp/leaf.csr -CA /tmp/ca.pem -CAkey /tmp/ca.key -CAcreateserial -out /tmp/leaf.pem -days 1 -extfile /tmp/san.cnf 2>/dev/null
-# Serve it, then verify: the chain is fully trusted, only the name is wrong
-openssl s_server -accept 18443 -cert /tmp/leaf.pem -key /tmp/leaf.key -www &
+d=$(mktemp -d) && cd "$d"
+openssl req -x509 -newkey rsa:2048 -nodes -quiet -keyout root.key -out root.pem -days 1 -subj "/CN=Test Root"
+openssl req -new -newkey rsa:2048 -nodes -quiet -keyout inter.key -out inter.csr -subj "/CN=Test Intermediate"
+printf 'basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n' > ca.cnf
+openssl x509 -req -in inter.csr -CA root.pem -CAkey root.key -CAcreateserial -out inter.pem -days 1 -extfile ca.cnf
+openssl req -new -newkey rsa:2048 -nodes -quiet -keyout leaf.key -out leaf.csr -subj "/CN=other.example"
+printf 'subjectAltName=DNS:other.example\n' > leaf.cnf
+openssl x509 -req -in leaf.csr -CA inter.pem -CAkey inter.key -CAcreateserial -out leaf.pem -days 1 -extfile leaf.cnf
+# Serve the certificate and its intermediate, the way a real server should
+openssl s_server -accept 18443 -cert leaf.pem -key leaf.key -cert_chain inter.pem -www -quiet &
 sleep 1
-openssl s_client -connect 127.0.0.1:18443 -CAfile /tmp/ca.pem -verify_hostname shop.example </dev/null 2>&1 | grep "Verify return"
+# Trust the root, ask for the wrong name: the chain verifies, the name doesn't
+openssl s_client -connect 127.0.0.1:18443 -CAfile root.pem -verify_hostname shop.example </dev/null 2>&1 | grep -m1 "Verify return"
 #   Verify return code: 62 (hostname mismatch)
-openssl s_client -connect 127.0.0.1:18443 -CAfile /tmp/ca.pem -verify_hostname other.example </dev/null 2>&1 | grep "Verify return"
+# Trust the root, ask for the right name
+openssl s_client -connect 127.0.0.1:18443 -CAfile root.pem -verify_hostname other.example </dev/null 2>&1 | grep -m1 "Verify return"
 #   Verify return code: 0 (ok)
-kill $!
+# Right name, but your trust store has never heard of Test Root
+openssl s_client -connect 127.0.0.1:18443 -verify_hostname other.example </dev/null 2>&1 | grep -m1 "Verify return"
+#   Verify return code: 20 (unable to get local issuer certificate)
+kill $!; wait $! 2>/dev/null; cd .. && rm -rf "$d"
 ```
 
 </DoItForReal>
