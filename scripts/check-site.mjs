@@ -1731,7 +1731,7 @@ await scenario('in-name-only-cards', '/learn/agile/in-name-only/', async (page) 
   await expectText(page, `${r} [data-card="healthy"] [data-why]`, /^Not quite\./);
   for (const [card, answer] of [['standup', 'status'], ['hardening', 'notdone'], ['velocity', 'target'], ['healthy', 'fine']]) {
     await page.check(`${r} [data-card="${card}"] input[value="${answer}"]`);
-    await expectText(page, `${r} [data-card="${card}"] [data-why]`, /^Supported\./);
+    await expectText(page, `${r} [data-card="${card}"] [data-why]`, /^Supported\.(?! Supported)/);
   }
   await expectText(page, `${r} .m-debrief`, /always says "fine"/);
 });
@@ -1819,10 +1819,32 @@ for (const [deck, path, picks, wrong] of [
     await expectText(page, `${r} [data-card="${wrong[0]}"] [data-why]`, /^Not quite\./);
     for (const [card, answer] of Object.entries(picks)) {
       await page.check(`${r} [data-card="${card}"] input[value="${answer}"]`);
-      await expectText(page, `${r} [data-card="${card}"] [data-why]`, /^Supported\./);
+      await expectText(page, `${r} [data-card="${card}"] [data-why]`, /^Supported\.(?! Supported)/);
     }
     await expectText(page, `${r} .m-debrief`, /./);
     if (await page.locator(`${r} .m-steps li.done`).count() !== Object.keys(picks).length) throw new Error(`${deck}: not every step ticked`);
+  });
+}
+
+// ---- tool lessons
+// One scenario per tool deck, played from the deck's own data, so a tool
+// lesson added later is tested without anyone writing a scenario for it. Node
+// runs the TypeScript registry directly; a deck missing from it is caught by
+// CardSort refusing to build.
+const { DECKS } = await import('../src/lib/decks.ts');
+for (const deck of Object.values(DECKS).filter((d) => d.id.startsWith('tool-'))) {
+  await scenario(`deck-${deck.id}`, `/learn/tools/${deck.id.slice('tool-'.length)}/`, async (page) => {
+    const r = `[data-cards="${deck.id}"]`;
+    await page.locator(r).scrollIntoViewIfNeeded();
+    const first = deck.cards[0];
+    const wrong = first.options.find((o) => o.id !== first.answer);
+    await page.check(`${r} [data-card="${first.id}"] input[value="${wrong.id}"]`);
+    await expectText(page, `${r} [data-card="${first.id}"] [data-why]`, /^Not quite\./);
+    for (const c of deck.cards) {
+      await page.check(`${r} [data-card="${c.id}"] input[value="${c.answer}"]`);
+      await expectText(page, `${r} [data-card="${c.id}"] [data-why]`, /^Supported\.(?! Supported)/);
+    }
+    if (await page.locator(`${r} .m-steps li.done`).count() !== deck.cards.length) throw new Error(`${deck.id}: not every step ticked`);
   });
 }
 

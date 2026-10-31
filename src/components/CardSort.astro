@@ -52,7 +52,10 @@ if (!deck) throw new Error(`CardSort: no deck called "${mission}" in src/lib/dec
         const right = o.id === card.answer;
         why.hidden = false;
         why.className = `cs-why ${right ? 'right' : 'wrong'}`;
-        why.textContent = `${right ? 'Supported.' : 'Not quite.'} ${o.why}`;
+        // Some decks start the right answer's reason with "Supported." themselves;
+        // prefixing again showed "Supported. Supported." on the live site.
+        const lead = right ? 'Supported.' : 'Not quite.';
+        why.textContent = o.why.startsWith(lead) ? o.why : `${lead} ${o.why}`;
         refresh();
       }));
     }
