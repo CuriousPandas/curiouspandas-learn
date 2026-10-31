@@ -1,0 +1,106 @@
+---
+title: Tempo and the request nobody sampled
+summary: Tempo can be healthy, wired into Grafana and still empty, because spans never reached it or because a caller marked the request "not sampled". Learn what Tempo stores, then send one request each way and see which one Tempo can find.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+builds_on: [sre/three-signals, platform/observability]
+sources:
+  - title: Tempo docs - Unable to find traces (v2.9.x, fetched 2026-10-31)
+    url: https://grafana.com/docs/tempo/v2.9.x/troubleshooting/querying/unable-to-see-trace/
+  - title: Tempo docs - Tempo HTTP API, query by trace id (v2.9.x)
+    url: https://grafana.com/docs/tempo/v2.9.x/api_docs/
+  - title: OpenTelemetry specification - Tracing SDK, built-in samplers and ParentBased
+    url: https://opentelemetry.io/docs/specs/otel/trace/sdk/
+  - title: OpenTelemetry docs - Context propagation
+    url: https://opentelemetry.io/docs/concepts/context-propagation/
+  - title: W3C Trace Context (Recommendation, 23 November 2021) - traceparent and the sampled flag
+    url: https://www.w3.org/TR/trace-context/
+  - title: grafana/helm-charts - tempo chart 1.24.4 values (retention, usage reporting)
+    url: https://github.com/grafana/helm-charts/blob/tempo-1.24.4/charts/tempo/values.yaml
+  - title: stefanprodan/podinfo 6.9.1 - tracer setup (default sampler, W3C propagator)
+    url: https://github.com/stefanprodan/podinfo/blob/6.9.1/pkg/api/http/tracer.go
+  - title: TemplateMechanics/tilt - Tempo HelmRelease (chart 1.24.4)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/tempo/helm-release.yaml
+  - title: TemplateMechanics/tilt - hello-world deployment (traces to Tempo)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/examples/hello-world/deployment.yaml
+---
+
+Tempo can only store spans somebody sends it. When none arrive, it doesn't raise an error. It runs, it's Ready, Grafana lists it as a data source, and every search comes back empty. An empty search is also exactly what you'd see if nothing was slow. And one header from upstream can switch tracing off for a whole chain of services while every request still succeeds.
+
+## What it's for
+
+[Logs, metrics and traces](/learn/sre/three-signals/) showed why traces exist: one request, followed through every service, with a span for each piece of work. Tempo is a place to keep those spans. It doesn't create any. Each service's tracing SDK (usually OpenTelemetry) records spans and exports them, typically over OTLP on port 4317 (gRPC) or 4318 (HTTP). Tempo groups them by trace id, so you can fetch one trace by its id or search with TraceQL, and Grafana draws the result.
+
+On the tilt platform, the `observability` profile installs Tempo 2.9.0 (chart 1.24.4) as one pod in the `tracing` namespace, with a 10Gi volume. Two chart defaults come along, and tilt overrides neither:
+
+- `retention: 24h`. Traces older than a day are deleted.
+- `reportingEnabled: true`. In the chart's own words, "Tempo will report anonymous usage data about the shape of a deployment to Grafana Labs".
+
+The `hello` app (podinfo 6.9.1) exports straight to `tempo.tracing.svc.cluster.local:4317`. Podinfo only turns tracing on when it's given a service name, and the comment on tilt's Deployment records why that line was added. Before it, Tempo ran and was wired up as a data source but received nothing. In the comment's words, two permanently empty panels read as "no slow requests" when the truth was "nobody sends spans".
+
+## How it quietly goes wrong
+
+Tempo's troubleshooting guide begins with the two main causes of missing traces. The first is ingestion: "Spans are either not sent correctly to Tempo or they aren't getting sampled." The second is querying for traces Tempo did receive. Its first check is whether spans arrive at all: `tempo_distributor_spans_received_total` should be above 0 within a few minutes of the app starting. If it stays at 0, the guide lists a wrong protocol or port, the SDK's sampler, or an app sending to the wrong endpoint.
+
+Sampling is the cause that looks most like health, because the decision travels with the request. The W3C `traceparent` header ends in **trace flags**, and the last bit is **sampled**. The spec's examples use `-01` for a request the caller sampled and `-00` for one it didn't. When the bit is unset, "the caller did not record trace data out-of-band."
+
+OpenTelemetry's specification says what an SDK does with that bit by default: "The default sampler is ParentBased(root=AlwaysOn)". A service samples every request it starts itself, and follows the caller for every request it receives. For a remote parent that isn't sampled, `ParentBased` uses `AlwaysOff` unless you configure it differently. So when a gateway, an upstream team's service or a vendor's proxy sends `-00`, every service downstream on default settings records nothing for that request. The responses are all 200, Tempo is healthy, and the trace doesn't exist.
+
+Podinfo is set up this way. Its tracer configures no sampler of its own, so it gets the default, and it reads W3C `traceparent` headers along with several other formats.
+
+<Callout kind="trap">
+An empty Tempo search means "Tempo has no spans that match". That could be true because nothing was slow, because no spans were ever sent, or because a caller said "don't sample" and every service obeyed. All three look the same. Before you believe the empty result, check that `tempo_distributor_spans_received_total` is going up, and look up one trace id you know was sent. If Tempo can't find that one, it isn't seeing your requests at all.
+</Callout>
+
+## Try it
+
+<CardSort mission="tool-tempo" />
+
+## Do it for real
+
+<DoItForReal id="tool-tempo-real" profile="observability">
+
+Talk to podinfo directly through a port-forward, so nothing in between can change the header. Then send two requests that are identical apart from the last two characters of `traceparent`. The trace ids are the W3C spec's example id, and the same id with its last digit changed.
+
+```bash
+PROFILE=observability ./scripts/platform.sh up   # stays running; use a second terminal for the rest
+
+kubectl -n tracing port-forward svc/tempo 3200:3200 &
+kubectl -n hello port-forward deploy/hello 9898:9898 &
+
+# Is anything arriving at all?
+curl -s localhost:3200/metrics | grep tempo_distributor_spans_received_total
+
+# The caller says "sampled" (01)
+curl -s -o /dev/null -w '%{http_code}\n' -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' localhost:9898/
+# The caller says "not sampled" (00)
+curl -s -o /dev/null -w '%{http_code}\n' -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4737-00f067aa0ba902b7-00' localhost:9898/
+
+sleep 15   # SDKs batch spans before exporting them
+curl -s localhost:3200/api/traces/4bf92f3577b34da6a3ce929d0e0e4736 | head -c 400; echo
+curl -s -w '\nHTTP %{http_code}\n' localhost:3200/api/traces/4bf92f3577b34da6a3ce929d0e0e4737
+kill %1 %2
+```
+
+Both requests should print `200`. The first trace id should come back with podinfo's span in it. That span's parent is `00f067aa0ba902b7`, a span that was never sent, because curl was the "caller" and curl records nothing. That gap is what a service without tracing looks like in the middle of a chain. The second id should come back not found. Same app, same answer, no trace.
+
+To see the same thing in Grafana, open https://grafana.localhost/explore, pick **Tempo**, and paste the first trace id.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-tempo-1"
+  q="Tempo is Ready, Grafana lists it, and a search for service hello returns nothing. The app is serving traffic normally. What is the best first check?"
+  options={["Restart Tempo, since an empty search means its index is broken", "Raise the chart's retention, since the traces must have aged out", "Check that tempo_distributor_spans_received_total is going up, then look up one trace id you know was sent"]}
+  answer={2}
+  explain="Tempo's own guide starts here: if spans received stays at 0, the problem is upstream (protocol, port, endpoint or sampling) and Tempo is fine. Retention only removes traces that once existed."
+/>
+
+<Quiz
+  id="tool-tempo-2"
+  q="A gateway forwards every request with a traceparent header ending in 00. The services behind it use the OpenTelemetry SDK defaults. What do they record for those requests?"
+  options={["Nothing: the default ParentBased sampler follows a parent that wasn't sampled", "A new, separate trace in each service", "A full trace, because each service samples everything with AlwaysOn"]}
+  answer={0}
+  explain="The default sampler is ParentBased(root=AlwaysOn). AlwaysOn applies only to requests with no parent. For a remote parent that wasn't sampled, ParentBased defaults to AlwaysOff."
+/>

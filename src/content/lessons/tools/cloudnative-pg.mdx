@@ -1,0 +1,113 @@
+---
+title: CloudNativePG and the Ready replica that's behind
+summary: By default a CloudNativePG replica is Ready as soon as PostgreSQL accepts connections, caught up or not, so a stalled replica keeps serving reads. Learn what the operator does for you, then pause a replica's replay and watch it stay Ready.
+minutes: 15
+xp: 35
+tiers: [browser, machine]
+builds_on: [databases/replication, kubernetes/desired-state]
+sources:
+  - title: CloudNativePG docs - Postgres instance manager, startup and readiness probes (1.30, fetched 2026-10-31)
+    url: https://cloudnative-pg.io/docs/1.30/instance_manager
+  - title: CloudNativePG docs - Service management (rw, ro, r) (1.30)
+    url: https://cloudnative-pg.io/docs/1.30/service_management
+  - title: CloudNativePG docs - Backup (1.30)
+    url: https://cloudnative-pg.io/docs/1.30/backup
+  - title: CloudNativePG docs - Monitoring, the exporter and PodMonitor (1.30)
+    url: https://cloudnative-pg.io/docs/1.30/monitoring
+  - title: CloudNativePG docs - Labels and annotations (cnpg.io/instanceRole) (1.30)
+    url: https://cloudnative-pg.io/docs/1.30/labels_annotations
+  - title: cloudnative-pg/charts - chart 0.29.0 (operator 1.30.0) default monitoring queries
+    url: https://github.com/cloudnative-pg/charts/blob/cloudnative-pg-v0.29.0/charts/cloudnative-pg/values.yaml
+  - title: PostgreSQL 17 - recovery control functions (pg_wal_replay_pause)
+    url: https://www.postgresql.org/docs/17/functions-admin.html
+  - title: TemplateMechanics/tilt - the demo-pg Cluster
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/cloudnative-pg/clusters/demo-cluster.yaml
+  - title: TemplateMechanics/tilt - CloudNativePG HelmRelease (chart 0.29.0)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/cloudnative-pg/base/helm-release.yaml
+---
+
+A replica can stop replaying changes and stay **Ready**. PostgreSQL is still accepting connections, so the probe passes, Kubernetes keeps the pod behind the read-only Service, and your reads keep getting answers. They're just old. CloudNativePG's default readiness check asks whether the database answers. Whether it's caught up is a separate question, and it's yours to ask.
+
+## What it's for
+
+[Replicas, lag and why a replica is not a backup](/learn/databases/replication/) covered what PostgreSQL gives you: a primary, standbys that replay its write-ahead log, and an archive for point-in-time recovery. Running that on Kubernetes by hand means writing your own answers to the hard questions. Who promotes a standby when the primary dies? Who rebuilds a replica? Who rotates the credentials and takes the backups?
+
+**CloudNativePG** is an operator that answers them. You declare a `Cluster` with a number of instances, storage and a bootstrap method, and it keeps the cluster matching that, in the same way as [Desired state and self-healing](/learn/kubernetes/desired-state/). It runs one primary and streams to the other instances. It creates three Services: `-rw` for the primary, `-ro` for the replicas, and `-r` for any instance. When the primary fails, it promotes a replica. The supported route for backups to an object store is now the Barman Cloud plugin. The built-in `barmanObjectStore` support has been deprecated since 1.26, though it is still the default backup method for backward compatibility. And the docs carry a warning worth remembering: "WAL archive alone is useless. Without a physical base backup, you cannot restore a PostgreSQL cluster." [Backups that actually restore](/learn/resilience/backups-that-restore/) is the habit that catches that.
+
+On the tilt platform, the `gitops` profile installs the operator (chart 0.29.0, operator 1.30.0) and one Cluster, `demo-pg`, in the `cnpg-system` namespace: PostgreSQL 17.6 on 1Gi, with credentials generated into the `demo-pg-app` Secret instead of written into the repo. It runs one instance, and the comment beside that line reads `1 on a dev cluster; >=3 for real failover`. It has no backup configured; the replication lesson's hands-on section looks at why.
+
+## How it quietly goes wrong
+
+CloudNativePG gives each instance startup, liveness and readiness probes. The startup and readiness probes use `pg_isready` by default, for primaries and replicas alike, and the docs say what that means for readiness: "The readiness probe is successful only when the server is accepting connections." A replica that's an hour behind accepts connections. So does one whose replay has stopped. Both pass.
+
+Readiness is what Services route on. In the docs' words, an unready pod "will not receive traffic from any services". The reverse holds too, and it's the trap: a Ready replica stays in `-ro` and `-r` and keeps answering reads, whatever it has or hasn't replayed. That brings back the stale read from the replication lesson, with nothing in `kubectl get pods` to warn you.
+
+The docs do offer a stricter check: `.spec.probes.readiness` with `type: streaming` and a `maximumLag` in bytes, which marks a lagging replica unready. They also warn that a badly tuned value can drop replicas out of failover and the synchronous quorum, or even stall the cluster: "Use the streaming and maximumLag options with extreme caution." For most teams the practical answer is to **measure** lag:
+
+- Each instance exports metrics on port 9187. The operator's default queries include `cnpg_pg_replication_lag` (seconds behind) and `cnpg_pg_replication_is_wal_receiver_up`.
+- Something has to scrape them. The docs recommend creating a `PodMonitor` for each Cluster yourself. On tilt, the operator chart has `podMonitorEnabled: false` and the repo has no PodMonitor for `demo-pg`, so nothing collects these numbers.
+
+<Callout kind="trap">
+Ready means PostgreSQL answers. It doesn't mean it's caught up. Watch lag from the metrics, not from pod status. Then read the lag query itself. In the chart's default queries, lag is reported as 0 whenever a replica has replayed everything it has *received*. Our reading of that query, not the docs' words: a replica whose link to the primary has dropped, and which has replayed everything it got, also reports 0. Alert on `cnpg_pg_replication_is_wal_receiver_up` alongside it, or a disconnected replica reads exactly like a perfect one.
+</Callout>
+
+## Try it
+
+<CardSort mission="tool-cloudnative-pg" />
+
+## Do it for real
+
+<DoItForReal id="tool-cloudnative-pg-real" profile="gitops">
+
+You need a replica first. In your tilt checkout, change `instances: 1` to `instances: 2` in `helm/cloudnative-pg/clusters/demo-cluster.yaml`. Then apply it with the same commands tilt's `cloudnative-pg` resource runs (or trigger that resource in the Tilt UI):
+
+```bash
+PROFILE=gitops ./scripts/platform.sh up   # stays running; use a second terminal for the rest
+
+kubectl apply -k ./helm/cloudnative-pg/clusters
+kubectl -n cnpg-system wait --for=condition=Ready cluster/demo-pg --timeout=300s
+kubectl -n cnpg-system get cluster demo-pg                     # repeat until INSTANCES and READY both say 2
+kubectl -n cnpg-system get pods -l cnpg.io/cluster=demo-pg -L cnpg.io/instanceRole
+```
+
+Set `P` to the pod labelled `primary` and `R` to the `replica`. Then make a table, pause the replica's replay with PostgreSQL's own recovery-control function, and write on the primary:
+
+```bash
+P=demo-pg-1; R=demo-pg-2
+kubectl -n cnpg-system exec $P -c postgres -- psql -d demo -c "CREATE TABLE IF NOT EXISTS ping (at timestamptz);"
+kubectl -n cnpg-system exec $R -c postgres -- psql -c "SELECT pg_wal_replay_pause();"
+kubectl -n cnpg-system exec $P -c postgres -- psql -d demo -c "INSERT INTO ping VALUES (now());"
+
+kubectl -n cnpg-system exec $P -c postgres -- psql -d demo -tc "SELECT count(*) FROM ping;"   # 1
+kubectl -n cnpg-system exec $R -c postgres -- psql -d demo -tc "SELECT count(*) FROM ping;"   # 0: stale
+
+# What Kubernetes, the operator and the metrics say
+kubectl -n cnpg-system get pods -l cnpg.io/cluster=demo-pg -L cnpg.io/instanceRole
+kubectl -n cnpg-system get cluster demo-pg
+kubectl -n cnpg-system port-forward pod/$R 9187:9187 &
+curl -s localhost:9187/metrics | grep -E '^cnpg_pg_replication_(lag|is_wal_receiver_up)'
+
+# Put it back
+kubectl -n cnpg-system exec $R -c postgres -- psql -c "SELECT pg_wal_replay_resume();"
+kill %1
+```
+
+PostgreSQL's docs say that while recovery is paused, "no further database changes are applied", and queries on a hot standby keep seeing the same snapshot. So the replica's count stays at 0. Compare that with what the pod list and the Cluster's status say about the replica. On our reading of the docs, the pod stays Ready the whole time, and the lag metric is the only number that moves. Finally, set `instances` back to 1 and apply again.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-cloudnative-pg-1"
+  q="A CloudNativePG replica with default probes stops replaying WAL but keeps accepting connections. What happens to reads sent to the -ro Service?"
+  options={["The replica keeps answering them, with data that is getting older", "The operator removes it from -ro once it falls behind", "Kubernetes restarts the pod because its liveness probe fails"]}
+  answer={0}
+  explain="The default readiness probe is pg_isready: it passes while the server accepts connections. Ready pods stay behind the Service, so stale reads continue until you notice the lag."
+/>
+
+<Quiz
+  id="tool-cloudnative-pg-2"
+  q="Your alert fires when cnpg_pg_replication_lag goes above 30 seconds. A replica's network link to the primary has been cut for an hour, and it has replayed everything it received. What does the alert do?"
+  options={["It fires, because the replica is an hour behind", "It stays silent: the default query reports 0 when everything received has been replayed, so is_wal_receiver_up needs its own alert", "It fires once, then clears when the operator restarts the replica"]}
+  answer={1}
+  explain="The shipped query returns 0 when the received and replayed positions are equal. On our reading, a replica that receives nothing new has nothing left to replay, so it reads 0. is_wal_receiver_up dropping to 0 is the signal that catches it."
+/>

@@ -87,6 +87,8 @@ inline scripts, and has not been added yet.
 | The Flow Lab's numbers come from capacity, and its Little's Law check can actually fail | `tests/agile.test.ts`: cycle time is never computed from the law; the same item-days are counted from daily WIP and from each item's start and finish, and a bookkeeper that drops items fails the check; an empty window says "not measured"; a WIP limit keeps throughput while a limit of 1 starves it |
 | A card deck can only be passed by reading it | `tests/agile.test.ts`: the right answer moves between positions, every option explains why it is right or wrong, a wrong reading never ticks a step, and a diagnosis deck includes a healthy case so "everything is broken" fails |
 | Quoted text keeps its exact characters | `check-site` scenario `manifesto-verbatim`: the typography pass turns `--` into an en dash, so the Agile Manifesto's "Simplicity--the art..." is pinned as rendered, along with the declaration's notice |
+| A tool's learning path teaches before it relies, and ends on that tool | `tests/tool-paths.test.ts` and the build (`toolPaths()` in `src/lib/curriculum.ts`) hold every path in `src/data/tools.ts` to the expedition rules, require it to end on `tools/<id>`, and refuse a written tool lesson that no path reaches |
+| Every tool lesson's card deck works in a browser | `check-site` plays each `tool-*` deck from the deck's own data, so a new tool lesson is tested without anyone writing a scenario for it |
 | Expeditions never use a lesson before what it builds on | `tests/expeditions.test.ts` and the build itself check each lesson's `builds_on` against every expedition's order, planned ones included; a ready expedition may not list an unwritten lesson |
 | Pages actually work in a browser | `scripts/check-site.mjs` renders every page, drives every widget, asserts on screen text, checks every internal link and 375 px overflow - in Chromium, WebKit (every iPhone browser) and Firefox |
 | Readable and navigable for everyone | the same script runs axe (WCAG 2.1 A/AA) on every page in light and dark mode, and fails on any serious or critical violation |
@@ -166,6 +168,16 @@ request a certificate (`https_certificate` stays null and HTTPS serves the
    so the new lesson, quiz and mission ids are recorded.
 5. Open a pull request from your branch. It merges once `verify` is green, and
    the merge is what puts the lesson live.
+
+## Adding a tool path
+
+Each Tool Atlas tool can have a learning path: existing lessons that teach what it relies on, ending in one lesson about the tool itself in the `tools` trail (what it's for, how it quietly goes wrong, and running it on tilt).
+
+1. Write `src/content/lessons/tools/<id>.mdx` and its card deck `src/lib/tools/<id>.ts` (`id: 'tool-<id>'`), and register the deck in `src/lib/decks.ts`.
+2. Mark `tools/<id>` ready in `src/data/tracks.ts` and give the tool a `path` in `src/data/tools.ts`, with every lesson's `builds_on` earlier in it.
+3. Quote only what you have read on the live source; tool docs change fast, so name the version the lesson describes.
+
+The atlas card links the path at `/atlas/<id>/`. Paths have no badge: a badge named after a project would read as its endorsement.
 
 ## Licence
 

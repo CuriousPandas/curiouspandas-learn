@@ -67,11 +67,13 @@ if (!deck) throw new Error(`CardSort: no deck called "${mission}" in src/lib/dec
   .cardsort .cs-grid { display: grid; gap: 14px; }
   @media (min-width: 1000px) { .cardsort .cs-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
   .cardsort .cs-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
-  .cardsort .cs-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  /* Tool decks carry long tokens (metric names, field paths) that pushed cards
+     past a 375 px screen; let them break anywhere. */
+  .cardsort .cs-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; overflow-wrap: anywhere; }
   .cardsort .cs-card > p { margin: 6px 0; font-size: 0.92rem; }
   .cardsort fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.9rem; }
   .cardsort legend { font-weight: 650; font-size: 0.85rem; padding: 0; margin-bottom: 4px; }
-  .cardsort label { display: flex; gap: 8px; align-items: flex-start; }
+  .cardsort label { display: flex; gap: 8px; align-items: flex-start; min-width: 0; overflow-wrap: anywhere; }
   .cardsort label input { margin-top: 3px; }
   .cardsort .cs-why { padding: 8px 10px; border-radius: 10px; font-size: 0.88rem; }
   .cardsort .cs-why.right { background: var(--bamboo-soft); color: var(--bamboo); }

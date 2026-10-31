@@ -1,0 +1,106 @@
+---
+title: Grafana and the data source that can't answer
+summary: A data source can sit in Grafana's list while every panel built on it renders blank, because the plugin that reads it never loaded. Learn what Grafana adds, then check that a data source answers, not just that it exists.
+minutes: 13
+xp: 35
+tiers: [browser, machine]
+builds_on: [platform/observability, sre/three-signals]
+sources:
+  - title: Grafana docs - Introduction (v13.3, fetched 2026-10-31)
+    url: https://grafana.com/docs/grafana/latest/introduction/
+  - title: Grafana docs - Configure Grafana, [plugins] preinstall and preinstall_disabled (v13.3)
+    url: https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/
+  - title: Grafana docs - Data source HTTP API, health check (v13.3)
+    url: https://grafana.com/docs/grafana/latest/developer-resources/api-reference/http-api/api-legacy/data_source/
+  - title: Grafana docs - Configure the Prometheus data source, Save and test (v13.3)
+    url: https://grafana.com/docs/grafana/latest/datasources/prometheus/configure/
+  - title: Grafana docs - Configure standard options, No value (v13.3)
+    url: https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/configure-standard-options/
+  - title: grafana/grafana issue 132528 - preinstall auto-update unloads a bundled plugin, leaving it unregistered (closed 2026-10-19)
+    url: https://github.com/grafana/grafana/issues/132528
+  - title: grafana/grafana PR 134367 - Keep the previous version loaded until a plugin update succeeds (milestone 13.3.x)
+    url: https://github.com/grafana/grafana/pull/134367
+  - title: TemplateMechanics/tilt - Prometheus HelmRelease (Grafana values and the preinstall fix)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/prometheus/helm-release.yaml
+  - title: TemplateMechanics/tilt - Grafana MCP notes (persistence and restarts)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/docs/GRAFANA-MCP.md
+---
+
+A Grafana data source is a row of configuration: a name, a URL, a type. Reading from it takes a plugin, which is code that has to load. On the tilt platform, the plugins failed to load while the rows stayed put. Every dashboard rendered blank, Prometheus held all the data, and the data sources page looked fine. An empty panel looks the same whether the system is quiet or Grafana can't read it.
+
+## What it's for
+
+Grafana describes itself as letting you "query, visualize, alert on, and explore your metrics, logs, and traces wherever they are stored." The last four words are the point. Grafana stores none of that data. It sends queries to **data sources** (Prometheus, Loki, Tempo and many more) and draws whatever comes back.
+
+That makes it the place where the three signals from [Logs, metrics and traces](/learn/sre/three-signals/) meet. It also makes it the last link in the chain from [The dashboard that lies](/learn/platform/observability/): ServiceMonitor, scrape target, Prometheus, then a Grafana panel. A fault anywhere along that chain ends in the same empty panel.
+
+On the tilt platform, Grafana comes inside the kube-prometheus-stack chart (pinned at 90.0.0) and answers at grafana.localhost (admin / admin). The values add Loki and Tempo as data sources next to the chart's own Prometheus one, with fixed uids (`loki`, `tempo`) so traces can link to logs. Dashboards aren't clicked together. They're ConfigMaps labelled `grafana_dashboard: "1"` in the `monitoring` namespace, which a sidecar loads on start-up.
+
+<Callout kind="real">
+That matters because of a chart default the platform's notes record: Grafana runs with persistence off, so its storage is an `emptyDir`, and "Every Grafana restart wipes all Grafana-side state". The same notes say any chart change restarts the pod. So a dashboard saved through the UI is gone after the next restart, and a dashboard in a ConfigMap comes back.
+</Callout>
+
+## How it quietly goes wrong
+
+Grafana 13 can install plugins in the background at start-up. The configuration docs say so plainly: "Plugins are installed asynchronously, as a background process. This means that Grafana starts up faster, but the plugins may not be available immediately."
+
+Issue 132528 on Grafana's tracker (September 2026, Grafana 13.1 to 13.2) describes where that went wrong. On boot, the background installer compared each bundled data-source plugin with the online catalogue and tried to update any that were behind. To do it, it stopped the running plugin, then found it couldn't write to the bundled-plugins directory on a read-only filesystem, and never loaded the old copy again. Every query to that data source then failed with `[plugin.notRegistered] plugin not registered`. Which plugins broke depended on what the catalogue had published that day. Grafana fixed it in PR 134367, "Keep the previous version loaded until a plugin update succeeds", merged in October 2026 under the 13.3.x milestone.
+
+The tilt platform hit the same failure from a different angle. Its HelmRelease comment records that the chart runs Grafana with a read-only root filesystem, so the background installs of the Prometheus, Loki and Tempo plugins failed. The data sources still listed fine in the UI, every dashboard was blank, and querying Prometheus directly worked perfectly. In the comment's words, "the data was there and Grafana could not read it." The fix in the repo is one environment variable, `GF_PLUGINS_PREINSTALL_DISABLED: "true"`. That is the `[plugins]` option `preinstall_disabled`, which "disables all preinstalled plugins", so Grafana uses the copies already bundled in its image.
+
+<Callout kind="trap">
+The data source list tells you what Grafana has been *told about*, not what it can *read*. A plugin that failed to load, a wrong URL or a data source the dashboard doesn't point at all end in the same blank panel, and none of them stops the dashboard loading. Before you believe an empty panel, ask the data source to answer: its health check, or one query in Explore that should obviously return something. If Grafana is empty and Prometheus isn't, the fault is in Grafana.
+</Callout>
+
+Even a working panel can blur the line between *nothing happened* and *nothing was measured*. When a query returns no value, Grafana shows the panel's **No value** text. The docs say to "Enter what Grafana should display if the field value is empty or null. The default value is a hyphen (-)." Our inference, not the docs': set it to `0` on an error panel and a scrape that has stopped looks exactly like a service with no errors. Leave the default, so *nothing* and *zero* look different.
+
+## Try it
+
+<CardSort mission="tool-grafana" />
+
+## Do it for real
+
+<DoItForReal id="tool-grafana-real" profile="observability">
+
+Bring the platform up with the `observability` profile, then compare what Grafana has been told with what it can read. The API calls follow Grafana's data source HTTP API, with the credentials the tilt README gives.
+
+```bash
+PROFILE=observability ./scripts/platform.sh up   # stays running; use a second terminal for the rest
+
+# What Grafana has been told: every data source, with its uid and type
+curl -sk -u admin:admin https://grafana.localhost/api/datasources
+
+# What it can read: ask each data source to answer
+curl -sk -u admin:admin https://grafana.localhost/api/datasources/uid/prometheus/health
+curl -sk -u admin:admin https://grafana.localhost/api/datasources/uid/loki/health
+curl -sk -u admin:admin https://grafana.localhost/api/datasources/uid/tempo/health
+```
+
+Take the uids from the first command's output if they differ. For Prometheus, a healthy answer should carry the same message as the UI's **Save & test** button: "Successfully queried the Prometheus API." Grafana's docs add that health checks are optional for plugin authors, so a data source with no health check isn't proof of a fault. Fall back to a query.
+
+Then open https://grafana.localhost/explore, pick the Prometheus data source and run these two queries:
+
+```text
+up
+up{job="no-such-job"}
+```
+
+The first returns one series for every target Prometheus scrapes. The second says *No data*: no error, no warning, exactly what you'd see if a real job had vanished. Grafana can't tell a typo from an outage. That's your job, and it's what an absence alert is for.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-grafana-1"
+  q="Every panel on a dashboard is blank. Querying Prometheus directly returns the data, and the Prometheus data source is still in Grafana's list. Where is the fault most likely?"
+  options={["In Grafana: it cannot query the data source, for example because the data source's plugin never loaded", "In Prometheus: it has lost the data", "In the ServiceMonitors: nothing is being scraped"]}
+  answer={0}
+  explain="If Prometheus answers directly, the data and the scrapes are fine. The list only shows configuration; the data source's health check or a query in Explore shows whether Grafana can actually read it."
+/>
+
+<Quiz
+  id="tool-grafana-2"
+  q="An error panel's No value option is set to 0. The target behind its query disappears, so the query returns no series at all. What does the panel show?"
+  options={["An error message", "No data", "0, exactly like a service with no errors"]}
+  answer={2}
+  explain="No value replaces an empty result with whatever text you give it. Set it to 0 and missing data reads as a healthy zero; the default hyphen keeps the two apart."
+/>

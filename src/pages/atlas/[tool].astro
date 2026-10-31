@@ -1,0 +1,82 @@
+---
+import Base from '../../layouts/Base.astro';
+import { toolPaths, hours } from '../../lib/curriculum.ts';
+import snapshot from '../../data/cncf-snapshot.json';
+
+export async function getStaticPaths() {
+  return (await toolPaths()).map((p) => ({ params: { tool: p.tool.id }, props: { p } }));
+}
+const { p } = Astro.props;
+const t = p.tool;
+const step = new Map(p.steps.map((s, i) => [s.id, i + 1]));
+const snap = (snapshot.tools as Record<string, { maturity: string | null; homepage: string | null }>)[t.id];
+---
+<Base title={`${t.name} path`} description={t.what}>
+  <section class="wrap page" data-steps={JSON.stringify(p.steps.map((s) => ({ id: s.id, href: s.href, title: s.title })))}>
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/atlas/">Tool Atlas</a> / <span>{t.name}</span></nav>
+    <header>
+      <p class="eyebrow">Learning path</p>
+      <h1>{t.name}</h1>
+      <p class="lede">{t.what}</p>
+      <div class="meta">
+        <span class="pill">{t.category}</span>
+        {snap?.maturity && <span class="pill">CNCF {snap.maturity} (as of {snapshot.fetchedAt})</span>}
+        <span class="pill">{p.steps.length} lessons · about {hours(p.minutes)}</span>
+        {t.tilt ? <span class="pill"><code>{t.tilt}</code> in tilt-config.json</span> : <span class="pill">always on in tilt's {t.profile} profile</span>}
+      </div>
+      <p class="state" data-state>0 of {p.steps.length} lessons done.</p>
+    </header>
+    <div class="actions">
+      <a class="btn primary" href={p.steps[0].href} data-continue>Start: {p.steps[0].title} →</a>
+      {snap?.homepage && <a class="btn" href={snap.homepage}>Project homepage</a>}
+    </div>
+    <p class="muted small">The path ends with a lesson about {t.name} itself; the steps before it are the ideas it relies on. {t.name} is named here to describe it, not to suggest the project endorses this site.</p>
+    <ol class="steps">
+      {p.steps.map((s, i) => (
+        <li data-lesson={s.id}>
+          <a href={s.href} class="card row">
+            <span class="num">{i + 1}</span>
+            <span class="txt">
+              <strong>{s.title}</strong>
+              <span class="muted">{s.track}{s.buildsOn.length > 0 && step.has(s.buildsOn[0]) && <> · builds on step {s.buildsOn.filter((d) => step.has(d)).map((d) => step.get(d)).sort((a, b) => a! - b!).join(', ')}</>}</span>
+            </span>
+            <span class="pill">{s.minutes} min</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  </section>
+</Base>
+<script>
+  import { store } from '../../lib/progress.ts';
+  const root = document.querySelector<HTMLElement>('[data-steps]')!;
+  const steps: { id: string; href: string; title: string }[] = JSON.parse(root.dataset.steps!);
+  const cont = root.querySelector<HTMLAnchorElement>('[data-continue]')!;
+  store().subscribe((p) => {
+    for (const li of root.querySelectorAll<HTMLElement>('[data-lesson]')) li.classList.toggle('complete', !!p.lessons[li.dataset.lesson!]);
+    const n = steps.filter((s) => p.lessons[s.id]).length;
+    root.querySelector('[data-state]')!.textContent = n === steps.length ? `All ${n} lessons done.` : `${n} of ${steps.length} lessons done.`;
+    const next = steps.find((s) => !p.lessons[s.id]);
+    if (next) { cont.href = next.href; cont.textContent = `${n ? 'Continue' : 'Start'}: ${next.title} →`; }
+    else { cont.href = steps[0].href; cont.textContent = 'Revisit from the start →'; }
+  });
+</script>
+<style>
+  .page { padding-top: 24px; max-width: 900px; --hue: 220; }
+  .crumbs { font-size: 0.88rem; color: var(--muted); } .crumbs a { color: var(--muted); }
+  h1 { margin: 4px 0; }
+  .lede { margin: 0 0 10px; color: var(--ink-2); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .state { font-weight: 600; margin: 10px 0 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 6px; }
+  .small { font-size: 0.85rem; }
+  .steps { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+  .row { display: flex; gap: 14px; align-items: center; padding: 12px 16px; text-decoration: none; color: var(--ink); min-width: 0; }
+  a.row:hover { border-color: hsl(var(--hue) 50% 50%); }
+  .num { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--bg-2); color: var(--ink); border: 2px solid hsl(var(--hue) 55% 45%); position: relative; }
+  .complete .num { background: var(--bamboo); border-color: var(--bamboo); color: transparent; }
+  .complete .num::after { content: "✓"; position: absolute; color: var(--bamboo-ink); }
+  .txt { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .txt .muted { font-size: 0.88rem; }
+  @media (max-width: 600px) { .row .pill { display: none; } }
+</style>

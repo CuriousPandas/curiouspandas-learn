@@ -1,0 +1,126 @@
+---
+title: Istio and the mesh that still accepts plaintext
+summary: A workload in the mesh encrypts what the mesh carries, but Istio's default mTLS mode is PERMISSIVE, so it also accepts plain connections from anything outside the mesh, without raising any error. Learn what Istio adds, then find the open door and close it.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+builds_on: [platform/service-mesh]
+sources:
+  - title: Istio docs - Use Layer 4 security policy (ambient, v1.28.3)
+    url: https://istio.io/v1.28/docs/ambient/usage/l4-policy/
+  - title: Istio docs - Verify mutual TLS is enabled (ambient, v1.28.3)
+    url: https://istio.io/v1.28/docs/ambient/usage/verify-mtls-enabled/
+  - title: Istio docs - Mutual TLS migration (v1.28.3)
+    url: https://istio.io/v1.28/docs/tasks/security/authentication/mtls-migration/
+  - title: Istio docs - Security concepts, peer authentication (v1.28.3)
+    url: https://istio.io/v1.28/docs/concepts/security/
+  - title: Istio samples - curl.yaml (release-1.28)
+    url: https://github.com/istio/istio/blob/release-1.28/samples/curl/curl.yaml
+  - title: TemplateMechanics/tilt - Istio HelmReleases (helm/istio/base, chart 1.28.3)
+    url: https://github.com/TemplateMechanics/tilt/tree/main/helm/istio/base
+  - title: TemplateMechanics/tilt - Ambient mesh enrolment (helm/istio/README-ambient.md)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/istio/README-ambient.md
+---
+
+The [service mesh lesson](/learn/platform/service-mesh/) ended with proof that a pod is in the mesh: its redirection annotation says `enabled`, and traffic between mesh workloads is mutual TLS. It's tempting to read that as *this pod only talks to encrypted, identified callers*. Out of the box it doesn't. Istio's ambient docs say the default policy is PERMISSIVE, which "allows pods to accept both mTLS-encrypted traffic (from within the mesh) and plain text traffic (from without)".
+
+## What it's for
+
+Istio is the service mesh the tilt platform runs. The mesh lesson covered what a mesh gives you and how a namespace joins. Here are the pieces Istio uses to do it in **ambient mode**, the mode tilt uses:
+
+- **istiod**, the control plane: it turns your configuration into proxy configuration and issues the workload certificates.
+- **istio-cni**, a node agent that redirects each enrolled pod's traffic into the mesh.
+- **ztunnel**, a proxy on every node. It does mTLS, connection-level policy and TCP telemetry.
+- **Waypoints**, optional proxies for request-level (L7) features, which tilt adds only in lab 06.
+
+Istio's other mode, sidecar mode, puts an Envoy proxy in every pod instead. tilt doesn't use it: no namespace in the repository carries a sidecar-injection label.
+
+Two Istio APIs decide who gets in. A **PeerAuthentication** sets which connections a workload accepts: "Peer authentication policies specify the mutual TLS mode Istio enforces on target workloads." An **AuthorizationPolicy** sets who may call what. Istio is also tilt's [Gateway API](/learn/tools/gateway-api/) implementation: the shared Gateway that serves every `*.localhost` site is an Istio gateway.
+
+On tilt, Flux installs Istio as four HelmReleases in `istio-system`, all at chart version 1.28.3: `istio-base`, `istiod`, `istio-cni` and `ztunnel`, each with `profile: ambient`. They come up in the `minimal` profile.
+
+## How it quietly goes wrong
+
+Joining the mesh changes how a pod's traffic is carried. It doesn't, by itself, change what the pod will accept. The modes are:
+
+- **PERMISSIVE**: "Workloads accept both mutual TLS and plain text traffic."
+- **STRICT**: "Workloads only accept mutual TLS traffic."
+
+With no PeerAuthentication at all, you get PERMISSIVE. The migration guide says it plainly: "By default, Istio configures the destination workloads using PERMISSIVE mode." The ambient page on verifying mTLS adds: "Having HBONE configured on your workload doesn't mean your workload will reject any plaintext traffic." (HBONE is the mTLS tunnel ztunnel uses.)
+
+Istio frames PERMISSIVE as a migration mode: it lets workloads join the mesh one at a time without breaking callers that haven't joined yet. The catch is that nothing ends the migration for you. The default stays PERMISSIVE until someone writes a policy, and a plain connection raises no error. (The guide suggests watching telemetry for workloads still sending plaintext.) Any pod outside the mesh can open a plain connection to an enrolled workload, and it works. The same guide warns, about sidecar mode, that in PERMISSIVE mode "no authentication or authorization checks will be performed for plaintext traffic by default".
+
+The tilt repository defines no PeerAuthentication anywhere, so every enrolled namespace runs on that default. Its ambient README also lists namespaces that are deliberately outside the mesh: `monitoring`, `logging`, `tracing`, `cert-manager`, `flux-system` and others. Any pod there that calls an enrolled app connects in plain text, and PERMISSIVE lets it in.
+
+<Callout kind="trap">
+*In the mesh* means the mesh encrypts what it carries. It doesn't mean the workload refuses what the mesh doesn't carry. Until a PeerAuthentication says `STRICT`, an enrolled workload accepts plaintext from anything outside the mesh, and no error is raised. `kubectl get peerauthentication --all-namespaces` returning `No resources found` means every workload is PERMISSIVE.
+</Callout>
+
+The fix is a PeerAuthentication with `mode: STRICT`, either in one namespace or, for the whole mesh, in the root namespace, which by default is `istio-system`: "Istio stores mesh-scope policies in the root namespace." STRICT has a cost: every caller outside the mesh is refused. On tilt that would include anything in the unenrolled namespaces that calls an enrolled app directly. That's our inference from the documented behaviour; we haven't measured which tilt callers would break.
+
+One more ambient detail looks like configuration and isn't. You can't switch mTLS off for a workload: because HBONE always uses mTLS, "it is not possible to use the DISABLE mode in a policy. Such policies will be ignored."
+
+## Try it
+
+<CardSort mission="tool-istio" />
+
+## Do it for real
+
+<DoItForReal id="tool-istio-real" profile="minimal">
+
+This follows Istio's own mTLS migration task, with tilt's `hello` app standing in for the docs' httpbin and a curl pod in a namespace that isn't in the mesh. First, the state you start from:
+
+```bash
+kubectl get ns -L istio.io/dataplane-mode          # hello: ambient
+kubectl get peerauthentication --all-namespaces    # expect: No resources found
+```
+
+Put a client outside the mesh and call `hello` over plain HTTP:
+
+```bash
+kubectl create ns legacy                            # no dataplane-mode label: not in the mesh
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.28/samples/curl/curl.yaml -n legacy
+kubectl -n legacy rollout status deploy/curl
+kubectl exec "$(kubectl get pod -l app=curl -n legacy -o jsonpath={.items..metadata.name})" -c curl -n legacy -- curl http://hello.hello/ -s -o /dev/null -w "%{http_code}\n"
+```
+
+Expect `200`: an enrolled workload just accepted plaintext. Now lock `hello` down and try again:
+
+```bash
+kubectl apply -n hello -f - <<EOF
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+spec:
+  mtls:
+    mode: STRICT
+EOF
+kubectl exec "$(kubectl get pod -l app=curl -n legacy -o jsonpath={.items..metadata.name})" -c curl -n legacy -- curl http://hello.hello/ -s -o /dev/null -w "%{http_code}\n"
+./scripts/platform.sh lab 03                        # hello.localhost through the Gateway, plus mesh membership
+```
+
+The plain call should now fail with `000` (the docs' sidecar example also shows curl's exit code 56). Lab 03's grader still requests `https://hello.localhost` through the Istio gateway. We expect it to pass, because the gateway is Istio's own proxy rather than a plain client, but we haven't run this. If it fails, you've found what STRICT does to a caller you forgot about. Clean up the way the task does:
+
+```bash
+kubectl delete peerauthentication -n hello default
+kubectl delete ns legacy
+```
+
+</DoItForReal>
+
+<Quiz
+  id="tool-istio-1"
+  q="A namespace is enrolled in the ambient mesh and its pod's redirection annotation says enabled. There is no PeerAuthentication anywhere. A pod outside the mesh sends it a plain HTTP request. What happens?"
+  options={["ztunnel refuses the connection, because enrolled pods only accept mTLS", "The request succeeds: with no policy the workload is PERMISSIVE and accepts plaintext too", "The request succeeds, but Istio logs a security warning"]}
+  answer={1}
+  explain="PERMISSIVE is the default when no PeerAuthentication says otherwise. In Istio's words, having HBONE configured on your workload doesn't mean it will reject plaintext. Nothing is raised: the plain call simply works."
+/>
+
+<Quiz
+  id="tool-istio-2"
+  q="You want one namespace to accept only mesh traffic, and to see exactly what that breaks before going further. What do you apply?"
+  options={["A PeerAuthentication named default in that namespace with mtls mode STRICT", "The istio.io/dataplane-mode=ambient label again, with a restart", "A PeerAuthentication with mode DISABLE on every other namespace"]}
+  answer={0}
+  explain="STRICT in one namespace refuses plaintext there only, so the blast radius is that namespace's callers. Relabelling changes nothing about what is accepted, and in ambient mode a DISABLE policy is ignored."
+/>

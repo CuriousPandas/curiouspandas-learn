@@ -1,0 +1,96 @@
+---
+title: kind and the Kubernetes version nobody chose
+summary: An unpinned kind config builds whatever Kubernetes version your kind binary defaults to. The same file on two laptops can give clusters ten minor versions apart, and nothing warns you. Pin the node image by digest.
+minutes: 12
+xp: 35
+tiers: [browser, machine]
+builds_on: [kubernetes/desired-state, containers/tags-and-digests]
+sources:
+  - title: kind docs - Quick Start (kind v0.33.0)
+    url: https://kind.sigs.k8s.io/docs/user/quick-start/
+  - title: kind release notes - v0.33.0 (26 August 2026)
+    url: https://github.com/kubernetes-sigs/kind/releases/tag/v0.33.0
+  - title: kind release notes - v0.20.0 (15 June 2023)
+    url: https://github.com/kubernetes-sigs/kind/releases/tag/v0.20.0
+  - title: TemplateMechanics/tilt - kind/cluster.yaml and scripts/student-check.sh
+    url: https://github.com/TemplateMechanics/tilt/blob/main/kind/cluster.yaml
+  - title: TemplateMechanics/tilt - README, Prerequisites
+    url: https://github.com/TemplateMechanics/tilt#prerequisites
+---
+
+Two people clone the same repository and run the same `kind create cluster` with the same config file. With kind 0.20.0 one gets Kubernetes 1.27; with kind 0.33.0 the other gets 1.37. Neither did anything wrong, and neither was told. The config never said which version to build, so kind picked its own default.
+
+## What it's for
+
+**kind** (Kubernetes in Docker) runs each Kubernetes node as a container on your machine. A whole cluster, control plane and workers, is a few containers you can delete and recreate. That's what makes it safe to break: the tilt platform's own config says it "can be destroyed and rebuilt from empty in about a minute".
+
+The platform's cluster is `kind/cluster.yaml`: two nodes (a control plane and a worker, so scheduling and DaemonSets behave like a real cluster), and two port mappings so the gateway on the node is reachable from your browser. Everything in [Run the real platform](/learn/platform/bring-it-home/) sits on top of it.
+
+## How it quietly goes wrong
+
+Each kind node runs a **node image**, and the node image *is* the Kubernetes version. kind's Quick Start says creating a cluster uses "a pre-built node image", and that "Using a different image allows you to change the Kubernetes version of the created cluster." Leave the image out and you get the default baked into your kind binary.
+
+That default moves with kind releases, and each release's notes name it:
+
+- kind **v0.20.0** (June 2023): the default node image is Kubernetes `v1.27.3`.
+- kind **v0.33.0** (August 2026): the release "defaults to Kubernetes 1.37.0".
+
+The tilt platform's `kind/cluster.yaml` sets no `image`. Its README's prerequisites table asks for kind `0.20+` and says the cluster runs Kubernetes 1.36. Both of those releases satisfy `0.20+`, and neither gives 1.36. The platform's own `student-check.sh` admits it in a comment: "kind/cluster.yaml pins no node image, so the version is whatever the installed kind defaults to."
+
+Nothing fails at create time. The first symptom is usually the version-skew warning from [Run the real platform](/learn/platform/bring-it-home/), on every command, because kubectl is supposed to be within one minor version of the cluster. Later it can be an API or a default that behaves differently from the version the docs or labs assumed (that last part is a general point about Kubernetes versions, not something we measured here).
+
+Pinning a tag isn't quite enough either. The v0.33.0 notes flag it with a NOTE: "You *must* use the `@sha256` digest to guarantee an image built for this release". It's the [tags and digests](/learn/containers/tags-and-digests/) lesson again: a tag is a name, a digest is the content.
+
+<Callout kind="trap">
+A kind config with no `image` on its nodes doesn't describe a Kubernetes version. It describes *whatever this laptop's kind defaults to*, and that changes every time someone upgrades kind. To make the cluster reproducible, set `image` on each node to a `kindest/node` image *with its `@sha256` digest*, taken from the release notes of the kind version you actually run (`kind version`).
+</Callout>
+
+## Try it
+
+<CardSort mission="tool-kind" />
+
+## Do it for real
+
+<DoItForReal id="tool-kind-real" profile="minimal">
+
+With the platform up (`./scripts/platform.sh up`, which creates the kind cluster `tiltdev` if it's missing). First, find out which version you got and why:
+
+```bash
+kind version
+kind get clusters
+kubectl --context kind-tiltdev get nodes -o wide
+./scripts/student-check.sh
+```
+
+`kind version` names your kind release. The `VERSION` column of `get nodes` is the Kubernetes version that release defaulted to. Find your release on the kind releases page, and its notes will list the same default. `student-check.sh` compares that with your kubectl.
+
+Optional, and separate from the platform: build a throwaway cluster pinned to an image of your choosing. Pick an image line, digest included, from *your* kind version's release notes.
+
+```bash
+kind create cluster --name pin-test --image kindest/node:v1.N.P@sha256:DIGEST
+kubectl --context kind-pin-test get nodes
+kind delete cluster --name pin-test
+kind get clusters
+kubectl config current-context
+kubectl config use-context kind-tiltdev
+```
+
+`kind get clusters` afterwards proves the delete really happened (see the second quiz). Creating a cluster can change which cluster plain `kubectl` talks to, so check `current-context`, and the last line points it back at the platform (`platform.sh up` runs the same command). Leave `kind/cluster.yaml` alone: changing the platform's Kubernetes version means a `reset` and a full rebuild.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-kind-1"
+  q="Your kind config file has no image on any node. What decides the cluster's Kubernetes version?"
+  options={["The newest Kubernetes release on the day you create it", "The kubectl version on your PATH", "The default node image built into the kind binary you have installed"]}
+  answer={2}
+  explain="kind uses a pre-built node image, and without one in the config it uses its own default. That default changes with each kind release, so the same file builds different versions on different machines."
+/>
+
+<Quiz
+  id="tool-kind-2"
+  q="You run kind delete cluster with a typo in the cluster name. It finishes without an error. What happened to your cluster?"
+  options={["Nothing: deleting a cluster that does not exist is deliberately not an error", "It was deleted, because kind matches names loosely", "It was stopped but not deleted"]}
+  answer={0}
+  explain="kind's Quick Start says this is by design, so clean-up scripts can be idempotent. The cost is that a typo looks exactly like success. Check with kind get clusters."
+/>

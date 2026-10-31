@@ -1,0 +1,138 @@
+---
+title: cert-manager and the issuer it couldn't find
+summary: Leave kind out of a Certificate's issuerRef and cert-manager looks for a namespaced Issuer, not your ClusterIssuer. The apply succeeds, no certificate arrives, and an edited Certificate keeps serving its old one.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+builds_on: [web/tls-trust, kubernetes/desired-state]
+sources:
+  - title: cert-manager docs - Issuer (v1.16)
+    url: https://cert-manager.io/v1.16-docs/concepts/issuer/
+  - title: cert-manager docs - Certificate resource (v1.16)
+    url: https://cert-manager.io/v1.16-docs/usage/certificate/
+  - title: cert-manager docs - API reference, CertificateSpec issuerRef (v1.16)
+    url: https://cert-manager.io/v1.16-docs/reference/api-docs/
+  - title: cert-manager docs - Troubleshooting (v1.16)
+    url: https://cert-manager.io/v1.16-docs/troubleshooting/
+  - title: cert-manager docs - FAQ, what happens if issuance fails (v1.16)
+    url: https://cert-manager.io/v1.16-docs/faq/
+  - title: cert-manager source v1.16.2 - CertificateRequest sync (IssuerNotFound)
+    url: https://github.com/cert-manager/cert-manager/blob/v1.16.2/pkg/controller/certificaterequests/sync.go
+  - title: cert-manager source v1.16.2 - CertificateRequest reporter (Pending is a Normal event)
+    url: https://github.com/cert-manager/cert-manager/blob/v1.16.2/pkg/controller/certificaterequests/util/reporter.go
+  - title: TemplateMechanics/tilt - cert-manager HelmRelease (chart v1.16.2)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/cert-manager/base/helm-release.yaml
+  - title: TemplateMechanics/tilt - ClusterIssuers and the wildcard Certificate
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/istio/gateway/base/certificate.yaml
+---
+
+You write a Certificate, name the platform's certificate authority in it, and apply it. `kubectl` says `created`. No certificate ever arrives. The missing piece is one line, `kind: ClusterIssuer`. Without it, cert-manager looks for a namespaced Issuer with that name in the Certificate's own namespace, finds none, and waits. Nothing rejects the object, and nothing raises a warning.
+
+## What it's for
+
+Certificates expire. The wildcard certificate on the tilt platform lasts 90 days, and a certificate renewed by hand gets renewed when someone remembers. The comment on that certificate in the tilt repo records what came before: a script that only made a new certificate when the file was *missing*, so an expired one went unnoticed until TLS broke.
+
+cert-manager turns certificates into [desired state](/learn/kubernetes/desired-state/). You write a **Certificate**: the names it must cover, how long it lasts, when to renew it, and which issuer signs it. cert-manager creates a **CertificateRequest**, the issuer signs it, and the result lands in the Secret named by `secretName`. Before it expires, cert-manager does it all again.
+
+The issuer is a resource too, and it comes in two kinds:
+
+- An **Issuer** lives in one namespace. In the docs' words: "An Issuer is a namespaced resource, and it is not possible to issue certificates from an Issuer in a different namespace."
+- A **ClusterIssuer** is the same thing without a namespace, usable from any namespace.
+
+On tilt, the `minimal` profile installs cert-manager chart v1.16.2 as a Flux HelmRelease in the `cert-manager` namespace. Three ClusterIssuers form a small private CA: `selfsigned-bootstrap` signs the root, `local-root-ca` signs the intermediate, and `local-intermediate-ca` signs every leaf certificate. The `wildcard-localhost` Certificate in `istio-system` is the one the Gateway serves. [Two TLS errors, one exit code](/learn/web/tls-trust/) breaks that certificate two ways in lab 04. This lesson is about what happens before there is a certificate to break.
+
+## How it quietly goes wrong
+
+A Certificate names its issuer in `issuerRef`, which has a `name`, a `kind` and a `group`. Only the name is required. The example in the Certificate docs carries this comment beside `kind`: "The default value is Issuer (i.e. a locally namespaced Issuer)".
+
+So this, in the `hello` namespace:
+
+```yaml
+issuerRef:
+  name: local-intermediate-ca
+```
+
+means *the Issuer called local-intermediate-ca in hello*. There isn't one. There is only a ClusterIssuer with that name, and the API reference is explicit: "If the issuer is namespace-scoped, it must be in the same namespace as the Certificate."
+
+Here's what happens next. In cert-manager v1.16.2, the admission webhook checks that `issuerRef` has a name and that `kind`, if set, is Issuer or ClusterIssuer. It does not check that the issuer exists, so the apply succeeds. The Certificate goes to READY `False`, and a CertificateRequest is created. That request then sits at Ready `False` with reason `Pending`. The source records the cause as `IssuerNotFound`, with the message `Referenced "Issuer" not found`. It records that as a *Normal* event, not a Warning, so a filter for warning events never shows it. Nothing ever fails for good. The request just waits for an issuer that won't appear.
+
+The quieter version is an edit. Change `issuerRef` on a Certificate that already works and cert-manager starts a reissue, because the docs list `issuerRef` among the fields that trigger one. The reissue can't complete. The Secret still holds the previous certificate. For a Certificate with `rotationPolicy: Always`, which the tilt wildcard uses, the docs say "cert-manager waits until the Certificate object is correctly signed before overwriting the tls.key file in the Secret." So HTTPS keeps working. Our reading of that, not something the docs spell out: it keeps working until the old certificate expires, and on tilt that can be up to 90 days later.
+
+<Callout kind="trap">
+A Certificate that names a ClusterIssuer but leaves out `kind: ClusterIssuer` is accepted, then waits forever for a namespaced Issuer that doesn't exist. If it's new, no Secret ever appears. If it's an edit, the old certificate keeps serving and nothing renews it. Check READY on `kubectl get certificate -A`. A green deploy and a working padlock don't tell you a certificate will renew.
+</Callout>
+
+When a Certificate isn't Ready, the troubleshooting guide's order is the right one: Certificate, then CertificateRequest, then the issuer. Of the CertificateRequest it says: "Here we will see any issue regarding the Issuer configuration as well as Issuer responses." Two more things from the FAQ are worth knowing. After a *terminal* failure, cert-manager retries with a delay that grows from 1 to 32 hours. And of short-lived failures it says: "Typically they can only be observed in cert-manager controller logs."
+
+One more default with the same shape. "By default, cert-manager does not delete the Secret resource containing the signed certificate when the corresponding Certificate resource is deleted." The docs give the upside and the cost in one sentence: deleting a Certificate "won't take down any services that are currently relying on that certificate, but the certificate will no longer be renewed."
+
+## Try it
+
+<CardSort mission="tool-cert-manager" />
+
+## Do it for real
+
+<DoItForReal id="tool-cert-manager-real" profile="minimal">
+
+The `minimal` profile has everything this needs. Bring the platform up and look at what's already working:
+
+```bash
+./scripts/platform.sh up                                   # stays running; use a second terminal
+kubectl get clusterissuer                                  # three issuers, READY True
+kubectl -n istio-system get certificate wildcard-localhost # READY True
+```
+
+Now ask for a certificate from the intermediate CA, and leave out the kind:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kindless
+  namespace: hello
+spec:
+  secretName: kindless-tls
+  dnsNames:
+    - kindless.localhost
+  issuerRef:
+    name: local-intermediate-ca
+EOF
+kubectl -n hello get certificate kindless       # READY False
+kubectl -n hello get secret kindless-tls        # NotFound
+kubectl -n hello describe certificaterequest    # Events: IssuerNotFound, Referenced "Issuer" not found
+```
+
+Add the kind and watch it issue:
+
+```bash
+kubectl -n hello patch certificate kindless --type=merge -p '{"spec":{"issuerRef":{"kind":"ClusterIssuer"}}}'
+kubectl -n hello wait --for=condition=Ready certificate/kindless --timeout=60s
+kubectl -n hello get secret kindless-tls        # exists now, type kubernetes.io/tls
+```
+
+Then clean up, and see the second default for yourself:
+
+```bash
+kubectl -n hello delete certificate kindless
+kubectl -n hello get secret kindless-tls        # still there: the Secret outlives its Certificate
+kubectl -n hello delete secret kindless-tls
+```
+
+</DoItForReal>
+
+<Quiz
+  id="tool-cert-manager-1"
+  q="A Certificate in namespace shop has issuerRef with name company-ca and no kind. company-ca is a ClusterIssuer that is Ready. What does cert-manager look for?"
+  options={["The ClusterIssuer company-ca, because the name is unique", "An Issuer called company-ca in the shop namespace, which doesn't exist", "Any issuer called company-ca, trying Issuer first and then ClusterIssuer"]}
+  answer={1}
+  explain="kind defaults to Issuer, a namespaced Issuer in the Certificate's own namespace. There's no fallback to a ClusterIssuer with the same name. Add kind: ClusterIssuer."
+/>
+
+<Quiz
+  id="tool-cert-manager-2"
+  q="You change issuerRef on a working Certificate to an issuer that doesn't exist. The site still serves HTTPS without errors. Why?"
+  options={["cert-manager rejected the edit at admission", "The change is ignored until the next scheduled renewal", "The reissue can't complete, so the Secret still holds the previous certificate"]}
+  answer={2}
+  explain="An issuerRef change triggers a reissue, and cert-manager only overwrites the Secret once a new certificate is signed. Until then the old one keeps serving. Nothing renews it, so it lasts only until it expires."
+/>

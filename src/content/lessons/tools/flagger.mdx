@@ -1,0 +1,93 @@
+---
+title: Flagger skipped the analysis and said Succeeded
+summary: With skipAnalysis set, Flagger promotes any healthy canary without a single metric check, and the Canary ends in Succeeded like any checked release. Leave it on after an emergency and every release since has gone out unanalysed.
+minutes: 13
+xp: 35
+tiers: [browser, machine]
+builds_on: [delivery/release-strategies]
+sources:
+  - title: Flagger docs - Deployment strategies (canary analysis triggers, skip analysis), stable docs for v1.45
+    url: https://docs.flagger.app/usage/deployment-strategies
+  - title: Flagger docs - How it works (canary deletion, skipAnalysis), stable docs for v1.45
+    url: https://docs.flagger.app/usage/how-it-works
+  - title: Flagger docs - Webhooks (load testing, no values found)
+    url: https://docs.flagger.app/usage/webhooks
+  - title: Flagger source v1.45.0 - pkg/controller/scheduler.go (shouldSkipAnalysis)
+    url: https://github.com/fluxcd/flagger/blob/v1.45.0/pkg/controller/scheduler.go
+  - title: Flagger source v1.45.0 - pkg/controller/scheduler_metrics.go (no values found)
+    url: https://github.com/fluxcd/flagger/blob/v1.45.0/pkg/controller/scheduler_metrics.go
+  - title: Flagger README - Canary custom resource reference
+    url: https://github.com/fluxcd/flagger/blob/main/README.md
+  - title: TemplateMechanics/tilt lab 06 - Canary release (README, canary.yaml, check.sh)
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/06-canary
+---
+
+A canary is only as good as the checks it runs. Flagger has one switch that turns them all off, it's documented and meant for emergencies, and a release that skipped every check ends in exactly the same status as one that passed them all.
+
+## What it's for
+
+[Canary, blue-green and the rollback](/learn/delivery/release-strategies/) showed what Flagger does on tilt's lab 06: it takes over a Deployment, keeps a `-primary` copy serving, and treats every change as a candidate. Each interval it reads the canary's metrics, raises its share of traffic while they hold, and routes everything back to the primary after enough failed checks.
+
+Flagger is part of the Flux project. What starts an analysis, per its docs, is a change to the Deployment's pod spec (image, command, ports, env, resources and so on) or to a ConfigMap or Secret the pods mount or read as environment variables.
+
+It is careful about missing data. If the metric query comes back empty, Flagger doesn't treat that as a pass. Its webhooks page says that if the workload gets no traffic during the analysis, the metric checks "will fail" with a no-values error, and in the v1.45.0 source a no-values result halts advancement and counts as a failed check, the same as a bad number. That's why lab 06 runs a load tester, and why a broken query shows up as every release rolling back. It's noisy, but it isn't silent.
+
+## How it quietly goes wrong
+
+The quiet failure is the one where Flagger has been told not to look. The Canary spec has a field for it, which the Flagger README annotates as: "promote the canary without analysing it (default false)". The deployment-strategies page describes the intended use: "In emergency cases, you may want to skip the analysis phase and ship changes directly to production." And what it does: "When skip analysis is enabled, Flagger checks if the canary deployment is healthy and promotes it without analysing it. If an analysis is underway, Flagger cancels it and runs the promotion."
+
+The word "healthy" there means the Deployment's own health: its readiness, which [the release-strategies lesson](/learn/delivery/release-strategies/) warned only means the pods can take traffic, not that they answer it correctly. No success rate, no latency, and per the docs' own Canary reference, no webhook checks either. In lab 06 that includes the load test, so nothing calls the new version at all before it is promoted.
+
+The docs also recommend it beyond emergencies: when you want Flagger to stop managing a workload, "The recommended approach to disable canary analysis would be utilization of the skipAnalysis attribute". So it gets set for good reasons, mid-incident or during a migration, and then left.
+
+What a skipped promotion looks like afterwards (from the v1.45.0 source): the status phase is set to `Succeeded`, the same phase a fully analysed release ends in. The difference is in the events. Instead of the weight stepping up, there's one line: `Promotion completed! Canary analysis was skipped for hello.hello`. Anything that checks only the phase can't tell the two apart. That includes tilt's own lab check, which accepts `Succeeded` as a pass.
+
+<Callout kind="trap">
+`skipAnalysis: true` is a documented emergency switch that leaves no mark on the result: a skipped canary and a checked one both end in `Succeeded`. Every release while it's on is promoted on readiness alone. Look for the "analysis was skipped" event, and check the spec itself across the cluster rather than trusting the phase.
+</Callout>
+
+If you do need it, put it in git like any other change, with the reason in the commit, so removing it is a revert someone can see is outstanding.
+
+## Try it
+
+<CardSort mission="tool-flagger" />
+
+## Do it for real
+
+<DoItForReal id="tool-flagger-real" profile="gitops" lab="06-canary">
+
+Do lab 06's setup and ship its good version first, so you have seen a checked promotion: WEIGHT 25, then 50, then Promoting. Then turn the analysis off the way an incident would. In your checkout, add `skipAnalysis: true` under `spec:` in `labs/06-canary/canary.yaml`, and ship another change:
+
+```bash
+kubectl apply -f labs/06-canary/canary.yaml
+kubectl -n hello set env deploy/hello PODINFO_UI_MESSAGE="canary v3, unchecked"
+kubectl -n hello get canary hello -w
+kubectl -n hello describe canary hello | tail -15
+./scripts/platform.sh lab 06
+```
+
+What to expect: no weight steps this time, a phase of `Succeeded`, the "analysis was skipped" event in the description, and the lab check passing. Now find it the way you would on a real cluster, by asking every Canary what it's set to:
+
+```bash
+kubectl get canary -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,SKIP:.spec.skipAnalysis,PHASE:.status.phase'
+```
+
+Put the file back (`git checkout` it), apply it again with the same `kubectl apply -f`, and the next change is analysed again. Read the lab's "Leaving the lab" section before moving on.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-flagger-1"
+  q="A Canary has skipAnalysis set to true. You ship a version whose pods are Ready but fail 6% of requests. What happens?"
+  options={["Flagger promotes it without any metric checks", "It halts at the first weight step and counts failed checks", "Flagger refuses to start the canary"]}
+  answer={0}
+  explain="With skip analysis enabled, Flagger checks only that the canary deployment is healthy and promotes it. Readiness passes, so the 6% goes to everyone."
+/>
+
+<Quiz
+  id="tool-flagger-2"
+  q="Your canary's metric query returns no data at all. How does Flagger treat that check?"
+  options={["As a pass, so it keeps promoting", "It ignores that metric and uses the others", "As a failed check: it halts advancement, and rolls back at the threshold"]}
+  answer={2}
+  explain="No values is not a pass. Flagger halts advancement and increments the failed-checks counter, which is why a canary nobody calls, or a query matching no series, rolls back every release."
+/>

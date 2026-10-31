@@ -47,7 +47,10 @@ const { track, n, nextTrack } = Astro.props;
   .lessons { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
   .row { display: flex; gap: 14px; align-items: center; padding: 14px 16px; text-decoration: none; color: var(--ink); }
   a.row:hover { border-color: hsl(var(--hue) 50% 50%); }
-  .num { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: hsl(var(--hue) 60% 50% / .14); color: hsl(var(--hue) 55% 40%); }
+  /* Theme ink with the hue only in the ring: hue-coloured digits failed axe
+     contrast for some hues (the tools trail's 195 in light mode), as they had
+     on the expedition pages. */
+  .num { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--bg-2); color: var(--ink); border: 2px solid hsl(var(--hue) 55% 45%); }
   .complete .num { background: var(--bamboo); color: var(--bamboo-ink); }
   .complete .num::after { content: "✓"; position: absolute; }
   .complete .num { position: relative; color: transparent; }

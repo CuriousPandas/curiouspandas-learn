@@ -1,0 +1,100 @@
+---
+title: Kiali and the graph that only shows what was measured
+summary: Kiali draws the mesh from telemetry stored in Prometheus, over a time window, so an idle service, an unscraped proxy and a quiet afternoon all leave the same empty space, and none is an error. Learn what Kiali is for, then read an empty graph correctly.
+minutes: 13
+xp: 35
+tiers: [browser, machine]
+builds_on: [platform/service-mesh]
+sources:
+  - title: Kiali docs - FAQ, Graph (last modified 2025-03-27, fetched 2026-10-31)
+    url: https://kiali.io/docs/faq/graph/
+  - title: Kiali docs - Topology
+    url: https://kiali.io/docs/features/topology/
+  - title: Kiali docs - Istio Ambient Mesh
+    url: https://kiali.io/docs/features/ambient/
+  - title: Kiali docs - Prometheus configuration
+    url: https://kiali.io/docs/configuration/external-services/metrics/prometheus/
+  - title: TemplateMechanics/tilt - Kiali HelmRelease (kiali-server chart 2.31.0)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/kiali/base/helm-release.yaml
+  - title: TemplateMechanics/tilt - Kiali and the mesh scrape (tilt/observability.tilt, helm/prometheus/servicemonitors/istio.yaml)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/tilt/observability.tilt
+  - title: TemplateMechanics/tilt lab 03 - Join the mesh
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/03-join-the-mesh
+---
+
+Open Kiali's graph for a namespace and there's nothing on it. That could mean nothing is wrong. It could also mean nothing was measured. Kiali can't tell those apart for you, because it doesn't watch traffic itself. "Kiali builds the graph from Istio's telemetry", which means from whatever Prometheus recorded, in the time window you picked.
+
+## What it's for
+
+Kiali is a console for an Istio mesh. The [service mesh lesson](/learn/platform/service-mesh/) used it for the one number that showed the tilt platform had nobody in the mesh: the data plane count on its overview. "On the Namespaces page, Kiali will show the number of ambient data planes". It also shows:
+
+- **The traffic graph**: who called whom, how often, and whether it worked, as a workload, app, versioned app or service graph.
+- **Workload and service details**, including in ambient mode whether a workload is in the mesh and whether a waypoint handles it.
+- **Validation of Istio configuration.** In ambient mode this hunts a configured-but-inert setup of its own: "Kiali validates L7 Istio configurations in Ambient namespaces and warns when they need a waypoint but will not take effect."
+
+Kiali stores no traffic data itself. "Kiali uses Prometheus to generate the topology graph", along with its metrics and health. The [dashboard that lies](/learn/platform/observability/) applies here unchanged: Kiali's graph is a set of Prometheus queries drawn as a picture.
+
+On tilt, the `observability` profile installs the `kiali-server` chart, pinned at 2.31.0, as a Flux HelmRelease in `istio-system`, served at kiali.localhost. Its values point Kiali at the kube-prometheus-stack Prometheus, because the chart's default address doesn't exist on this platform. Kiali's docs say the default is `http://prometheus.<istio_namespace_name>:9090`. Login is anonymous, and a comment in the HelmRelease warns not to carry that to any cluster other people can reach. Tilt's `kiali` resource also prints how many namespaces are enrolled in the mesh, and warns when the answer is zero.
+
+## How it quietly goes wrong
+
+Kiali's FAQ lists why a graph can be empty: no namespace selected; Istio not generating the telemetry, because workloads aren't in the mesh; or Prometheus not scraping it. Then it names the most common reason: "The primary reason a graph is empty is just that there is no measurable request traffic for the selected namespaces, for the selected time period."
+
+So the picture has a time window. A service nobody called in the last few minutes isn't on the graph. Kiali can show edges that had traffic earlier with the **Idle Edges** display option, and "This is disabled by default to present a cleaner graph". The FAQ says the same about missing edges: "If you don't see what you expect it probably means that it has not been reported in Prometheus."
+
+Ambient mode changes what gets reported. "The ztunnel will report all the traffic as TCP", so without a waypoint, traffic between services appears as TCP edges with no request counts or error rates. The tilt platform had its own version of this. Its Prometheus once had no scrape config for the mesh proxies at all, and a comment on the PodMonitor it added says `istio_requests_total` had zero series until then. Going by Kiali's FAQ, every graph drawn from that metric would have been empty, with nothing marked as an error. That last step is our inference; we didn't see that state ourselves.
+
+<Callout kind="trap">
+Empty space on Kiali's graph means *Prometheus holds no telemetry for this, in this window*. A quiet service, a workload whose traffic no proxy reported, and a scrape that's broken all look the same, and none of them shows as an error. Before you read absence as health, widen the Duration, turn on Idle Edges, and query the metric in Prometheus yourself, which is the FAQ's own advice.
+</Callout>
+
+The FAQ names the metrics the graph is mainly built on, `istio_requests_total` and `istio_tcp_sent_bytes_total`, and suggests querying them directly when the graph surprises you.
+
+## Try it
+
+<CardSort mission="tool-kiali" />
+
+## Do it for real
+
+<DoItForReal id="tool-kiali-real" lab="03-join-the-mesh" profile="observability">
+
+Bring the platform up with Kiali and check what it's watching:
+
+```bash
+PROFILE=observability ./scripts/platform.sh up      # stays running; use a second terminal for the rest
+kubectl -n istio-system rollout status deployment/kiali
+kubectl get ns -l istio.io/dataplane-mode=ambient   # the namespaces enrolled in the mesh
+```
+
+Open https://kiali.localhost, go to the traffic graph and pick the `hello` namespace. If nothing has called hello lately, it's empty. Now make some traffic, in the style of tilt's teaching notes:
+
+```bash
+for i in $(seq 1 20); do curl -s https://hello.localhost/ -o /dev/null; done
+```
+
+Reload the graph with a Duration of 5 minutes or more. You should see an edge from the gateway into hello. Turn on the **Security** display option and look for the padlock. Then open https://prometheus.localhost and ask for the data the graph is drawn from:
+
+```text
+sum(istio_requests_total{destination_service_name="hello"}) by (source_workload, destination_workload, reporter)
+istio_tcp_sent_bytes_total
+```
+
+Finally, stop sending traffic and wait longer than your Duration. The edges disappear. Nothing broke; the window moved on. Turn on **Idle Edges** and they come back: edges that had traffic before, just not in this window. Lab 03 then shows Kiali's other honest number: take hello out of the mesh and watch the data plane count drop.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-kiali-1"
+  q="Kiali's graph for the payments namespace is empty with Duration set to the last minute. What can you conclude?"
+  options={["Payments is healthy: no edges means no errors", "Only that Prometheus has no recorded traffic for it in that minute. It may be idle, unscraped or outside the mesh", "Kiali has lost its connection to the cluster"]}
+  answer={1}
+  explain="Kiali builds the graph from Istio telemetry in Prometheus, for the selected namespaces and time period. The FAQ's primary reason for an empty graph is no measurable traffic in that window. Widen the Duration, try Idle Edges, and query the metrics directly."
+/>
+
+<Quiz
+  id="tool-kiali-2"
+  q="In an ambient namespace with no waypoint, the graph shows TCP edges between two services but no request counts or HTTP error rates. Is Kiali broken?"
+  options={["No: ztunnel reports all traffic as TCP, and request-level telemetry needs a waypoint", "Yes: Kiali should parse the HTTP itself", "Yes: the services must be outside the mesh"]}
+  answer={0}
+  explain="Kiali's ambient docs say ztunnel reports all traffic as TCP. Request counts, success rates and HTTP routing are layer 7 features, and in ambient mode those come from waypoints."
+/>
