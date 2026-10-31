@@ -1,0 +1,64 @@
+---
+title: Four values and a "while"
+summary: The Agile Manifesto is 68 words long, and the most-ignored part is the last sentence. Read the whole thing, find the line that rules out "no documentation" and "no plan", and meet the principles the rest of this trail tests.
+minutes: 12
+xp: 30
+tiers: [browser]
+builds_on: []
+sources:
+  - title: Manifesto for Agile Software Development (2001)
+    url: https://agilemanifesto.org/
+  - title: Jim Highsmith - History - The Agile Manifesto
+    url: https://agilemanifesto.org/history.html
+  - title: Principles behind the Agile Manifesto
+    url: https://agilemanifesto.org/principles.html
+---
+
+In February 2001, seventeen people met at the Snowbird ski resort in Utah. They came from different methods - Extreme Programming, Scrum, DSDM, Adaptive Software Development, Crystal, Feature-Driven Development, Pragmatic Programming and others - and found they agreed on a short list of values. This is the whole of what they wrote, reproduced as its notice requires: complete, with the notice.
+
+<blockquote class="manifesto">
+<p><strong>Manifesto for Agile Software Development</strong></p>
+<p>We are uncovering better ways of developing software by doing it and helping others do it. Through this work we have come to value:</p>
+<p><strong>Individuals and interactions</strong> over processes and tools<br /><strong>Working software</strong> over comprehensive documentation<br /><strong>Customer collaboration</strong> over contract negotiation<br /><strong>Responding to change</strong> over following a plan</p>
+<p>That is, while there is value in the items on the right, we value the items on the left more.</p>
+<p>Kent Beck, Mike Beedle, Arie van Bennekum, Alistair Cockburn, Ward Cunningham, Martin Fowler, James Grenning, Jim Highsmith, Andrew Hunt, Ron Jeffries, Jon Kern, Brian Marick, Robert C. Martin, Steve Mellor, Ken Schwaber, Jeff Sutherland, Dave Thomas</p>
+<p><small>© 2001, the above authors. This declaration may be freely copied in any form, but only in its entirety through this notice.</small></p>
+</blockquote>
+
+Elsewhere on this site, when a lesson quotes one of these values, it links back here rather than quoting the declaration in pieces.
+
+## The trap: reading "over" as "instead of"
+
+The four values are written as comparisons, and the most common misreading drops the second half of each. "Working software over comprehensive documentation" becomes "no documentation". "Responding to change over following a plan" becomes "no plan". The last sentence rules both out: "That is, while there is value in the items on the right, we value the items on the left more."
+
+Jim Highsmith's history of the meeting makes the same point from the other side: "The Agile movement is not anti-methodology, in fact, many of us want to restore credibility to the word methodology. We want to restore a balance."
+
+So when someone says "we're agile, so we don't write documents", the manifesto disagrees with them. The question it asks is which you value more when the two pull against each other: a document describing the software, or software that works.
+
+## Three principles this trail keeps testing
+
+The authors also wrote twelve principles. Three come up again and again in the lessons that follow:
+
+- **"Working software is the primary measure of progress."** Not points, not velocity, not tickets closed. The [forecasts lesson](/learn/agile/forecasts/) shows what happens when a team measures something else.
+- **Sustainable development.** Principle 8 says "Agile processes promote sustainable development" and that everyone involved "should be able to maintain a constant pace indefinitely". (The phrase "sustainable pace", which you'll often see attributed to the manifesto, is Extreme Programming's.)
+- **"Simplicity<span>-</span><span>-</span>the art of maximizing the amount of work not done<span>-</span><span>-</span>is essential."** The double hyphens are the original's; each is two hyphens on purpose, not a dash. It's the principle behind WIP limits, small slices and saying no.
+
+<Callout kind="tip">
+The manifesto doesn't describe a process. It's a statement of what its authors preferred when things conflict. Every framework in this trail - Scrum, XP, Kanban, SAFe - is one attempt to turn those preferences into practice, and each can be followed without honouring them. That's what the last lesson in this trail is about.
+</Callout>
+
+<Quiz
+  id="agile-manifesto-1"
+  q="A team says 'the Agile Manifesto means we don't need a plan'. What does the manifesto itself say?"
+  options={["That's right - plans are the opposite of agile", "It values responding to change more than following a plan, but says there is value in the plan too", "The manifesto doesn't mention plans"]}
+  answer={1}
+  explain="'That is, while there is value in the items on the right, we value the items on the left more.' A plan is on the right: valued, just less than responding to change."
+/>
+
+<Quiz
+  id="agile-manifesto-2"
+  q="According to the manifesto's principles, what is the primary measure of progress?"
+  options={["Velocity", "Working software", "Customer satisfaction scores"]}
+  answer={1}
+  explain="Principle 7: 'Working software is the primary measure of progress.' Velocity is an estimate of effort; working software is the thing itself."
+/>

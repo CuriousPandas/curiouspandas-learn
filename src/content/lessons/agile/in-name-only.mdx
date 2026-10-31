@@ -1,0 +1,77 @@
+---
+title: "Agile in name only: how you'd know"
+summary: The stand-ups happen, the board is busy, the sprints end on time - and nothing tested reaches users. Learn the one test agile's own founders keep coming back to, apply it to four teams, and read two government projects without the usual myths.
+minutes: 18
+xp: 45
+tiers: [browser]
+builds_on: [agile/forecasts]
+sources:
+  - title: Ron Jeffries - Dark Scrum (2016)
+    url: https://ronjeffries.com/articles/016-09ff/defense/
+  - title: Ron Jeffries - Developers Should Abandon Agile (2018)
+    url: https://ronjeffries.com/articles/018-01ff/abandon-1/
+  - title: Martin Fowler - The State of Agile Software in 2018
+    url: https://martinfowler.com/articles/agile-aus-2018.html
+  - title: Dave Thomas - Agile is Dead (Long Live Agility) (2014)
+    url: https://pragdave.me/thoughts/active/2014-03-04-time-to-kill-agile.html
+  - title: Ken Schwaber and Jeff Sutherland - The 2020 Scrum Guide (CC BY-SA 4.0)
+    url: https://scrumguides.org/scrum-guide.html
+  - title: US GAO - Healthcare.gov - Ineffective Planning and Oversight Practices Underscore the Need for Improved Contract Management, GAO-14-694 (2014)
+    url: https://www.gao.gov/products/gao-14-694
+  - title: HHS Office of Inspector General - HealthCare.gov - CMS Management of the Federal Marketplace, OEI-06-14-00350 (2016)
+    url: https://oig.hhs.gov/reports/all/2016/healthcaregov-case-study-of-cms-management-of-the-federal-marketplace/
+  - title: National Audit Office - Universal Credit - early progress (2013)
+    url: https://www.nao.org.uk/reports/universal-credit-early-progress-2/
+  - title: GOV.UK Service Manual - Agile delivery (Open Government Licence v3.0)
+    url: https://www.gov.uk/service-manual/agile-delivery/agile-government-services-introduction
+---
+
+Every method can be performed without being followed. Agile's version is common enough that its own founders have written about it repeatedly, and they keep landing on the same test.
+
+## What the founders say
+
+Ron Jeffries, one of the Manifesto's authors, named it Dark Scrum: "Dark Scrum begins when people who know their old job, but not their new Scrum job, begin to do the Scrum activities." His example is a manager taking over the Daily Scrum to direct the work: "How convenient that there's a mandatory meeting where he can do that, every single day!"
+
+Martin Fowler, another author, calls it faux agile: "agile that's just the name, but none of the practices and values in place". Dave Thomas, another, put it as grammar: "Agile is not a noun, it's an adjective."
+
+A common myth is that the founders gave up on agile. Jeffries's 2018 "Developers Should Abandon Agile" drops the label, not the values: he says developers should follow the Manifesto's values "no matter what method the larger organization used".
+
+## The test
+
+Read those together and one observable test falls out: **do the rituals produce tested, integrated, working software for users, every Sprint?** The Scrum Guide puts it as a rule: "If a Product Backlog item does not meet the Definition of Done, it cannot be released or even presented at the Sprint Review." Everything else - the board, the velocity, the stand-ups - can be present without that, and when it is, it's decoration.
+
+Some anti-patterns have sources and some are our inference. Be clear which you are using:
+
+- **The Daily Scrum as a status meeting**: Jeffries, above.
+- **Velocity compared across teams**: Jeffries, in the [forecasts lesson](/learn/agile/forecasts/).
+- **"Hardening sprints"**, kept to fix what earlier sprints called done, and **a Scrum Master who is a project manager renamed**: we found no primary source naming these as anti-patterns. They are inferences from the guide's rules, and we label them that way.
+
+## Try it
+
+Four teams. Read each card and pick the reading the sources support. One of the four is healthy: a diagnosis that can only ever say "broken" is as useless as one that always says "fine".
+
+<CardSort mission="in-name-only" />
+
+## Two government projects, without the myths
+
+**Healthcare.gov (2013)** is often told as "agile failed". The official reviews tell a different story. The US Government Accountability Office found that CMS "launched Healthcare.gov without verification that it met performance requirements", and that obligations on the contract for the federal marketplace website grew from $56 million to more than $209 million between September 2011 and February 2014. Read through this lesson's lens, it is a check that was planned and not done before launch: the configured-but-inert failure, at national scale. The HHS Inspector General later described the recovery within about two months through "ruthless prioritization".
+
+**Universal Credit (UK, 2013)**: the National Audit Office reported £34 million of new IT systems written off. Its summary talks about a "new project management approach" and doesn't use the word "agile". Don't put words in the auditor's mouth.
+
+The UK Government Digital Service's own rule is the positive version of the test: "You only go live when you have enough feedback and data to show your service works for your users and meets their needs."
+
+<Quiz
+  id="agile-in-name-only-1"
+  q="A team holds every Scrum event on time, but nothing it marks done is tested or integrated until a release every quarter. Is it doing Scrum?"
+  options={["Yes - all the events happen", "No - the guide says work that doesn't meet the Definition of Done can't be released or even presented at the Sprint Review", "Yes, as long as the Scrum Master approves"]}
+  answer={1}
+  explain="The events exist to inspect and adapt a real increment. Without a done, usable increment each Sprint there is nothing real to inspect - the rituals run on their own."
+/>
+
+<Quiz
+  id="agile-in-name-only-2"
+  q="What did GAO find about Healthcare.gov's launch?"
+  options={["It proved agile doesn't work in government", "CMS launched it without verification that it met performance requirements", "It launched on budget but late"]}
+  answer={1}
+  explain="GAO-14-694 reports the site was launched without verifying it met its performance requirements, and that obligations on the marketplace website contract rose from $56 million to more than $209 million. It is about missing checks, not about a method's name."
+/>

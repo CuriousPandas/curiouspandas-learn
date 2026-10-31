@@ -1,0 +1,76 @@
+---
+import '../styles/widgets.css';
+import { DECKS } from '../lib/agile/cards.ts';
+interface Props { mission: string }
+const { mission } = Astro.props;
+const deck = DECKS[mission];
+// A misspelled deck would otherwise render an empty box that looks finished.
+if (!deck) throw new Error(`CardSort: no deck called "${mission}" in src/lib/agile/cards.ts`);
+---
+<div class="widget card cardsort" data-cards={mission}>
+  <div class="widget-head">
+    <strong>{deck.title}</strong>
+    {deck.licence && <span class="pill info">{deck.licence}</span>}
+  </div>
+  <div class="cs-grid">
+    <ol class="cs-cards">
+      {deck.cards.map((c) => (
+        <li class="cs-card" data-card={c.id}>
+          <strong>{c.title}</strong>
+          <p>{c.body}</p>
+          <fieldset>
+            <legend>Your reading</legend>
+            {c.options.map((o) => (
+              <label><input type="radio" name={`${mission}-${c.id}`} value={o.id} /> {o.text}</label>
+            ))}
+          </fieldset>
+          <p class="cs-why" data-why aria-live="polite" hidden></p>
+          <p class="cs-src muted">Source: {c.source}</p>
+        </li>
+      ))}
+    </ol>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { DECKS, deckMission, type CardState } from '../lib/agile/cards.ts';
+  import { mountMission } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-cards]')) {
+    const deck = DECKS[root.dataset.cards!];
+    const m = deckMission(deck);
+    const state: CardState = m.setup();
+    const refresh = mountMission(root.querySelector<HTMLElement>('[data-mission-panel]')!, m, () => state, () => {});
+    for (const li of root.querySelectorAll<HTMLElement>('[data-card]')) {
+      const card = deck.cards.find((c) => c.id === li.dataset.card)!;
+      const why = li.querySelector<HTMLElement>('[data-why]')!;
+      li.querySelectorAll<HTMLInputElement>('input[type="radio"]').forEach((r) => r.addEventListener('change', () => {
+        const o = card.options.find((x) => x.id === r.value)!;
+        state.answers[card.id] = o.id;
+        const right = o.id === card.answer;
+        why.hidden = false;
+        why.className = `cs-why ${right ? 'right' : 'wrong'}`;
+        why.textContent = `${right ? 'Supported.' : 'Not quite.'} ${o.why}`;
+        refresh();
+      }));
+    }
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .cardsort .cs-grid { display: grid; gap: 14px; }
+  @media (min-width: 1000px) { .cardsort .cs-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
+  .cardsort .cs-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
+  .cardsort .cs-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .cardsort .cs-card > p { margin: 6px 0; font-size: 0.92rem; }
+  .cardsort fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 0.9rem; }
+  .cardsort legend { font-weight: 650; font-size: 0.85rem; padding: 0; margin-bottom: 4px; }
+  .cardsort label { display: flex; gap: 8px; align-items: flex-start; }
+  .cardsort label input { margin-top: 3px; }
+  .cardsort .cs-why { padding: 8px 10px; border-radius: 10px; font-size: 0.88rem; }
+  .cardsort .cs-why.right { background: var(--bamboo-soft); color: var(--bamboo); }
+  .cardsort .cs-why.wrong { background: var(--sun-soft); color: var(--sun-text); }
+  .cardsort .cs-src { font-size: 0.8rem; margin: 4px 0 0; }
+</style>

@@ -1,9 +1,10 @@
 ---
 import '../styles/widgets.css';
 import { WORKERS, MAX_PER_ITEM, WINDOW, SPRINT, SLE } from '../lib/agile/flow.ts';
-interface Props { mission?: 'flow-wip' | 'velocity-target' }
+interface Props { mission?: 'flow-wip' | 'velocity-target' | 'definition-of-done' }
 const { mission = 'flow-wip' } = Astro.props;
 const forecast = mission === 'velocity-target';
+const dodMode = mission === 'definition-of-done';
 ---
 <div class="widget card flowlab" data-flow data-mission={mission}>
   <div class="widget-head">
@@ -21,6 +22,11 @@ const forecast = mission === 'velocity-target';
     </label>
     <label><input type="checkbox" data-sliced /> slice items smaller</label>
     {forecast && <label><input type="checkbox" data-target /> velocity target</label>}
+    {dodMode && (
+      <label>Definition of Done
+        <select data-dod><option value="weak">code written</option><option value="strong">tested and integrated (test-first)</option></select>
+      </label>
+    )}
   </div>
   <div class="controls">
     <button class="btn small primary" type="button" data-run={String(SPRINT)}>Run a sprint ({SPRINT} days)</button>
@@ -35,7 +41,10 @@ const forecast = mission === 'velocity-target';
         <div class="stat">finished, last {WINDOW} days<b data-tp>0</b></div>
         <div class="stat">cycle time p50 / p85<b data-ct>-</b></div>
         <div class="stat">oldest in progress<b data-age>-</b></div>
+        {dodMode && <div class="stat">stayed done, last {WINDOW} days<b data-stayed>0</b></div>}
+        {dodMode && <div class="stat">fixes for work that came back<b data-rework>0</b></div>}
       </div>
+      {dodMode && <p class="fl-sle muted">Invented for this model: with the weak definition one finished item in three comes back eight days later as half-size rework; testing first costs a quarter more effort per item.</p>}
       <svg class="fl-scatter" data-scatter viewBox="0 0 320 120" role="img" aria-label="Cycle time of each finished item"></svg>
       <p class="fl-sle muted">Service level expectation: {SLE.percentile}% of items finish in {SLE.days} days or less.</p>
       <section class="fl-little">
@@ -53,6 +62,13 @@ const forecast = mission === 'velocity-target';
           </fieldset>
         </section>
       )}
+      {dodMode && (
+        <fieldset class="fl-q" data-question>
+          <legend>Which number counts real progress?</legend>
+          <label><input type="radio" name="fl-answer" value="finished" /> finished</label>
+          <label><input type="radio" name="fl-answer" value="stayed" /> stayed done</label>
+        </fieldset>
+      )}
       <p class="fl-absent muted">There is no "how much the team cares" control. Nobody has measured how much that changes delivery, so this lab does not pretend to.</p>
     </div>
     <div data-mission-panel></div>
@@ -60,8 +76,8 @@ const forecast = mission === 'velocity-target';
 </div>
 
 <script>
-  import { FlowBoard, WINDOW, SLE, percentile, type LittleCheck, type Load } from '../lib/agile/flow.ts';
-  import { FLOW_MISSION, FORECAST_MISSION, type FlowState } from '../lib/agile/missions.ts';
+  import { WINDOW, SLE, percentile, type LittleCheck, type Load, type Dod } from '../lib/agile/flow.ts';
+  import { FLOW_MISSION, FORECAST_MISSION, DOD_MISSION, type FlowState } from '../lib/agile/missions.ts';
   import { mountMission, el } from '../lib/ui.ts';
 
   const NS = 'http://www.w3.org/2000/svg';
@@ -73,7 +89,7 @@ const forecast = mission === 'velocity-target';
   const fmt = (n: number) => (Math.round(n * 100) / 100).toString();
 
   for (const root of document.querySelectorAll<HTMLElement>('[data-flow]')) {
-    const m = root.dataset.mission === 'velocity-target' ? FORECAST_MISSION : FLOW_MISSION;
+    const m = { 'velocity-target': FORECAST_MISSION, 'definition-of-done': DOD_MISSION }[root.dataset.mission ?? ''] ?? FLOW_MISSION;
     const state: FlowState = m.setup();
     const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s);
     const refresh = mountMission(q('[data-mission-panel]')!, m, () => state, () => {});
@@ -86,6 +102,7 @@ const forecast = mission === 'velocity-target';
       q<HTMLSelectElement>('[data-limit]')!.value = b().wipLimit === null ? 'none' : String(b().wipLimit);
       q<HTMLInputElement>('[data-sliced]')!.checked = b().sliced;
       const t = q<HTMLInputElement>('[data-target]'); if (t) t.checked = b().velocityTarget;
+      const dod = q<HTMLSelectElement>('[data-dod]'); if (dod) dod.value = b().dod;
     };
 
     const card = (label: string, cls = '') => el('span', { class: `fl-card ${cls}` }, label);
@@ -146,6 +163,8 @@ const forecast = mission === 'velocity-target';
       q('[data-ct]')!.parentElement!.classList.toggle('bad', p85 !== null && p85 > SLE.days);
       const ages = bd.ages();
       q('[data-age]')!.textContent = ages.length ? `${Math.max(...ages)} days` : '-';
+      const stayed = q('[data-stayed]'); if (stayed) stayed.textContent = String(bd.stayedDone());
+      const rework = q('[data-rework]'); if (rework) rework.textContent = String(bd.reworkFinished());
       drawScatter();
       drawLittle(bd.checks.at(-1));
       const tb = q('[data-sprints] tbody');
@@ -158,6 +177,7 @@ const forecast = mission === 'velocity-target';
     q('[data-limit]')!.addEventListener('change', (e) => { const v = (e.target as HTMLSelectElement).value; b().wipLimit = v === 'none' ? null : Number(v); });
     q('[data-sliced]')!.addEventListener('change', (e) => { b().sliced = (e.target as HTMLInputElement).checked; });
     q('[data-target]')?.addEventListener('change', (e) => { b().velocityTarget = (e.target as HTMLInputElement).checked; });
+    q('[data-dod]')?.addEventListener('change', (e) => { b().dod = (e.target as HTMLSelectElement).value as Dod; });
     root.querySelectorAll<HTMLButtonElement>('[data-run]').forEach((btn) => btn.addEventListener('click', () => { b().run(Number(btn.dataset.run)); draw(); }));
     q('[data-little]')!.addEventListener('click', () => { b().checkLittle(); draw(); });
     root.querySelectorAll<HTMLInputElement>('[name="fl-answer"]').forEach((r) => r.addEventListener('change', () => { b().answer = r.value; draw(); }));

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FlowBoard, percentile, WINDOW, SPRINT, SLE } from '../src/lib/agile/flow.ts';
-import { FLOW_MISSION, FORECAST_MISSION } from '../src/lib/agile/missions.ts';
+import { FLOW_MISSION, FORECAST_MISSION, DOD_MISSION } from '../src/lib/agile/missions.ts';
+import { DECKS, IN_NAME_ONLY, deckMission } from '../src/lib/agile/cards.ts';
 
 const measured = (b: FlowBoard) => {
   const c = b.little();
@@ -104,4 +105,59 @@ test('forecast mission: completes from its hints; picking velocity does not pass
   assert.ok(!FORECAST_MISSION.steps[2].done(s));
   s.board.answer = 'throughput';
   assert.ok(FORECAST_MISSION.steps[2].done(s));
+});
+
+// ---- Definition of Done (the XP lesson) ------------------------------------
+
+test('the unmodelled default adds no rework and no effort, so other lessons cannot drift', () => {
+  const b = new FlowBoard(); b.load = 'overload'; b.run(60);
+  assert.equal(b.dod, 'unmodelled');
+  assert.ok(b.items.every((i) => i.reworkOf === undefined && !i.cameBack));
+  assert.ok(b.items.filter((i) => i.start === undefined).every((i) => i.remaining === i.size), 'no test-first surcharge');
+});
+
+test('a weak Definition of Done makes "finished" count the same work twice', () => {
+  const run = (dod: 'weak' | 'strong') => { const b = new FlowBoard(); b.wipLimit = 4; b.dod = dod; b.run(80); return b; };
+  const weak = run('weak'), strong = run('strong');
+  assert.ok(weak.throughput() > weak.stayedDone() * 1.5, 'finished includes work that came back and its fixes');
+  assert.ok(weak.reworkFinished() > 0);
+  assert.equal(strong.throughput(), strong.stayedDone(), 'with a strong definition the two counts agree');
+  assert.ok(strong.stayedDone() >= weak.stayedDone(), 'in this model the strong definition is not worse at what actually stays done');
+  for (const b of [weak, strong]) { const c = b.little(); assert.ok(!('notMeasured' in c) && c.holds, 'rework items are counted, not lost'); }
+});
+
+test('definition-of-done mission: completes from its hints; "finished" is not the answer', () => {
+  const s = DOD_MISSION.setup();
+  assert.ok(!DOD_MISSION.steps.some((st) => st.done(s)));
+  s.board.run(SPRINT * 2);
+  assert.ok(DOD_MISSION.steps[0].done(s));
+  s.board.dod = 'strong'; s.board.run(SPRINT * 2);
+  assert.ok(DOD_MISSION.steps[1].done(s));
+  s.board.answer = 'finished';
+  assert.ok(!DOD_MISSION.steps[2].done(s));
+  s.board.answer = 'stayed';
+  assert.ok(DOD_MISSION.steps.every((st) => st.done(s)));
+});
+
+// ---- card decks -------------------------------------------------------------
+
+test('every deck can only be passed by reading: answers move, one card is healthy, every option says why', () => {
+  for (const d of Object.values(DECKS)) {
+    const positions = d.cards.map((c) => c.options.findIndex((o) => o.id === c.answer));
+    assert.ok(positions.every((p) => p >= 0), `${d.id}: every answer is one of its options`);
+    assert.ok(new Set(positions).size > 1, `${d.id}: the right answer is not always in the same place`);
+    assert.ok(d.cards.every((c) => c.options.every((o) => o.why.length > 20)), `${d.id}: every option explains itself`);
+  }
+  assert.ok(IN_NAME_ONLY.cards.some((c) => c.answer === 'fine'), 'a diagnosis must be able to come back clear');
+});
+
+test('deck missions: one step per card, done only by the supported reading', () => {
+  for (const d of Object.values(DECKS)) {
+    const m = deckMission(d), s = m.setup();
+    assert.ok(!m.steps.some((st) => st.done(s)));
+    for (const c of d.cards) s.answers[c.id] = c.options.find((o) => o.id !== c.answer)!.id;
+    assert.ok(!m.steps.some((st) => st.done(s)), `${d.id}: a wrong reading passed`);
+    for (const c of d.cards) s.answers[c.id] = c.answer;
+    assert.ok(m.steps.every((st) => st.done(s)));
+  }
 });

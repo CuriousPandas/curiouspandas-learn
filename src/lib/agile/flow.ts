@@ -16,9 +16,19 @@
 // counted by two separate paths - the board's WIP on each day, and each item's
 // own start and finish days - so it fails if the records lose an item.
 
-export type Item = { id: number; size: number; remaining: number; points: number; arrived: number; start?: number; finish?: number };
+export type Item = { id: number; size: number; remaining: number; points: number; arrived: number; start?: number; finish?: number; reworkOf?: number; cameBack?: boolean };
 export type WipLimit = number | null; // null: start everything that arrives
 export type Load = 'steady' | 'overload';
+// The Definition of Done. Both costs below are constructed: the research found
+// no sound measurement of either, and the lesson says so. The point the lab
+// makes does not depend on them - with a weak Definition of Done the count of
+// finished items includes work that is not finished.
+// 'unmodelled' is every other lesson: no escapes and no extra effort, so
+// adding this mode cannot change what those labs show.
+export type Dod = 'unmodelled' | 'weak' | 'strong';
+export const WEAK_ESCAPE_EVERY = 3; // one finished item in three comes back
+export const REWORK_AFTER = 8; // days later, as a new item half its size
+export const STRONG_EFFORT = 1.25; // testing first costs a quarter more up front
 
 export const WORKERS = 4;
 export const MAX_PER_ITEM = 2; // a pair, at most
@@ -67,7 +77,10 @@ export class FlowBoard {
   load: Load = 'steady';
   sliced = false;
   velocityTarget = false;
+  dod: Dod = 'unmodelled';
   items: Item[] = [];
+  private finishedCount = 0;
+  private reworkDue: { day: number; of: Item }[] = [];
   // Path 1 for Little's Law: the board's WIP count on each day, recorded as it
   // happens. Path 2 is the items' own start and finish days.
   wipByDay: number[] = [];
@@ -75,7 +88,7 @@ export class FlowBoard {
   inflation = 1;
   answer: string | null = null; // the forecast lesson asks which number to trust
   checks: LittleCheck[] = [];
-  history: { day: number; wipLimit: WipLimit; load: Load; sliced: boolean; velocityTarget: boolean }[] = [];
+  history: { day: number; wipLimit: WipLimit; load: Load; sliced: boolean; velocityTarget: boolean; dod: Dod }[] = [];
   private rand = rng(42);
   private owed = 0; // fractional work carried to the next day's arrivals
   private nextId = 1;
@@ -89,17 +102,26 @@ export class FlowBoard {
     while (this.owed >= 1) {
       const size = sizes[Math.floor(this.rand() * sizes.length)];
       this.owed -= size;
-      this.items.push({ id: this.nextId++, size, remaining: size, points: 0, arrived: this.day });
+      const work = this.dod === 'strong' ? Math.ceil(size * STRONG_EFFORT) : size;
+      this.items.push({ id: this.nextId++, size, remaining: work, points: 0, arrived: this.day });
     }
+    // Escaped defects come back as new work at the front of the backlog.
+    for (const r of this.reworkDue.filter((r) => r.day === this.day)) {
+      const size = Math.max(1, Math.round(r.of.size / 2));
+      this.items.push({ id: this.nextId++, size, remaining: size, points: 0, arrived: this.day, reworkOf: r.of.id });
+    }
+    this.reworkDue = this.reworkDue.filter((r) => r.day > this.day);
   }
 
   step() {
     const d = this.day;
-    this.history.push({ day: d, wipLimit: this.wipLimit, load: this.load, sliced: this.sliced, velocityTarget: this.velocityTarget });
+    this.history.push({ day: d, wipLimit: this.wipLimit, load: this.load, sliced: this.sliced, velocityTarget: this.velocityTarget, dod: this.dod });
     this.arrive();
     // Pull: oldest first, up to the limit. With no limit, everything that has
     // arrived is "started" today - the queue moves onto the board, not away.
-    for (const it of this.backlog) {
+    // Rework jumps the queue: a defect in shipped work is usually urgent.
+    const queue = [...this.backlog].sort((a, b) => Number(b.reworkOf !== undefined) - Number(a.reworkOf !== undefined));
+    for (const it of queue) {
       if (this.wipLimit !== null && this.inProgress.length >= this.wipLimit) break;
       it.start = d;
       // A rough size-to-points estimate. Under a velocity target the same work
@@ -117,7 +139,13 @@ export class FlowBoard {
     }
     for (const it of active) {
       it.remaining -= load.get(it.id) ?? 0;
-      if (it.remaining <= 0) it.finish = d + 1;
+      if (it.remaining > 0) continue;
+      it.finish = d + 1;
+      // Under a weak Definition of Done some "finished" work was not.
+      if (this.dod === 'weak' && it.reworkOf === undefined && ++this.finishedCount % WEAK_ESCAPE_EVERY === 0) {
+        it.cameBack = true;
+        this.reworkDue.push({ day: d + REWORK_AFTER, of: it });
+      }
     }
     this.day++;
     if (this.day % SPRINT === 0) this.closeSprint();
@@ -138,6 +166,9 @@ export class FlowBoard {
   finishedIn([a, b]: [number, number]) { return this.items.filter((i) => i.finish !== undefined && i.finish > a && i.finish <= b); }
   cycleTimes(w = this.window()) { return this.finishedIn(w).map((i) => i.finish! - i.start!); }
   throughput(w = this.window()) { return this.finishedIn(w).length; }
+  /** Finished new work that has not come back: what "done" was supposed to mean. */
+  stayedDone(w = this.window()) { return this.finishedIn(w).filter((i) => i.reworkOf === undefined && !i.cameBack).length; }
+  reworkFinished(w = this.window()) { return this.finishedIn(w).filter((i) => i.reworkOf !== undefined).length; }
   ages() { return this.inProgress.map((i) => this.day - i.start!); }
 
   /** Little's LL.2 over [a, b), from two independently kept records. */

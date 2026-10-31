@@ -1,0 +1,65 @@
+---
+title: Frameworks for many teams
+summary: SAFe, LeSS, Scrum@Scale and the "Spotify model" each promise a way to run many teams. Read each in its own words, read its critics in theirs, and learn why copying another company's snapshot is the most common way to get it wrong.
+minutes: 16
+xp: 40
+tiers: [browser]
+builds_on: [agile/teams]
+sources:
+  - title: Scaled Agile - SAFe - Agile Release Train
+    url: https://framework.scaledagile.com/agile-release-train
+  - title: Scaled Agile - SAFe - PI Planning
+    url: https://framework.scaledagile.com/pi-planning
+  - title: Scaled Agile - SAFe - About
+    url: https://framework.scaledagile.com/about
+  - title: The LeSS Company - LeSS framework
+    url: https://less.works/less/framework
+  - title: Scrum@Scale Guide
+    url: https://www.scrumatscale.com/scrum-at-scale-guide-online/
+  - title: Henrik Kniberg and Anders Ivarsson - Scaling Agile @ Spotify (2012)
+    url: https://blog.crisp.se/wp-content/uploads/2012/11/SpotifyScaling.pdf
+  - title: Henrik Kniberg - No, I didn't invent the Spotify model (2015)
+    url: https://blog.crisp.se/2015/06/07/henrikkniberg/no-i-didnt-invent-the-spotify-model
+  - title: Jeremiah Lee - Spotify's Failed #SquadGoals (2020, CC BY-SA 4.0)
+    url: https://www.jeremiahlee.com/posts/failed-squad-goals/
+  - title: Ron Jeffries - SAFe - Good but not good enough (2014)
+    url: https://ronjeffries.com/xprog/articles/safe-good-but-not-good-enough/
+---
+
+One team can agree how to work in a room. Fifty teams building one product can't, and that's the gap scaling frameworks try to fill. There are several, they disagree with each other, and most organisations end up running a variation of one. The useful skill is reading each one's claims, and its critics', for what they are.
+
+## Each in its own words
+
+- **SAFe** (Scaled Agile Framework) groups teams into an Agile Release Train of "50 -125 people" who plan together in PI Planning, held "every 8-12 weeks". It is the most prescriptive of these, with roles, events and configurations at several levels. Its current versions are called "Core SAFe" and, added in June 2026, "AI-Native SAFe".
+- **LeSS** (Large-Scale Scrum) keeps one Product Owner and one Sprint for "Up to eight teams (of eight people each)", and adds as little as it can.
+- **Scrum@Scale**, from Jeff Sutherland, scales Scrum with Scrum itself and aims for a "minimum viable bureaucracy". Its blunt line: "If an organization cannot Scrum, it cannot scale."
+
+SAFe's site claims results like "30 – 75% faster time-to-market". The page gives no sample, baseline or method, so treat it as a vendor's claim, not a measurement. We link to SAFe's own pages rather than reproduce its diagrams, which its terms restrict.
+
+## The critics, dated
+
+The best-known critiques of SAFe are from 2013 and 2014, written about the SAFe of that time, years before its current versions. Ron Jeffries is the fairest single voice: if an organisation "actually did what it said, they would likely prosper", but "SAFe isn't really Agile in its heart". You'll also see Martin Fowler's 2018 "Agile Industrial Complex" talk cited as a SAFe critique. It never names SAFe, so don't use it that way.
+
+## The "Spotify model" was a snapshot
+
+In 2012 Henrik Kniberg and Anders Ivarsson described how Spotify organised its teams into squads, tribes, chapters and guilds. Their paper called it "a journey in progress, not a journey completed". Many companies copied it as a framework anyway. In 2020 Jeremiah Lee, who worked there, described how it played out, including a former Spotify coach's line that "Even at the time we wrote it, we weren't doing it" (quoted second-hand in Lee's article). Kniberg himself said in 2015 that it "wasn't actually intended to be a generic framework". He also said he had "yet to see a case where a company ended up in a worse position" after borrowing from it, so the story isn't simply a failure either.
+
+<Callout kind="trap">
+Copying another company's org chart copies the snapshot, not the reasons. The [previous lesson](/learn/agile/teams/) found no independent study showing one framework beats another. What reviews of large transformations keep finding instead is management support, adapting the model to the organisation, training and coaching, and alignment. None of those comes in the box.
+</Callout>
+
+<Quiz
+  id="agile-scaling-1"
+  q="A framework vendor's website says customers see '30-75% faster time-to-market'. What's missing before you can rely on it?"
+  options={["Nothing - it's on the official site", "The sample, the baseline and the method", "A bigger range"]}
+  answer={1}
+  explain="Without knowing who was measured, against what, and how, a percentage is a claim. Vendor case studies are self-reported and selected."
+/>
+
+<Quiz
+  id="agile-scaling-2"
+  q="What did the 2012 Spotify paper say about the model it described?"
+  options={["It was a framework for any company to adopt", "It was 'a journey in progress, not a journey completed'", "It replaced Scrum"]}
+  answer={1}
+  explain="The authors described one company at one moment. Treating that snapshot as a framework is the copying problem Kniberg warned against later."
+/>
