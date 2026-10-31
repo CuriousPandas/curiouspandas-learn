@@ -1497,10 +1497,8 @@ const xpNow = async (page) => Number(JSON.parse(await page.evaluate(() => localS
 
 await scenario('expeditions-index', '/expeditions/', async (page) => {
   const ready = await page.locator('a.xcard').count(), planned = await page.locator('.xcard.soon').count();
-  if (ready !== 4 || planned !== 5) throw new Error(`expected 4 open and 5 planned expeditions, saw ${ready} and ${planned}`);
-  // A partly written route must not show an hour total that counts only the
-  // written lessons: Teamwork once read "about 1.3 h" for 11 lessons.
-  await expectText(page, '.xcard.soon:has-text("Teamwork") .facts', /^11 lessons, 5 written so far · Trail Crew badge/);
+  if (ready !== 5 || planned !== 4) throw new Error(`expected 5 open and 4 planned expeditions, saw ${ready} and ${planned}`);
+  await expectText(page, 'a.xcard[data-xcard="teamwork"] .facts', /^11 lessons · about [\d.]+ h · Trail Crew badge/);
   // A planned card must not be a way onto an unfinished route.
   if (await page.locator('.xcard.soon a, a.xcard.soon').count()) throw new Error('a planned expedition card is a link');
   await expectText(page, '[data-xcard="first-steps"] [data-xcount]', /Not started/);
@@ -1707,6 +1705,55 @@ await scenario('flow-forecast', '/learn/agile/forecasts/', async (page) => {
   if (await page.locator(`${r} .m-steps li.done`).count() !== 2) throw new Error('answering "velocity" ticked the last step');
   await page.check(`${r} [name="fl-answer"][value="throughput"]`);
   await expectText(page, `${r} .m-debrief`, /no study has measured one/);
+});
+
+await scenario('flow-dod', '/learn/agile/xp/', async (page) => {
+  const r = '[data-flow]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const sprint = async (n = 1) => { for (let i = 0; i < n; i++) { await page.click(`${r} [data-run="10"]`); await page.waitForTimeout(60); } };
+  await sprint(2);
+  const finished = Number(await page.locator(`${r} [data-tp]`).innerText()), stayed = Number(await page.locator(`${r} [data-stayed]`).innerText());
+  if (!(finished > stayed)) throw new Error(`a weak Definition of Done should count more finished than stayed done, got ${finished} vs ${stayed}`);
+  await page.selectOption(`${r} [data-dod]`, 'strong');
+  await sprint(2);
+  // The tempting answer: the bigger number.
+  await page.check(`${r} [name="fl-answer"][value="finished"]`);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 2) throw new Error('answering "finished" ticked the last step');
+  await page.check(`${r} [name="fl-answer"][value="stayed"]`);
+  await expectText(page, `${r} .m-debrief`, /counted the same work twice/);
+});
+
+await scenario('in-name-only-cards', '/learn/agile/in-name-only/', async (page) => {
+  const r = '[data-cards="in-name-only"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // Calling the healthy team broken must be refused, with a reason.
+  await page.check(`${r} [data-card="healthy"] input[value="broken"]`);
+  await expectText(page, `${r} [data-card="healthy"] [data-why]`, /^Not quite\./);
+  for (const [card, answer] of [['standup', 'status'], ['hardening', 'notdone'], ['velocity', 'target'], ['healthy', 'fine']]) {
+    await page.check(`${r} [data-card="${card}"] input[value="${answer}"]`);
+    await expectText(page, `${r} [data-card="${card}"] [data-why]`, /^Supported\./);
+  }
+  await expectText(page, `${r} .m-debrief`, /always says "fine"/);
+});
+
+await scenario('scrum-events-cards', '/learn/agile/scrum-guide/', async (page) => {
+  const r = '[data-cards="scrum-events"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // "We always do it" is never a purpose.
+  await page.check(`${r} [data-card="retro"] input[value="habit"]`);
+  await expectText(page, `${r} [data-card="retro"] [data-why]`, /^Not quite\./);
+  for (const card of ['planning', 'daily', 'review', 'retro', 'sprint']) {
+    await page.check(`${r} [data-card="${card}"] input[value="purpose"]`);
+    await expectText(page, `${r} [data-card="${card}"] [data-why]`, /^Supported\. The guide/);
+  }
+  await expectText(page, `${r} .m-debrief`, /doing Scrum rather than performing it/);
+});
+
+await scenario('manifesto-verbatim', '/learn/agile/manifesto/', async (page) => {
+  // The typography pass turns "--" into an en dash. The lesson says the
+  // principle keeps its double hyphens, and once rendered "Simplicity–the".
+  await expectText(page, 'main', /Simplicity--the art of maximizing the amount of work not done--is essential/);
+  await expectText(page, 'blockquote', /That is, while there is value in the items on the right, we value the items on the left more\.[\s\S]*this declaration may be freely copied in any form, but only in its entirety through this notice/i);
 });
 
 await browser.close();

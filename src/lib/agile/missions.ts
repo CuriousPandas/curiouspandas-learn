@@ -38,6 +38,17 @@ export const FLOW_MISSION: Mission<FlowState> = {
   debrief: 'With no limit, every item that arrived was "started" the same day, and then waited on the board while four people worked on the oldest ones. Cycle time measured that waiting. The limit did not make anyone faster: it kept the queue in the backlog, where it is honest, and throughput stayed where capacity put it. It also could not undo the month before: the items already started had to finish before cycle time came down. Cut the limit too far and people sat idle - a lower WIP is only better while there is still enough work to do. Little\'s Law held on every run, because it is an identity about what you measured, not a promise about what you will get.',
 };
 
+export const DOD_MISSION: Mission<FlowState> = {
+  id: 'definition-of-done', title: 'Done means done', xp: 60,
+  setup: () => { const board = new FlowBoard(); board.wipLimit = 4; board.dod = 'weak'; return { board }; },
+  steps: [
+    { text: 'Run with the weak Definition of Done for a full 20-day window. Compare "finished" with "stayed done"', hint: 'Run a sprint twice', done: (s) => everWindow(s.board, (w) => w.days.every((h) => h.dod === 'weak')) },
+    { text: 'Switch to test-first and run until the whole window uses it', hint: 'Definition of Done: tested and integrated, then Run a sprint twice', done: (s) => everWindow(s.board, (w) => w.days.every((h) => h.dod === 'strong')) },
+    { text: 'Which number tells you how much work is really done?', hint: 'One of them counts the same work twice', done: (s) => s.board.answer === 'stayed' && everWindow(s.board, (w) => w.days.every((h) => h.dod === 'strong')) },
+  ],
+  debrief: 'With the weak Definition of Done the board finished more items - because one in three came back eight days later as new work, and the fix was counted as another finished item. "Finished" counted the same work twice; "stayed done" did not. Testing first cost a quarter more effort per item in this model, and both of those numbers are invented: what is not invented is that a done count which includes undone work cannot tell you how much is done.',
+};
+
 export const FORECAST_MISSION: Mission<FlowState> = {
   id: 'velocity-target', title: 'Forecasts, not promises', xp: 60,
   setup: () => { const board = new FlowBoard(); board.wipLimit = 4; return { board }; },

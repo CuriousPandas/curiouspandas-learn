@@ -116,13 +116,15 @@ export const EXPEDITIONS: ExpeditionPlan[] = [
       'web/request-journey', 'web/status-codes-lie',
       'sre/slos', 'resilience/rpo-rto', 'resilience/dr-strategies', 'resilience/business-continuity', 'resilience/incidents',
       'security/supply-chain', 'frontiers/superintelligence', 'launch/pricing',
+      // Managers are the people who set velocity targets, so forecasts belongs here most of all.
+      'agile/manifesto', 'agile/scrum-guide', 'agile/flow', 'agile/forecasts', 'agile/teams', 'agile/in-name-only',
     ],
   },
   {
     // Trail Crew, not anything with "Scrum Master" in it: that reads as a
     // credential next to Scrum Alliance's and Scrum.org's certification marks,
     // and the evidence points at how a team works together, not at a role.
-    id: 'teamwork', title: 'Teamwork', who: 'I want the team I am on to work well together.', badge: 'Trail Crew', icon: 'crew', hue: 60, status: 'soon',
+    id: 'teamwork', title: 'Teamwork', who: 'I want the team I am on to work well together.', badge: 'Trail Crew', icon: 'crew', hue: 60, status: 'ready',
     tagline: "How work flows, what agile's own sources say, and what the evidence says actually makes teams work.",
     lessons: [
       'agile/manifesto', 'agile/scrum-guide', 'agile/flow', 'agile/forecasts', 'agile/xp',

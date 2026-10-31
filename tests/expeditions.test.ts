@@ -37,17 +37,17 @@ test('every expedition, ready or planned, teaches before it relies', () => {
   assert.deepEqual(checkExpeditions(EXPEDITIONS, lessons), []);
 });
 
-test('all nine are planned and the first four are ready', () => {
+test('all nine are planned and five are ready', () => {
   assert.equal(EXPEDITIONS.length, 9);
-  assert.deepEqual(EXPEDITIONS.filter((e) => e.status === 'ready').map((e) => e.id), ['first-steps', 'platform-engineer', 'ai-builder', 'founder']);
+  assert.deepEqual(EXPEDITIONS.filter((e) => e.status === 'ready').map((e) => e.id), ['first-steps', 'platform-engineer', 'ai-builder', 'founder', 'teamwork']);
 });
 
 const plan = (lessons: string[]): ExpeditionPlan => ({ id: 'x', title: 'X', who: '', tagline: '', badge: 'B', icon: 'star', hue: 0, status: 'soon', lessons });
 
 test('a ready expedition may not list an unwritten lesson; a planned one may', () => {
-  const unwritten = 'agile/manifesto';
+  const unwritten = 'change/rewrite-or-evolve';
   assert.equal(lessons.get(unwritten)?.ready, false, 'the fixture lesson must still be unwritten');
-  assert.match(checkExpeditions([{ ...plan([unwritten]), status: 'ready' }], lessons).join(), /lists agile\/manifesto, which is not ready/);
+  assert.match(checkExpeditions([{ ...plan([unwritten]), status: 'ready' }], lessons).join(), /lists change\/rewrite-or-evolve, which is not ready/);
   assert.deepEqual(checkExpeditions([plan([unwritten])], lessons), []);
 });
 

@@ -1,0 +1,69 @@
+---
+title: The engineering Scrum leaves out
+summary: Scrum is deliberately silent on how to build the software. Extreme Programming isn't. Watch a weak Definition of Done make the "finished" count lie, and see why the practices that keep software working are what the ceremonies were for.
+minutes: 16
+xp: 40
+tiers: [browser]
+builds_on: [agile/flow]
+sources:
+  - title: Ken Schwaber and Jeff Sutherland - The 2020 Scrum Guide (CC BY-SA 4.0)
+    url: https://scrumguides.org/scrum-guide.html
+  - title: Bill Wake - XP Explained, 2nd edition, a summary (xp123.com, 2005)
+    url: https://xp123.com/review-extreme-programming-explained-2e/
+  - title: Ron Jeffries - What is Extreme Programming?
+    url: https://ronjeffries.com/xprog/what-is-extreme-programming/
+  - title: Ron Jeffries - Dark Scrum (2016)
+    url: https://ronjeffries.com/articles/016-09ff/defense/
+---
+
+The Scrum Guide says what Scrum leaves out, on purpose: "The Scrum framework is purposefully incomplete, only defining the parts required to implement Scrum theory." It has nothing to say about how to write, test or integrate code. Teams are meant to fill that in, and many never do. Then the events run on schedule while the software quietly doesn't work.
+
+## What Extreme Programming adds
+
+Extreme Programming (XP), from Kent Beck, is the opposite kind of method: almost entirely about how to build software. In Bill Wake's summary of Beck's second edition (2004), XP's values are Communication, Simplicity, Feedback, Courage and Respect; the first edition (1999) had the first four. Among the second edition's primary practices, Wake lists:
+
+- **Ten-Minute Build**: building the system and running its tests stays fast, so people actually do it.
+- **Continuous Integration**: changes are integrated and tested often, so the main line keeps working.
+- **Test-First Programming**: write a failing test before the code that passes it.
+- **Incremental Design**: improve the design a little at a time as the system grows.
+- **Slack**: leave room in a plan for things that go wrong.
+
+These are from Wake's summary, not Beck's own text, which we haven't been able to quote. Ron Jeffries publishes his own list of thirteen XP practices, which is his synthesis rather than Beck's. The point is the same in every version: the practices exist to keep the software working all the time, not just at the end.
+
+Two existing lessons go deeper on the tooling side: [pipelines](/learn/delivery/pipelines/) and [branching strategies](/learn/git/branching-strategies/).
+
+## The trap: rituals with nothing done
+
+Ron Jeffries describes what happens when a team runs Scrum's events without the engineering: it never produces "a tested, integrated, working, shippable increment of the product, at the end of every Sprint". Items get marked done when the code is written. Testing comes later, defects come back, and the board fills with fixes for work that was already counted as finished.
+
+The Scrum Guide's own rule closes that gap: "If a Product Backlog item does not meet the Definition of Done, it cannot be released or even presented at the Sprint Review." A Definition of Done that stops at "code written" doesn't meet that rule. It moves the undone work somewhere the board can't see it.
+
+## Try it
+
+The same Flow Lab, now with a Definition of Done. **The costs are invented**, and the lab says so on screen. With the weak definition, one finished item in three comes back eight days later as rework half its size. Testing first costs a quarter more effort per item. Nobody has measured either number in a way we could cite. What the lab shows doesn't depend on them: when "done" includes undone work, the count of finished items stops measuring what is finished.
+
+<FlowLab mission="definition-of-done" />
+
+<Callout kind="trap">
+A weak Definition of Done makes a team look *faster*: the original item counts as finished, and so does its fix. Measure what stayed done. If the fixes for last sprint's work keep appearing in this sprint's "done" column, the team is counting the same work twice.
+</Callout>
+
+## Why "slack" is a practice
+
+Slack sounds like waste. In the Flow Lab you've already seen why it isn't: a board run at full utilisation has no room to absorb the rework that comes back, so everything else waits behind it. Mapping XP's Slack onto spare capacity is our reading, not Beck's wording, but it is the same idea as a WIP limit: don't plan every hour, or the first surprise pushes everything late.
+
+<Quiz
+  id="agile-xp-1"
+  q="Why does the Scrum Guide say nothing about testing or integration?"
+  options={["It assumes teams don't need them", "It is 'purposefully incomplete' and leaves engineering practices to the team", "Scrum forbids automated testing"]}
+  answer={1}
+  explain="The guide defines only the parts required to implement Scrum theory. How to build the software is left to the team - which is the gap XP's practices fill."
+/>
+
+<Quiz
+  id="agile-xp-2"
+  q="A team's 'finished' count rose 40% after it stopped running tests before marking work done. What should you check first?"
+  options={["Whether the team got faster", "How many 'finished' items came back as defects or fixes", "Whether the sprint was longer"]}
+  answer={1}
+  explain="With a weak Definition of Done, both the original item and its later fix count as finished. Count what stayed done."
+/>

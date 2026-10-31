@@ -201,14 +201,14 @@ export const TRACKS: Track[] = [
     // instrument the other lessons point at.
     id: 'agile', title: 'Agile, Scrum & Flow', tagline: 'What the guides actually say, what the evidence actually shows - and how to tell a team working from one performing.', icon: 'crew', hue: 60,
     lessons: [
-      { slug: 'manifesto', title: 'Four values and a "while"', status: 'soon' },
-      { slug: 'scrum-guide', title: 'Scrum as written, not as rumoured', status: 'soon' },
+      { slug: 'manifesto', title: 'Four values and a "while"', status: 'ready' },
+      { slug: 'scrum-guide', title: 'Scrum as written, not as rumoured', status: 'ready' },
       { slug: 'flow', title: 'Count the work, then limit it', status: 'ready' },
       { slug: 'forecasts', title: 'Forecasts, not promises', status: 'ready' },
-      { slug: 'xp', title: 'The engineering Scrum leaves out', status: 'soon' },
-      { slug: 'teams', title: 'What the evidence says about teams', status: 'soon' },
-      { slug: 'scaling', title: 'Frameworks for many teams', status: 'soon' },
-      { slug: 'in-name-only', title: "Agile in name only: how you'd know", status: 'soon' },
+      { slug: 'xp', title: 'The engineering Scrum leaves out', status: 'ready' },
+      { slug: 'teams', title: 'What the evidence says about teams', status: 'ready' },
+      { slug: 'scaling', title: 'Frameworks for many teams', status: 'ready' },
+      { slug: 'in-name-only', title: "Agile in name only: how you'd know", status: 'ready' },
     ],
   },
 ];

@@ -1,0 +1,77 @@
+---
+title: Scrum as written, not as rumoured
+summary: Most of what people "know" about Scrum isn't in the Scrum Guide - and some of it was taken out in 2020. Read the framework as its authors wrote it, correct five myths against the texts, and work out what each event is actually for.
+minutes: 18
+xp: 45
+tiers: [browser]
+builds_on: [agile/manifesto]
+sources:
+  - title: Ken Schwaber and Jeff Sutherland - The 2020 Scrum Guide (CC BY-SA 4.0)
+    url: https://scrumguides.org/scrum-guide.html
+  - title: Ken Schwaber and Jeff Sutherland - The 2017 Scrum Guide (PDF)
+    url: https://scrumguides.org/docs/scrumguide/v2017/2017-Scrum-Guide-US.pdf
+  - title: Scrum Guide revision history
+    url: https://scrumguides.org/revisions.html
+  - title: Ken Schwaber - SCRUM Development Process (OOPSLA 1995, revised copy)
+    url: http://www.jeffsutherland.org/oopsla/schwapub.pdf
+---
+
+Scrum is the most widely used agile framework, and also the most rumoured about. A lot of what teams do "because it's Scrum" isn't in the Scrum Guide at all, and some of it used to be but was taken out. This lesson reads the 2020 guide directly. It is free, short, and licensed CC BY-SA 4.0, so it's quoted here word for word.
+
+## The frame is strict; the inside is open
+
+The guide is unusually strict about its own boundaries: "Changing the core design or ideas of Scrum, leaving out elements, or not following the rules of Scrum, covers up problems and limits the benefits of Scrum, potentially even rendering it useless." It's equally clear that it doesn't tell you how to do the work: "The Scrum framework is purposefully incomplete, only defining the parts required to implement Scrum theory."
+
+So the frame is small and fixed:
+
+- **Three accountabilities**: the Developers, the Product Owner and the Scrum Master.
+- **Five events**: the Sprint, which "is a container for all other events", and inside it Sprint Planning, the Daily Scrum, the Sprint Review and the Sprint Retrospective.
+- **Three artifacts, each with a commitment**: the Product Backlog (committed to the Product Goal), the Sprint Backlog (the Sprint Goal) and the Increment (the Definition of Done).
+
+Everything else - story points, task boards, burndown charts, the shape of your stand-up - is something a team may choose, not something Scrum requires.
+
+## The timeboxes
+
+A Sprint is one month or less. For a one-month Sprint, Sprint Planning is at most eight hours, the Sprint Review at most four and the Retrospective at most three; shorter Sprints usually have shorter events. "The Daily Scrum is a 15-minute event for the Developers of the Scrum Team."
+
+## Five myths, against the texts
+
+1. **"Scrum is a software method from a 1986 paper."** Takeuchi and Nonaka's 1986 article described product development at manufacturers. Ken Schwaber's 1995 paper lists the companies they studied - including Fuji-Xerox, Canon and Honda - not software teams. Scrum for software came later.
+2. **"SCRUM is an acronym."** Schwaber's paper names it "after the SCRUM in rugby". The capital letters were style, not initials.
+3. **"There's a Development Team and a servant-leader."** That's 2017 wording. The 2017 guide says "Development Team" dozens of times; the 2020 guide never does, and calls Scrum Masters "true leaders who serve".
+4. **"The Daily Scrum is three questions."** By 2017 the three questions were already only an example, and the 2020 guide removed them. Developers "can select whatever structure and techniques they want" as long as the event inspects progress toward the Sprint Goal.
+5. **"The Sprint Review is the release gate."** The guide says the opposite: "The Sprint Review should never be considered a gate to releasing value."
+
+## Try it
+
+For each event, pick what it is *for*. Some wrong answers are things real teams do every week; "we always do it" is never a purpose.
+
+<CardSort mission="scrum-events" />
+
+<Callout kind="trap">
+The fastest way to lose Scrum is to keep every event and forget why it exists. A stand-up that reports to a manager, a review that signs things off, a retrospective nothing changes after - all are on the calendar, and none of them is doing its job. When an event feels pointless, ask what the guide says it is for before you cancel it or keep it.
+</Callout>
+
+<Quiz
+  id="agile-scrum-guide-1"
+  q="According to the 2020 Scrum Guide, which of these is required in Scrum?"
+  options={["Story points", "A Sprint Goal", "A burndown chart"]}
+  answer={1}
+  explain="The Sprint Goal is the Sprint Backlog's commitment. Story points and burndowns are optional techniques the guide doesn't require."
+/>
+
+<Quiz
+  id="agile-scrum-guide-2"
+  q="What is the longest a Daily Scrum should take?"
+  options={["15 minutes", "30 minutes for teams of more than nine", "As long as everyone's update takes"]}
+  answer={0}
+  explain="'The Daily Scrum is a 15-minute event for the Developers of the Scrum Team.' The timebox doesn't grow with the team."
+/>
+
+<Quiz
+  id="agile-scrum-guide-3"
+  q="Where does the name Scrum come from?"
+  options={["An acronym for a planning technique", "The scrum in rugby", "A 2010 software framework"]}
+  answer={1}
+  explain="Schwaber's 1995 paper names the method 'after the SCRUM in rugby', following Takeuchi and Nonaka's rugby metaphor for overlapping teamwork."
+/>

@@ -1,0 +1,71 @@
+---
+title: What the evidence says about teams
+summary: Every framework promises better teams. What has actually been measured? Read Google's Project Aristotle, DORA's culture findings and a 2,638-effect-size meta-analysis the careful way - as associations, not recipes - and test a practitioner's hypothesis against them.
+minutes: 18
+xp: 40
+tiers: [browser]
+builds_on: []
+sources:
+  - title: Google re:Work - Guide - Understand team effectiveness (Project Aristotle)
+    url: https://rework.withgoogle.com/intl/en/guides/understand-team-effectiveness
+  - title: DORA - Capabilities - Generative organizational culture (CC BY 4.0)
+    url: https://dora.dev/capabilities/generative-organizational-culture/
+  - title: DORA - Accelerate State of DevOps Report 2023
+    url: https://dora.dev/research/2023/dora-report/
+  - title: DORA - Accelerate State of DevOps Report 2024
+    url: https://dora.dev/research/2024/dora-report/
+  - title: Wallrich et al. - team diversity and team performance, a registered-report meta-analysis, Journal of Business and Psychology (2024)
+    url: https://doi.org/10.1007/s10869-024-09977-0
+---
+
+Every agile framework makes promises about teams. This lesson asks a narrower question: what has actually been *measured* about what makes teams work, and how strong is that evidence? The honest answer is "something real, but less than people quote".
+
+## A hypothesis to test
+
+This site's maintainer has worked in many organisations and seen the same pattern in every one: SAFe, Scrum, cross-functional teams, home-grown hybrids, all variations on a theme. The thing that made the biggest difference wasn't the framework. It was people who cared a lot and worked together.
+
+That's an experience report, and experience reports are most of what this field has. So let's treat it as a hypothesis and see what the measurements say.
+
+## Project Aristotle
+
+Google studied 180 of its own teams: 115 in engineering and 65 in sales. It judged effectiveness by ratings from executives, team leads and team members, and by sales against quota. Five dynamics stood out, and the first was **psychological safety**: whether team members feel safe to take risks and be vulnerable in front of each other. The others were dependability, structure and clarity, meaning, and impact.
+
+Just as interesting is what *didn't* predict effectiveness among those teams: colocation, consensus decision-making, extroversion, individual performance, workload, seniority, team size and tenure. Read that list carefully. It is "within Google's 180 teams", a company that hires very selectively, so traits that vary a lot elsewhere may vary too little there to show up. Google has not published the data or a peer-reviewed paper.
+
+## DORA and culture
+
+DORA's annual survey measures culture with six statements adapted from Ron Westrum's model, scored from 1 to 7. One is: "Messengers are not punished when they deliver news of failures or other bad news." DORA reports that a "generative" culture is associated with roughly 30% higher organisational performance. Two cautions travel with that number. It comes from a statistical model of survey answers, not from changing a culture and measuring the result. And the [incidents lesson](/learn/resilience/incidents/) shows the same idea in practice: Westrum's generative organisations treat failure as a reason to inquire, not to punish.
+
+DORA's own findings also move between years. Its 2024 report associated AI adoption with *lower* delivery throughput and stability. That's a reminder that a survey correlation is a snapshot, not a law.
+
+## Cross-functional teams
+
+Cross-functional teams are usually presented as obviously better. A 2024 meta-analysis combined 615 reports and 2,638 effect sizes on team diversity, including job-related diversity of the kind cross-functional teams have. It found positive relationships with performance, but small: below 0.1 as a correlation, with somewhat more benefit on complex or creative work. "Recommended, with modest evidence" is fair. "Proven" isn't.
+
+## Where that leaves the hypothesis
+
+| The hypothesis says | The evidence |
+|---|---|
+| The framework matters less than the people | **Supported.** No independent study we found shows one framework beating another. |
+| People who care and work well together make the difference | **Qualified.** "Caring" has never been measured directly. The nearest things that have - psychological safety, dependability - are consistently associated with better teams, but the studies are correlational and mostly self-reported. |
+| So the system doesn't matter | **Not supported.** DORA links unstable priorities to burnout, and management support shows up as a success factor in reviews of agile transformations. A system can wear down people who care. |
+
+<Callout kind="tip">
+Read team research the way you read any correlation: "teams with psychological safety are more effective" doesn't mean "add psychological safety, get effectiveness". It might work the other way round, or both might come from something else, like good management. That's why the Flow Lab has no "how much the team cares" slider: nobody has measured its effect, so we don't pretend to.
+</Callout>
+
+<Quiz
+  id="agile-teams-1"
+  q="Project Aristotle found team size did not significantly predict effectiveness. What's the careful reading?"
+  options={["Team size never matters", "Among Google's 180 teams, size didn't predict effectiveness - which may not hold where teams vary more", "Bigger teams are better"]}
+  answer={1}
+  explain="The finding is about one company's selectively hired teams. A factor that varies little in the sample can't show an effect, even if it matters elsewhere."
+/>
+
+<Quiz
+  id="agile-teams-2"
+  q="DORA reports generative culture is associated with about 30% higher organisational performance. What does 'associated' rule out claiming?"
+  options={["That the two go together in the survey data", "That changing your culture will raise performance by 30%", "That the survey measured culture"]}
+  answer={1}
+  explain="An association from a cross-sectional survey says the two go together. It doesn't show that changing one changes the other, or by how much."
+/>
