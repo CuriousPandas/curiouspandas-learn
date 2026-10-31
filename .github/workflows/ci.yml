@@ -55,14 +55,17 @@ jobs:
           retention-days: 14
       # The site that was just checked is the site that ships - no second build
       # that could differ from the one the browser check looked at.
+      # Only a merge to main publishes. Pull requests and manual runs verify
+      # the same way and stop here; main itself only moves through a merged
+      # pull request (scripts/configure-repo.sh).
       - uses: actions/upload-pages-artifact@v5
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           path: dist/
 
   deploy:
     needs: verify
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       pages: write
