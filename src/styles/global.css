@@ -65,6 +65,9 @@
 /* Long unbroken inline code ("api.example.com.<namespace>.svc.cluster.local")
    pushed phones 61px sideways in Firefox. Code blocks keep scrolling instead. */
 :not(pre) > code { overflow-wrap: anywhere; }
+/* A bare URL in prose is one unbreakable word; at 375 px it scrolled the page
+   sideways (CI's Linux fonts are wider than Windows', so it passed locally). */
+.prose a, .prose-wide a { overflow-wrap: anywhere; }
 /* The monospace stack (Cascadia Code first) draws >= as one glyph, so code
    showed SQLite's "(<expr>=?)" as "(<expr≥?)" - wrong characters in a lesson
    about exact syntax. Code is shown exactly as typed. */
