@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ShadowBench, verdict, envoyYaml, DEFAULT_CONFIG } from '../src/lib/change/shadow.ts';
 import { Strangler, ENDPOINTS, MONTH, MIN_COMPARED } from '../src/lib/change/strangler.ts';
-import { SHADOW_MISSION, STRANGLER_MISSION } from '../src/lib/change/missions.ts';
+import { SHADOW_MISSION, STRANGLER_MISSION, LOCK_MISSION, DECOMMISSION_MISSION, migratedLab } from '../src/lib/change/missions.ts';
+import { simulate, rewrites, type Settings as LockSettings } from '../src/lib/change/locks.ts';
 
 // ---- shadow bench -------------------------------------------------------------
 
@@ -249,4 +250,101 @@ test('strangler: the same careful path with the planted typo left in never finis
   l.runDays(3);
   assert.equal(l.servedByNew('cart'), false);
   assert.equal(l.stats.cart.compared, 0);
+});
+
+// ---- lock queue ---------------------------------------------------------------
+
+const lockRun = (s: Partial<LockSettings>) => simulate({ ddl: 'add-column', version: 11, lockTimeout: null, reportRunning: true, ...s });
+
+test('a 300 ms ALTER queued behind a long transaction stalls every SELECT behind it (GoCardless)', () => {
+  const o = lockRun({});
+  assert.equal(o.ddl.result, 'applied');
+  assert.equal(o.ddl.held, 300, 'the ALTER itself is quick');
+  assert.ok(o.ddl.waited >= 9000, 'it waited for the report to finish');
+  assert.ok(o.app.failed > 0, 'and the app queries queued behind it gave up');
+});
+
+test('without the waiting ALTER, the same long transaction blocks nobody', () => {
+  // ACCESS SHARE conflicts only with ACCESS EXCLUSIVE: the report alone is harmless.
+  const o = simulate({ ddl: 'add-column', version: 11, lockTimeout: 0, reportRunning: true });
+  assert.equal(o.ddl.result, 'aborted', 'a zero timeout aborts at once');
+  assert.equal(o.app.worstWait, 0);
+});
+
+test('lock_timeout makes the migration fail instead of the site', () => {
+  const o = lockRun({ lockTimeout: 2000 });
+  assert.equal(o.ddl.result, 'aborted');
+  assert.equal(o.app.failed, 0);
+  assert.ok(o.app.worstWait <= 2000);
+});
+
+test('lock_timeout cannot help a table rewrite: the lock is granted, then held', () => {
+  const o = lockRun({ ddl: 'add-column-volatile-default', reportRunning: false, lockTimeout: 2000 });
+  assert.equal(o.ddl.waited, 0);
+  assert.ok(o.ddl.held >= 10_000);
+  assert.ok(o.app.failed > 0);
+});
+
+test('a constant default rewrites on PostgreSQL 10 and not on 11; a volatile one rewrites on both', () => {
+  assert.equal(rewrites('add-column-constant-default', 10), true);
+  assert.equal(rewrites('add-column-constant-default', 11), false);
+  assert.equal(rewrites('add-column-volatile-default', 11), true);
+  assert.equal(rewrites('add-column', 10), false);
+});
+
+test('lock mission: completes from its hints, and is not born done', () => {
+  const s = LOCK_MISSION.setup();
+  assert.ok(!LOCK_MISSION.steps.some((st) => st.done(s)));
+  const l = s.lab;
+  const plays: Partial<LockSettings>[] = [
+    {},
+    { lockTimeout: 2000 },
+    { reportRunning: false },
+    { ddl: 'add-column-volatile-default' },
+    { ddl: 'add-column-constant-default', version: 10 },
+  ];
+  plays.forEach((p, i) => { l.set(p); l.run(); if (i === 4) { l.set({ version: 11 }); l.run(); } assert.ok(LOCK_MISSION.steps[i].done(s), `step ${i + 1} not done after its hint`); });
+});
+
+// ---- decommissioning ------------------------------------------------------------
+
+test('the decommission lab starts finished as far as the team knows, with no harm done and the export unlisted', () => {
+  const l = migratedLab();
+  for (const e of ENDPOINTS.filter((x) => !x.monthly)) assert.ok(l.servedByNew(e.id), `${e.id} is on new`);
+  assert.ok(l.harmless());
+  assert.equal(l.rule('export'), undefined);
+  assert.ok(l.day % MONTH !== 0 && l.day < MONTH, 'no month end yet, so the export has not run');
+});
+
+test('decommission mission: completes the careful way, and the brownout way also works', () => {
+  const careful = DECOMMISSION_MISSION.setup();
+  assert.ok(!DECOMMISSION_MISSION.steps.some((st) => st.done(careful)));
+  const l = careful.lab;
+  l.runToMonthEnd();
+  assert.ok(l.legacyLog.get('/export')?.unmatched);
+  l.addRule('export'); assert.ok(DECOMMISSION_MISSION.steps[0].done(careful));
+  l.setMode('export', 'shadow'); l.runToMonthEnd(); l.setMode('export', 'new');
+  l.runToMonthEnd();
+  assert.ok(DECOMMISSION_MISSION.steps[1].done(careful));
+  l.switchLegacy(false); l.runDays(MONTH); l.archive(); l.deleteLegacy(); l.runDays(1);
+  assert.ok(DECOMMISSION_MISSION.steps.every((st) => st.done(careful)));
+
+  // A planned brownout finds the same caller by breaking it, reversibly.
+  const brown = DECOMMISSION_MISSION.setup().lab;
+  brown.switchLegacy(false); brown.runToMonthEnd();
+  assert.equal(brown.harm.failedRequests, 1, 'only the unlisted export fails');
+  brown.switchLegacy(true); brown.addRule('export');
+  brown.setMode('export', 'shadow'); brown.runToMonthEnd(); brown.setMode('export', 'new'); brown.runToMonthEnd();
+  brown.switchLegacy(false); brown.runDays(MONTH); brown.archive(); brown.deleteLegacy(); brown.runDays(1);
+  assert.ok(brown.finished(), 'a failed request found by a brownout does not block finishing');
+});
+
+test('deleting legacy before a full clean month leaves the export broken for good', () => {
+  const l = migratedLab();
+  l.switchLegacy(false); l.runDays(5); l.archive(); l.deleteLegacy();
+  l.runToMonthEnd();
+  assert.ok(l.harm.failedRequests > 0);
+  assert.equal(l.servedByNew('export'), false);
+  assert.equal(l.finished(), false);
+  assert.ok(l.deletedAfterWatch < MONTH);
 });

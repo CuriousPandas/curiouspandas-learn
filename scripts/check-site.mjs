@@ -1756,6 +1756,76 @@ await scenario('manifesto-verbatim', '/learn/agile/manifesto/', async (page) => 
   await expectText(page, 'blockquote', /That is, while there is value in the items on the right, we value the items on the left more\.[\s\S]*this declaration may be freely copied in any form, but only in its entirety through this notice/i);
 });
 
+// ---- changing running software, the rest of the trail
+
+await scenario('lock-queue', '/learn/change/expand-contract-schemas/', async (page) => {
+  const r = '[data-lockq]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const run = () => page.click(`${r} [data-run]`);
+  await run();
+  await expectText(page, `${r} [data-status]`, /^Migration applied after waiting 10\.0 s, holding the lock 0\.3 s\. \d+ app requests gave up/);
+  await page.selectOption(`${r} [data-timeout]`, '2000');
+  await run();
+  await expectText(page, `${r} [data-status]`, /^Migration aborted after waiting 2\.0 s\. The site kept serving/);
+  await expectText(page, `${r} [data-failed]`, /^0$/);
+  await page.uncheck(`${r} [data-report]`);
+  await run();
+  await expectText(page, `${r} [data-status]`, /^Migration applied after waiting 0\.0 s.*No app request was held up/);
+  // The tempting belief: lock_timeout protects every migration.
+  await page.selectOption(`${r} [data-ddl]`, 'add-column-volatile-default');
+  await run();
+  await expectText(page, `${r} [data-status]`, /holding the lock 15\.0 s\. \d+ app requests gave up/);
+  await page.selectOption(`${r} [data-ddl]`, 'add-column-constant-default');
+  await page.selectOption(`${r} [data-version]`, '10');
+  await run();
+  await page.selectOption(`${r} [data-version]`, '11');
+  await run();
+  await expectText(page, `${r} .m-debrief`, /better to abort a deploy than take your application down/);
+});
+
+await scenario('decommission', '/learn/change/decommissioning/', async (page) => {
+  const r = '[data-strangler][data-mission="decommission"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const run = async (n) => { await page.click(`${r} [data-run="${n}"]`); await page.waitForTimeout(80); };
+  // A planned brownout: switch off, let the month end find the caller, switch back on.
+  await page.click(`${r} [data-legacy]`);
+  await run('month');
+  await expectText(page, `${r} [data-h="failedRequests"]`, /^1$/);
+  await expectText(page, `${r} [data-watch]`, /Watch window: 0 clean days/);
+  await page.click(`${r} [data-legacy]`);
+  await page.click(`${r} [data-add-rule="export"]`);
+  await page.selectOption(`${r} [data-mode="export"]`, 'shadow');
+  await run('month');
+  await page.selectOption(`${r} [data-mode="export"]`, 'new');
+  await run('month');
+  await page.click(`${r} [data-legacy]`);
+  await run('month');
+  await page.click(`${r} [data-archive]`);
+  await page.click(`${r} [data-delete]`);
+  await run('1');
+  await expectText(page, `${r} .m-debrief`, /invisible for 29 days out of 30/);
+});
+
+for (const [deck, path, picks, wrong] of [
+  ['one-way-doors', '/learn/change/rewrite-or-evolve/', { cutover: 'oneway', descoped: 'removed', shadow: 'reversible', drop: 'oneway' }, ['shadow', 'oneway']],
+  ['golden-master', '/learn/change/characterization-tests/', { regenerated: 'assertsbug', scrubber: 'blind', pinned: 'good' }, ['pinned', 'wrong']],
+  ['flag-debt', '/learn/change/branch-by-abstraction/', { reused: 'bomb', forever: 'inventory', expiring: 'healthy' }, ['expiring', 'risky']],
+  ['api-changes', '/learn/change/evolving-apis/', { optional: 'expand', order: 'hyrum', heartbeat: 'twophase' }, ['order', 'safe']],
+]) {
+  await scenario(`deck-${deck}`, path, async (page) => {
+    const r = `[data-cards="${deck}"]`;
+    await page.locator(r).scrollIntoViewIfNeeded();
+    await page.check(`${r} [data-card="${wrong[0]}"] input[value="${wrong[1]}"]`);
+    await expectText(page, `${r} [data-card="${wrong[0]}"] [data-why]`, /^Not quite\./);
+    for (const [card, answer] of Object.entries(picks)) {
+      await page.check(`${r} [data-card="${card}"] input[value="${answer}"]`);
+      await expectText(page, `${r} [data-card="${card}"] [data-why]`, /^Supported\./);
+    }
+    await expectText(page, `${r} .m-debrief`, /./);
+    if (await page.locator(`${r} .m-steps li.done`).count() !== Object.keys(picks).length) throw new Error(`${deck}: not every step ticked`);
+  });
+}
+
 await browser.close();
 server?.kill();
 

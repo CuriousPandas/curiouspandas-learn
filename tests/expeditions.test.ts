@@ -45,10 +45,12 @@ test('all nine are planned and five are ready', () => {
 const plan = (lessons: string[]): ExpeditionPlan => ({ id: 'x', title: 'X', who: '', tagline: '', badge: 'B', icon: 'star', hue: 0, status: 'soon', lessons });
 
 test('a ready expedition may not list an unwritten lesson; a planned one may', () => {
-  const unwritten = 'change/rewrite-or-evolve';
-  assert.equal(lessons.get(unwritten)?.ready, false, 'the fixture lesson must still be unwritten');
-  assert.match(checkExpeditions([{ ...plan([unwritten]), status: 'ready' }], lessons).join(), /lists change\/rewrite-or-evolve, which is not ready/);
-  assert.deepEqual(checkExpeditions([plan([unwritten])], lessons), []);
+  // A made-up lesson, not a real one: a real "unwritten" fixture breaks the day
+  // someone writes it, which happened twice.
+  const unwritten = 'fixture/unwritten';
+  const withPlanned = new Map(lessons).set(unwritten, { title: 'Planned', minutes: 0, ready: false, buildsOn: [] });
+  assert.match(checkExpeditions([{ ...plan([unwritten]), status: 'ready' }], withPlanned).join(), /lists fixture\/unwritten, which is not ready/);
+  assert.deepEqual(checkExpeditions([plan([unwritten])], withPlanned), []);
 });
 
 test('the check refuses a skipped prerequisite, a wrong order and a cycle', () => {

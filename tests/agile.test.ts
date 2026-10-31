@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FlowBoard, percentile, WINDOW, SPRINT, SLE } from '../src/lib/agile/flow.ts';
 import { FLOW_MISSION, FORECAST_MISSION, DOD_MISSION } from '../src/lib/agile/missions.ts';
-import { DECKS, IN_NAME_ONLY, deckMission } from '../src/lib/agile/cards.ts';
+import { IN_NAME_ONLY } from '../src/lib/agile/cards.ts';
+import { DECKS } from '../src/lib/decks.ts';
+import { deckMission } from '../src/lib/cards.ts';
 
 const measured = (b: FlowBoard) => {
   const c = b.little();

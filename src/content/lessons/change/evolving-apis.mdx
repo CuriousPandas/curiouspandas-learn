@@ -1,0 +1,68 @@
+---
+title: Every observable behaviour is somebody's contract
+summary: An API change is expand and contract across a boundary you don't control. Meet Hyrum's Law, tolerant readers, Stripe's versioning and AWS's two-phase deployments - and decide which changes will quietly break a client.
+minutes: 16
+xp: 40
+tiers: [browser]
+builds_on: [change/expand-contract-schemas, web/status-codes-lie]
+sources:
+  - title: Hyrum's Law (hyrumslaw.com)
+    url: https://www.hyrumslaw.com/
+  - title: Titus Winters - What Is Software Engineering?, ch. 1, Software Engineering at Google (CC BY-NC-ND 4.0)
+    url: https://abseil.io/resources/swe-book/html/ch01.html
+  - title: Brandur Leach - APIs as infrastructure - future-proofing Stripe with versioning (2017)
+    url: https://stripe.com/blog/api-versioning
+  - title: Martin Fowler - TolerantReader (2011)
+    url: https://martinfowler.com/bliki/TolerantReader.html
+  - title: RFC 9413 - Maintaining Robust Protocols (2023)
+    url: https://www.rfc-editor.org/rfc/rfc9413.html
+  - title: Ian Robinson - Consumer-Driven Contracts (martinfowler.com, 2006)
+    url: https://martinfowler.com/articles/consumerDrivenContracts.html
+  - title: Pact documentation
+    url: https://docs.pact.io/
+  - title: AWS - Ensuring rollback safety during deployments (Amazon Builders' Library, now AWS Builder Center)
+    url: https://builder.aws.com/content/3F04j2yRAAMBuPSPs50xwXZqg01/ensuring-rollback-safety-during-deployments
+---
+
+Changing a database schema meant both shapes had to coexist while old code was still running. An API is the same problem with one difference: the old code belongs to someone else, and you can't make them upgrade.
+
+## Hyrum's Law
+
+The most useful rule here comes from Google engineer Hyrum Wright: "With a sufficient number of users of an API, it does not matter what you promise in the contract: all observable behaviors of your system will be depended on by somebody." Google's software engineering book has an example of the kind of thing people come to rely on: code that used a hash table's iteration order "as an inefficient random-number generator". Change the order, and that code breaks, even though the order was never promised.
+
+So "it isn't in the contract" doesn't mean "nobody depends on it". It means you'll find out who does when you change it.
+
+## Expand without breaking
+
+Two ideas make additions safe:
+
+- **Tolerant readers.** Martin Fowler's Tolerant Reader takes only the fields it needs and ignores the rest, so a provider can add fields without breaking it. The other side of tolerance has a warning attached. RFC 9413, on maintaining protocols, warns about accepting malformed input too liberally: "A flaw can become entrenched as a de facto standard." Once enough clients rely on the flaw, the contract step becomes impossible. Be tolerant of additions; be strict about what is wrong.
+- **Contracts the consumer writes.** Consumer-driven contract tests, popularised by Ian Robinson and tools like Pact, let each client say which parts of a response it actually uses, so a provider can see before deploying whether a change breaks anyone. Robinson is honest about the limit: a breaking change is still a breaking change; the test just tells you sooner.
+
+## Contract without breaking
+
+Stripe's answer to removing things is to never make clients notice. Each account is pinned to the API version it first used, and the API "walks back through time" applying a small module per version change until the response matches what that client expects. Stripe has kept this compatibility since 2011, and is open about the cost: every new version is more code to understand and maintain.
+
+Inside your own systems, AWS describes a **two-phase deployment** for changing a format that servers exchange. First deploy a version that can *read* the new format while still *writing* the old one; once that's everywhere, deploy the version that writes the new one. Readers go before writers while rolling forward. Their example is a heartbeat interval changing from 5 to 10 seconds: in a test environment with one server per service, the mixed fleet that breaks it never exists.
+
+## Try it
+
+Three changes to an API. Decide which ones will break a client, and how you'd know.
+
+<CardSort mission="api-changes" />
+
+<Quiz
+  id="change-apis-1"
+  q="Your API documentation never promised that list results are sorted. Can you change the order freely?"
+  options={["Yes - it isn't in the contract", "Not safely - by Hyrum's Law, some client probably depends on the current order", "Only on a major version"]}
+  answer={1}
+  explain="Hyrum's Law: all observable behaviours will be depended on by somebody. The contract tells you what you promised, not what people rely on."
+/>
+
+<Quiz
+  id="change-apis-2"
+  q="In a two-phase deployment, what goes out first?"
+  options={["The version that writes the new format", "The version that can read the new format but still writes the old one", "Both at once, to keep it simple"]}
+  answer={1}
+  explain="Readers go before writers while rolling forward. Once every server can read both, switching what they write is safe - and rolling back is too."
+/>

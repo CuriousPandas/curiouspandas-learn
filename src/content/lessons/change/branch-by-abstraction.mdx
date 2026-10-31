@@ -1,0 +1,79 @@
+---
+title: Branch by abstraction, and delete the flag
+summary: Replace a component inside a running system without a long-lived branch - then finish the job by deleting the old path and the switch. See why the last step is the one that gets skipped, and how a forgotten flag cost one firm $460 million.
+minutes: 16
+xp: 40
+tiers: [browser]
+builds_on: [change/characterization-tests, git/branching-strategies]
+sources:
+  - title: Paul Hammant - Introducing Branch by Abstraction (2007)
+    url: https://paulhammant.com/blog/branch_by_abstraction.html
+  - title: Martin Fowler - BranchByAbstraction (2014)
+    url: https://martinfowler.com/bliki/BranchByAbstraction.html
+  - title: Danilo Sato - ParallelChange (martinfowler.com, 2014)
+    url: https://martinfowler.com/bliki/ParallelChange.html
+  - title: trunkbaseddevelopment.com - Branch by Abstraction
+    url: https://trunkbaseddevelopment.com/branch-by-abstraction/
+  - title: Pete Hodgson - Feature Toggles (aka Feature Flags) (martinfowler.com, 2017)
+    url: https://martinfowler.com/articles/feature-toggles.html
+  - title: Uber Engineering - Introducing Piranha
+    url: https://www.uber.com/blog/piranha/
+  - title: Site Reliability Engineering, ch. 9 - Simplicity (Google, CC BY-NC-ND 4.0)
+    url: https://sre.google/sre-book/simplicity/
+  - title: Vicent Martí - Move Fast and Fix Things, GitHub (2015)
+    url: https://github.blog/engineering/engineering-principles/move-fast/
+---
+
+The Strangler Lab replaced a whole system from the outside, one route at a time. Branch by abstraction does the same thing from the inside, for one component at a time - a payment provider, a storage layer, a library - without a long-lived branch that drifts away from everyone else's work.
+
+## The steps
+
+Paul Hammant introduced the name publicly in 2007, crediting Stacy Curl with it. The steps:
+
+1. Put an **abstraction** in front of the component you want to replace, and move the code that uses it onto the abstraction.
+2. Build the **new implementation** behind the same abstraction, merged into the main line as you go, switched off.
+3. **Switch** callers over to the new implementation, gradually if you can.
+4. **Delete** the old implementation.
+5. Optionally, delete the abstraction too, if it only existed for the migration.
+
+Martin Fowler's rule for the whole process: "Ensure that the system builds and runs correctly at all times." Danilo Sato's three verbs for the same shape - expand, migrate, contract - come with a warning about stopping halfway: "you might end up in a worse state than you started". The [branching strategies lesson](/learn/git/branching-strategies/) covers the flags that make step 2 possible; this lesson is about steps 4 and 5.
+
+trunkbaseddevelopment.com also says when not to use it: if customers choose when to upgrade and old interfaces have to live on, you need versioning instead.
+
+## The trap: the switch outlives the change
+
+The new implementation works, traffic is at 100%, and the team moves on. The old path and the flag stay in the code. Pete Hodgson's advice: "Savvy teams view their Feature Toggles as inventory which comes with a carrying cost", and they put a limit on how many can exist. Uber built a tool called Piranha to remove stale flags automatically, and reports removing around two thousand of them.
+
+The worst case has a regulator's report. In 2012, Knight Capital deployed new code that reused an old flag. One of its eight servers still had old, unused code behind that flag, and turning it on ran it. Google's SRE book cites the case: code "gated by a flag that is always disabled, is a metaphorical time bomb waiting to explode, as painfully experienced by Knight Capital".
+
+## Try it
+
+Three flags. Decide which one is a liability.
+
+<CardSort mission="flag-debt" />
+
+## A one-line silent failure, for real
+
+GitHub compared its old and new merge code on real traffic and found a bug in the *old* one: a merge with 768 conflicts was reported as success, because shell exit codes keep only the lowest 8 bits, and 768 is a multiple of 256. You can see the same arithmetic in any POSIX shell:
+
+```bash
+sh -c 'exit 768'; echo $?    # prints 0: "success"
+```
+
+No error, no warning: the number just wrapped. It's a reminder of why the compare-before-you-switch step matters even when you trust the old code.
+
+<Quiz
+  id="change-bba-1"
+  q="A new implementation has served 100% of traffic for six months behind a flag. What's left to do?"
+  options={["Nothing - the migration is complete", "Delete the old implementation and the flag", "Add a second flag for safety"]}
+  answer={1}
+  explain="Branch by abstraction finishes with deletion. The old path and its switch are inventory with a carrying cost, and an always-off path is exactly what Knight Capital tripped over."
+/>
+
+<Quiz
+  id="change-bba-2"
+  q="Why did 768 merge conflicts show up as success?"
+  options={["Git ignores large conflicts", "Exit statuses keep only the lowest 8 bits, and 768 is a multiple of 256", "The conflicts were resolved automatically"]}
+  answer={1}
+  explain="768 mod 256 is 0, the code for success. GitHub's side-by-side comparison of old and new code exposed it."
+/>

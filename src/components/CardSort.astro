@@ -1,11 +1,11 @@
 ---
 import '../styles/widgets.css';
-import { DECKS } from '../lib/agile/cards.ts';
+import { DECKS } from '../lib/decks.ts';
 interface Props { mission: string }
 const { mission } = Astro.props;
 const deck = DECKS[mission];
 // A misspelled deck would otherwise render an empty box that looks finished.
-if (!deck) throw new Error(`CardSort: no deck called "${mission}" in src/lib/agile/cards.ts`);
+if (!deck) throw new Error(`CardSort: no deck called "${mission}" in src/lib/decks.ts`);
 ---
 <div class="widget card cardsort" data-cards={mission}>
   <div class="widget-head">
@@ -34,7 +34,8 @@ if (!deck) throw new Error(`CardSort: no deck called "${mission}" in src/lib/agi
 </div>
 
 <script>
-  import { DECKS, deckMission, type CardState } from '../lib/agile/cards.ts';
+  import { DECKS } from '../lib/decks.ts';
+  import { deckMission, type CardState } from '../lib/cards.ts';
   import { mountMission } from '../lib/ui.ts';
 
   for (const root of document.querySelectorAll<HTMLElement>('[data-cards]')) {

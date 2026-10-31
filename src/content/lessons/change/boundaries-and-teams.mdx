@@ -1,0 +1,78 @@
+---
+title: Your architecture copies your org chart
+summary: Conway's law is quoted everywhere and read almost nowhere. Read what Conway actually wrote, what was later measured, and why the monolith-versus-microservices argument is really an argument about where to draw boundaries - and how you'd know a boundary is fake.
+minutes: 16
+xp: 40
+tiers: [browser]
+builds_on: [change/strangler-fig]
+sources:
+  - title: Melvin E. Conway - How Do Committees Invent? Datamation (April 1968)
+    url: https://www.melconway.com/Home/Committees_Paper.html
+  - title: MacCormack, Rusnak and Baldwin - Exploring the Duality between Product and Organizational Architectures, HBS working paper 08-039 (2008)
+    url: https://www.hbs.edu/ris/Publication%20Files/08-039_1861e507-1dc1-4602-85b8-90d71559d85b.pdf
+  - title: Nagappan, Murphy and Basili - The Influence of Organizational Structure on Software Quality, Microsoft Research (2008)
+    url: https://www.microsoft.com/en-us/research/publication/the-influence-of-organizational-structure-on-software-quality-an-empirical-case-study/
+  - title: Thoughtworks Technology Radar - Inverse Conway Maneuver
+    url: https://www.thoughtworks.com/radar/techniques/inverse-conway-maneuver
+  - title: Martin Fowler - MicroservicePremium (2015)
+    url: https://martinfowler.com/bliki/MicroservicePremium.html
+  - title: Martin Fowler - MonolithFirst (2015)
+    url: https://martinfowler.com/bliki/MonolithFirst.html
+  - title: Stefan Tilkov - Don't start with a monolith (2015)
+    url: https://martinfowler.com/articles/dont-start-monolith.html
+  - title: DORA - Loosely coupled teams (CC BY 4.0)
+    url: https://dora.dev/capabilities/loosely-coupled-teams/
+  - title: Rails at Scale - A Packwerk Retrospective, Shopify (2024)
+    url: https://railsatscale.com/2024-01-26-a-packwerk-retrospective/
+  - title: Eric Evans - Domain-Driven Design Reference (2015, CC BY 4.0)
+    url: https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf
+  - title: Microsoft Azure Architecture Center - Anti-corruption Layer pattern
+    url: https://learn.microsoft.com/en-us/azure/architecture/patterns/anti-corruption-layer
+---
+
+Every migration in this trail moves something across a boundary: a route behind a façade, a column into a new table, a caller onto a new API. Where those boundaries sit decides how hard each move is. Two ideas dominate that conversation, and both are quoted far more than they're read.
+
+## What Conway wrote
+
+Melvin Conway's 1968 paper argued that "organizations which design systems ... are constrained to produce designs which are copies of the communication structures of these organizations." That's the part everyone quotes. His conclusion, a few lines later, gets left out: "flexibility of organization is important to effective design". Conway wasn't saying "draw the org chart first". He was saying the design will follow how people communicate, so the organisation has to be able to change with the design.
+
+## What was measured
+
+Two studies tested the idea with real code:
+
+- MacCormack, Rusnak and Baldwin compared products built by tightly and loosely coupled organisations and found the loosely coupled ones' products were substantially more modular - by up to a factor of eight in their 2008 working paper.
+- At Microsoft, Nagappan, Murphy and Basili found that measures of organisational structure predicted which Windows Vista binaries would be failure-prone better than code measures such as churn and complexity did.
+
+Both are associations. Neither shows that redrawing the org chart *causes* a better design. The "inverse Conway manoeuvre", deliberately shaping teams to get the architecture you want, was rated "Trial" on the Thoughtworks Radar in 2014 and 2015: worth pursuing, not proven.
+
+## Monolith or microservices: an argument about boundaries
+
+In 2015 Martin Fowler wrote "don't even consider microservices unless you have a system that's too complex to manage as a monolith". In his "Monolith First" he added that almost all the successful microservice stories he'd heard had started with a monolith, and he labelled that as stories, not data. Stefan Tilkov replied that starting with a monolith "is usually exactly the wrong thing to do". Read together, they agree on the hard part: getting the boundaries right. They disagree only on whether you can find them before you have a running system.
+
+DORA gives a practical test for when the boundaries have failed: many so-called service-oriented architectures "don't permit testing and deploying services independently of each other". Services that can only be deployed together are a monolith with network calls in between.
+
+## How you'd know a boundary is fake
+
+Shopify spent years splitting its huge Rails monolith into packages with a tool called Packwerk, which checks that code only uses what other packages expose. Their 2024 retrospective is unusually honest. A package could pass every Packwerk check and still "actually crash with name errors when its code is executed". Their conclusion: "running code, more than any metric, will always be the best indicator of real progress."
+
+That's the configured-but-inert trap once more: a boundary that passes its checks and doesn't hold.
+
+## Translating at the boundary
+
+When new code has to talk to an old system whose model it doesn't want to inherit, Eric Evans's **anti-corruption layer** sits between them and translates. His Domain-Driven Design Reference is licensed CC BY 4.0. Microsoft's guidance lists what it costs: added latency, another service to run, and a decision to make about whether the layer is permanent or will be retired once the migration is done. In the [Strangler Lab](/learn/change/strangler-fig/), the façade played a similar part.
+
+<Quiz
+  id="change-boundaries-1"
+  q="What did Conway conclude, in the line after the famous one?"
+  options={["Draw the org chart before the architecture", "Flexibility of organization is important to effective design", "Large teams can't build good systems"]}
+  answer={1}
+  explain="'Flexibility of organization is important to effective design.' The design follows how people communicate, so the organisation needs to be able to change."
+/>
+
+<Quiz
+  id="change-boundaries-2"
+  q="Two services must always be released together, or tests fail. What does DORA's definition suggest you have?"
+  options={["A healthy microservice architecture", "Coupling that defeats the point of separate services - effectively a distributed monolith", "Good integration testing"]}
+  answer={1}
+  explain="DORA's loosely coupled teams capability is about testing and deploying independently. Services that can't be are separate only on the diagram."
+/>

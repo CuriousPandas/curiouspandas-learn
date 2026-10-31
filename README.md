@@ -15,7 +15,7 @@ per learner, paid for by the site. This one never runs compute for anyone.
 
 | Tier | Where it runs | What it covers |
 |---|---|---|
-| Browser | any device | every lesson's core: real-hash git, a cluster sim, a neural net, a tokenizer, a model-server sim, a strangler-fig migration lab, a flow board |
+| Browser | any device | every lesson's core: real-hash git, a cluster sim, a neural net, a tokenizer, a model-server sim, a strangler-fig migration lab, a database lock queue, a flow board |
 | Browser+ | the learner's GPU (WebGPU) | optional extras only, feature-detected |
 | Your machine | Docker + kind + Tilt | the "Do it for real" tilt labs (about 15 GB of disk and 8 GB of spare RAM) |
 | Codespace | the learner's own free cloud quota | planned, not built |
@@ -83,6 +83,7 @@ inline scripts, and has not been added yet.
 | A corrupt progress store is never overwritten | `tests/progress.test.ts` |
 | A renamed lesson, quiz or mission never strands a learner's progress | `tests/progress-ids.test.ts`: every id ever shipped is in `tests/progress-ids.json`; one that disappears needs an entry in `src/lib/progress-renames.ts`, which moves learners' records on their next visit. After adding content, run `node scripts/progress-ids.ts --write` |
 | A comparison never reads as a pass when nothing was compared | `tests/change.test.ts`: the shadow bench and Strangler Lab report "not checked" for zero comparisons, count "served by" per request rather than from the configured mode, and each documented trap (no comparator, header-named mirror target, missing mirror fraction, a sample that matches nobody, mirrored writes, a façade rule that never matches, an over-broad normaliser, dual writes, the monthly caller) is pinned by name |
+| A migration that waits is shown as the outage it causes | `tests/change.test.ts`: in the lock-queue simulator a 300 ms ALTER queued behind a long transaction stalls every later SELECT, `lock_timeout` makes the migration fail instead of the site, a table rewrite is not saved by `lock_timeout`, and a constant default rewrites on PostgreSQL 10 but not 11 |
 | The Flow Lab's numbers come from capacity, and its Little's Law check can actually fail | `tests/agile.test.ts`: cycle time is never computed from the law; the same item-days are counted from daily WIP and from each item's start and finish, and a bookkeeper that drops items fails the check; an empty window says "not measured"; a WIP limit keeps throughput while a limit of 1 starves it |
 | A card deck can only be passed by reading it | `tests/agile.test.ts`: the right answer moves between positions, every option explains why it is right or wrong, a wrong reading never ticks a step, and a diagnosis deck includes a healthy case so "everything is broken" fails |
 | Quoted text keeps its exact characters | `check-site` scenario `manifesto-verbatim`: the typography pass turns `--` into an en dash, so the Agile Manifesto's "Simplicity--the art..." is pinned as rendered, along with the declaration's notice |

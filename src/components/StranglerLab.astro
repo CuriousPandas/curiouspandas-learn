@@ -1,8 +1,10 @@
 ---
 import '../styles/widgets.css';
 import { MONTH } from '../lib/change/strangler.ts';
+interface Props { mission?: 'strangler-fig' | 'decommission' }
+const { mission = 'strangler-fig' } = Astro.props;
 ---
-<div class="widget card strangler" data-strangler>
+<div class="widget card strangler" data-strangler data-mission={mission}>
   <div class="widget-head">
     <strong>Strangler Lab</strong>
     <span class="pill info">simulated: invented traffic, one day per step, simplified data sync</span>
@@ -81,16 +83,17 @@ import { MONTH } from '../lib/change/strangler.ts';
 </div>
 
 <script>
-  import { Strangler, ENDPOINTS, DIFFS, MIN_COMPARED, MONTH, endpoint, type Mode, type Normaliser, type WritePolicy, type Sync, type Verdict } from '../lib/change/strangler.ts';
-  import { STRANGLER_MISSION } from '../lib/change/missions.ts';
+  import { ENDPOINTS, DIFFS, MIN_COMPARED, MONTH, endpoint, type Mode, type Normaliser, type WritePolicy, type Sync, type Verdict } from '../lib/change/strangler.ts';
+  import { STRANGLER_MISSION, DECOMMISSION_MISSION } from '../lib/change/missions.ts';
   import { mountMission, el } from '../lib/ui.ts';
 
   const MODES: Mode[] = ['legacy', 'shadow', 'new'];
 
   for (const root of document.querySelectorAll<HTMLElement>('[data-strangler]')) {
-    const state = STRANGLER_MISSION.setup();
+    const m = root.dataset.mission === 'decommission' ? DECOMMISSION_MISSION : STRANGLER_MISSION;
+    const state = m.setup();
     const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
-    const refresh = mountMission(q('[data-mission-panel]'), STRANGLER_MISSION, () => state, () => {});
+    const refresh = mountMission(q('[data-mission-panel]'), m, () => state, () => {});
     const lab = () => state.lab;
 
     const ruleRow = (id: string) => {
@@ -180,7 +183,7 @@ import { MONTH } from '../lib/change/strangler.ts';
       if (n === 'month') lab().runToMonthEnd(); else lab().runDays(Number(n));
       draw();
     }));
-    q('[data-reset]').addEventListener('click', () => { state.lab = new Strangler(); draw(); });
+    q('[data-reset]').addEventListener('click', () => { state.lab = m.setup().lab; draw(); });
     q('[data-normaliser]').addEventListener('change', (e) => { lab().normaliser = (e.target as HTMLSelectElement).value as Normaliser; draw(); });
     q('[data-writes]').addEventListener('change', (e) => { lab().writes = (e.target as HTMLSelectElement).value as WritePolicy; draw(); });
     q('[data-sync]').addEventListener('change', (e) => { lab().setSync((e.target as HTMLSelectElement).value as Sync); draw(); });
@@ -219,10 +222,12 @@ import { MONTH } from '../lib/change/strangler.ts';
   .strangler .st-diffs { display: grid; gap: 8px; }
   .strangler .st-diff { display: grid; gap: 4px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 0.83rem; }
   .strangler .st-diff.open { border-color: var(--berry); }
-  .strangler .st-diff.closed { opacity: 0.85; border-style: dashed; }
+  /* Resolved is shown by the dashed border alone: fading with opacity dropped
+     the card's text below WCAG contrast (axe, decommission lesson). */
+  .strangler .st-diff.closed { border-style: dashed; }
   .strangler .st-diff code { overflow-wrap: anywhere; white-space: pre-wrap; }
   .strangler .st-diff p { margin: 0; }
-  .strangler .st-diff [aria-pressed="true"] { background: var(--sky); color: var(--bg); border-color: var(--sky); }
+  .strangler .st-diff [aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .strangler .st-src { color: var(--ink-2); font-style: italic; }
   .strangler .st-recon.bad, .strangler .st-watch.bad { color: var(--berry); font-weight: 650; }
   .strangler .st-recon.ok { color: var(--bamboo); font-weight: 650; }

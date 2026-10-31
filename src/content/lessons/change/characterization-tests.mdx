@@ -1,0 +1,63 @@
+---
+title: Pin what it does before you change what it should do
+summary: Before you can safely change legacy code, you need tests - and the first ones should assert what the code does today, bugs included. Meet seams and characterization tests, and find out how an approval test can quietly stop being able to fail.
+minutes: 16
+xp: 40
+tiers: [browser]
+builds_on: [change/rewrite-or-evolve]
+sources:
+  - title: Understand Legacy Code - Key points of Working Effectively with Legacy Code (summary of Feathers, 2004)
+    url: https://understandlegacycode.com/blog/key-points-of-working-effectively-with-legacy-code/
+  - title: Michael Feathers - Working Effectively with Legacy Code, excerpt on seams (InformIT, Pearson)
+    url: https://www.informit.com/articles/article.aspx?p=359417&seqNum=2
+  - title: ApprovalTests (approvaltests.com)
+    url: https://approvaltests.com/
+  - title: ApprovalTests.Java - README
+    url: https://github.com/approvals/ApprovalTests.Java
+  - title: J. B. Rainsberger - How not to write golden master tests
+    url: https://blog.thecodewhisperer.com/permalink/how-not-to-write-golden-master-tests
+---
+
+The previous lesson argued for changing a system in place instead of rewriting it. That raises the obvious problem: legacy code is often code nobody dares to touch, precisely because there's nothing to tell you when you've broken it. This lesson is about building that safety net first.
+
+## Feathers's three ideas
+
+Michael Feathers's *Working Effectively with Legacy Code* (2004) gave the field its vocabulary. The seam definitions below are his words, from the book's published excerpt; the other two are paraphrases, as summarised by others:
+
+- **Legacy code** is code without tests. Not old code, not bad code: code you can't change with confidence.
+- A **seam**: "A seam is a place where you can alter behavior in your program without editing in that place." Passing in a different object, or linking a different implementation, are examples. And: "Every seam has an enabling point, a place where you can make the decision to use one behavior or another."
+- A **characterization test** records what the code actually does today, whether that's right or not. You aren't specifying correct behaviour yet. You're pinning current behaviour, so a refactor that changes it by accident goes red.
+
+That last point feels wrong at first. A test that asserts a bug? Yes, on purpose. Fixing the bug becomes a deliberate change with the test updated alongside it, instead of something that happens by accident in the middle of a refactor.
+
+## Approval tests: characterization at scale
+
+When the output is big - a report, a page of HTML, a large JSON document - writing assertions by hand is impractical. Approval testing captures the whole output instead. The first run writes a `received` file; you read it and, if it's what the code does, save it as the `approved` file. From then on, the test fails whenever the received output differs from the approved one. The tool is open source and has ports for many languages.
+
+The same idea is often called a golden master test, and it has a well-known way to go wrong. When the test goes red and you're confident the new output is right, it's tempting to re-approve it without reading the difference. Do that once with a bug in the output, and the test now asserts the bug. J. B. Rainsberger's advice is to make regenerating the golden master a deliberate, separate step, never the reflex when a test fails.
+
+## Try it
+
+Three approval tests. For each, decide what it can still catch.
+
+<CardSort mission="golden-master" />
+
+<Callout kind="trap">
+Ask of any test: what change to the code would make this fail? If the honest answer is "nothing" - because the reference was regenerated from the bug, or the scrubber hides every number - the test is green and blind. Checked-and-clear has to look different from never-looked.
+</Callout>
+
+<Quiz
+  id="change-characterization-1"
+  q="A characterization test asserts that legacy code rounds half-pennies down, which you think is wrong. Why keep it?"
+  options={["You shouldn't - tests must assert correct behaviour", "It pins today's behaviour so a refactor can't change it by accident; fixing it becomes a deliberate change", "To make the test suite bigger"]}
+  answer={1}
+  explain="Characterization tests record what the code does, not what it should do. The point is to make every behaviour change visible and intended."
+/>
+
+<Quiz
+  id="change-characterization-2"
+  q="An approval test went red after a refactor. You're sure the new output is right. What should you do before re-approving?"
+  options={["Re-approve straight away - you're sure", "Read the difference, and re-approve only what you've confirmed is intended", "Delete the test"]}
+  answer={1}
+  explain="Re-approving without reading turns the test into a check that the code does whatever it now does - including any bug in the new output."
+/>

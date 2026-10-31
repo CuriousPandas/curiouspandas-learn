@@ -1,0 +1,85 @@
+---
+title: A sub-second migration, a 15-second outage
+summary: A schema change that takes 300 milliseconds can still stop a site for seconds, because of where it waits. Learn expand, migrate, contract; then run migrations against a real-shaped lock queue and find the settings that make the deploy fail instead of the site.
+minutes: 20
+xp: 50
+tiers: [browser]
+builds_on: [databases/transactions, databases/indexes]
+sources:
+  - title: GoCardless - Zero-downtime Postgres migrations - the hard parts
+    url: https://gocardless.com/blog/zero-downtime-postgres-migrations-the-hard-parts/
+  - title: PostgreSQL documentation - ALTER TABLE
+    url: https://www.postgresql.org/docs/current/sql-altertable.html
+  - title: PostgreSQL documentation - Explicit locking
+    url: https://www.postgresql.org/docs/current/explicit-locking.html
+  - title: PostgreSQL 11 release notes
+    url: https://www.postgresql.org/docs/11/release-11.html
+  - title: PostgreSQL documentation - CREATE INDEX
+    url: https://www.postgresql.org/docs/current/sql-createindex.html
+  - title: Danilo Sato - ParallelChange (martinfowler.com, 2014)
+    url: https://martinfowler.com/bliki/ParallelChange.html
+  - title: Jacqueline Xu - Online migrations at scale, Stripe (2017)
+    url: https://stripe.com/blog/online-migrations
+  - title: Pramod Sadalage and Martin Fowler - Evolutionary Database Design
+    url: https://martinfowler.com/articles/evodb.html
+  - title: GitHub - gh-ost, why triggerless
+    url: https://github.com/github/gh-ost/blob/master/doc/why-triggerless.md
+---
+
+Code can be rolled back in seconds. Data can't. A schema change is a code change that also rewrites the shape of everything already stored, while the old code is still running and reading it. That's why changing a database under a live system has its own pattern, and its own very quiet way of taking a site down.
+
+## Expand, migrate, contract
+
+Danilo Sato's name for the pattern is **parallel change**, in three steps: *expand* to support both the old and the new shape, *migrate* everything onto the new one, then *contract* by removing the old. Renaming a column becomes: add the new column, write to both, backfill, move reads, stop writing the old one, drop it. Each step can be deployed and rolled back on its own.
+
+Stripe described the same shape for moving data between stores: dual-write to both, change reads to the new one, change writes, then remove the old data, while keeping its services running throughout. Pramod Sadalage and Martin Fowler call the time when both shapes exist the transition period, and it can last months. The contract step is the one teams skip, and the reason the old column is still there years later.
+
+## The trap: waiting, not running
+
+GoCardless added foreign keys to new, empty tables that nothing used yet. The new tables referenced busy existing ones. Run against a copy of the database, the migration took a few hundred milliseconds. In production, the API went down for about 15 seconds.
+
+The reason is the lock queue. In PostgreSQL, `ALTER TABLE` takes the strongest lock, ACCESS EXCLUSIVE, unless the documentation says otherwise for that form, and a plain `SELECT` takes ACCESS SHARE, which conflicts only with ACCESS EXCLUSIVE. A long-running read on one of those busy tables was holding ACCESS SHARE, so the ALTER had to wait. (Since PostgreSQL 9.5, adding a foreign key takes a weaker lock than it used to; the queueing works the same way for any statement that needs ACCESS EXCLUSIVE.) And while it waited at the front of the queue, every ordinary query that arrived after it had to wait behind it. In GoCardless's words: "having one sat in the queue blocks all other operations". By default a lock request waits indefinitely.
+
+## Try it
+
+One table, an app sending a query every 100 ms, and a report that keeps a transaction open for 12 seconds. The locking rules are PostgreSQL's; the workload is invented. Each bar is one second, showing how many app queries are stuck at that moment.
+
+<LockQueue />
+
+<Callout kind="trap">
+A migration's duration on your laptop measures how long it *runs*. What takes the site down is how long it *waits*, at the front of a queue every other query must join. Set `lock_timeout` on migrations so a blocked one fails fast and can be retried, instead of holding everyone else's queries hostage.
+</Callout>
+
+## Versions change the answer
+
+Whether adding a column rewrites the table depends on the default and on the version:
+
+- Since PostgreSQL 11, adding a column with a **constant** default no longer rewrites the table.
+- A **volatile** default, like `clock_timestamp()`, still rewrites every row while holding the lock. `lock_timeout` doesn't help here: the lock is granted at once and then held for the whole copy.
+- `CREATE INDEX CONCURRENTLY` avoids blocking writes, but if it fails it leaves an **invalid** index behind. Queries ignore it, writes still maintain it, and if the failure came in its second scan, an invalid unique index still enforces uniqueness: the index exists, does nothing for reads, and still costs on every write.
+
+MySQL teams hit the same wall from a different side. GitHub built gh-ost because trigger-based tools for online schema changes caused, in its words, "near or complete lock downs in production".
+
+<Quiz
+  id="change-schemas-1"
+  q="A migration takes 300 ms on a copy of production. In production it caused a 15-second outage. What's the most likely reason?"
+  options={["Production hardware is slower", "It waited for a lock behind a long-running query, and every query arriving after it waited behind it", "The copy had fewer rows"]}
+  answer={1}
+  explain="ALTER TABLE needs ACCESS EXCLUSIVE. Queued behind a long transaction, it blocks every later SELECT, even ones that would never conflict with the long one. Run time and wait time are different numbers."
+/>
+
+<Quiz
+  id="change-schemas-2"
+  q="You set lock_timeout to 2 seconds on a migration that adds a column with DEFAULT clock_timestamp(). Nothing else is running. Is the site safe?"
+  options={["Yes - the timeout caps the stall at 2 seconds", "No - the lock is granted immediately, then held while the whole table is rewritten", "Yes, on PostgreSQL 11 or later"]}
+  answer={1}
+  explain="lock_timeout limits waiting for a lock, not holding it. A volatile default rewrites the table under ACCESS EXCLUSIVE on every version."
+/>
+
+<Quiz
+  id="change-schemas-3"
+  q="In expand-migrate-contract, which step gets skipped most, leaving both shapes in place for years?"
+  options={["Expand", "Migrate", "Contract"]}
+  answer={2}
+  explain="Once everything works on the new shape, removing the old one feels optional - until the second copy of every field is someone's bug."
+/>
