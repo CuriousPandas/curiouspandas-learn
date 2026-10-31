@@ -69,7 +69,7 @@ export const GOLDEN_MASTER: Deck = {
       id: 'scrubber', title: 'A generous scrubber',
       body: 'The output contains timestamps, so a scrubber replaces them before comparing. To be safe, it replaces every digit in the file.',
       options: [
-        { id: 'blind', text: 'The test can no longer see a wrong number anywhere in the output', why: 'Supported, and it is our inference rather than a published incident: a scrubber this broad turns every numeric change into a match.' },
+        { id: 'blind', text: 'The test can no longer see a wrong number anywhere in the output', why: 'Supported. This one is our inference rather than a published incident: a scrubber this broad turns every numeric change into a match.' },
         { id: 'fine', text: 'Fine: it removes all the noise', why: 'It removes the noise and every price, count and total along with it. Scrub the fields that vary, not the whole category.' },
         { id: 'slow', text: 'The only cost is speed', why: 'The cost is that the test passes when the numbers are wrong.' },
       ],
@@ -133,7 +133,7 @@ export const API_CHANGES: Deck = {
       id: 'optional', title: 'A new optional field',
       body: 'An API starts returning an extra field, "currency", alongside the existing ones. Nothing is removed or renamed.',
       options: [
-        { id: 'expand', text: 'An expand step: safe for clients that ignore fields they do not know', why: 'Supported, with that condition. Martin Fowler\'s Tolerant Reader is a client that takes only what it needs and ignores the rest.' },
+        { id: 'expand', text: 'An expand step: safe for clients that ignore fields they do not know', why: 'Supported. That holds for tolerant clients: Martin Fowler\'s Tolerant Reader is a client that takes only what it needs and ignores the rest.' },
         { id: 'breaking', text: 'Breaking: any change to a response is breaking', why: 'Adding is the safest change there is - for tolerant clients. A client that rejects unknown fields will break, which is why the condition matters.' },
         { id: 'needsversion', text: 'Needs a new API version', why: 'Versioning every addition multiplies the versions you maintain. Stripe keeps its old versions working, and says each one is more code to maintain.' },
       ],
