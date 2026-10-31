@@ -39,7 +39,9 @@ export function checkExpeditions(plans: ExpeditionPlan[], lessons: Map<string, L
     for (const id of e.lessons) {
       const l = lessons.get(id);
       if (!l) { problems.push(`${e.id} lists ${id}, which does not exist`); continue; }
-      if (!l.ready) problems.push(`${e.id} lists ${id}, which is not ready`);
+      // A planned expedition may name planned lessons; the one learners can
+      // follow may not. Its order is still checked against what is known.
+      if (!l.ready && e.status === 'ready') problems.push(`${e.id} lists ${id}, which is not ready`);
       if (seen.has(id)) problems.push(`${e.id} lists ${id} twice`);
       for (const dep of l.buildsOn) {
         if (!seen.has(dep)) {

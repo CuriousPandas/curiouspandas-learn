@@ -1,0 +1,69 @@
+---
+title: Forecasts, not promises
+summary: Velocity becomes a target, the points go up, and delivery doesn't move. See what the Scrum Guide actually says about estimates, watch a velocity target inflate the numbers, and find the one count that can't be gamed.
+minutes: 16
+xp: 40
+tiers: [browser]
+builds_on: [agile/flow]
+sources:
+  - title: Ken Schwaber and Jeff Sutherland - The 2020 Scrum Guide (CC BY-SA 4.0)
+    url: https://scrumguides.org/scrum-guide.html
+  - title: Ron Jeffries - Story Points Revisited (2019)
+    url: https://ronjeffries.com/articles/019-01ff/story-points/Index.html
+  - title: Daniel Vacanti and Jim Coleman - The Kanban Guide (kanbanguides.org)
+    url: https://kanbanguides.org/english/
+  - title: Ron Jeffries - Dark Scrum (2016)
+    url: https://ronjeffries.com/articles/016-09ff/defense/
+---
+
+Somewhere in most organisations that "do Scrum", a chart shows velocity going up and to the right, and someone is pleased about it. This lesson is about what that chart can and can't tell you, and about the number that answers the question the chart is being asked.
+
+## What the Scrum Guide says, and doesn't
+
+The 2020 Scrum Guide never uses the words "story point", "velocity" or "estimate". It mentions sizing once: "The Developers who will be doing the work are responsible for the sizing." On forecasting it says: "Various practices exist to forecast progress, like burn-downs, burn-ups, or cumulative flows. While proven useful, these do not replace the importance of empiricism." What a team commits to in a Sprint is the Sprint Goal, and "Scope may be clarified and renegotiated with the Product Owner as more is learned."
+
+So a velocity target is not part of Scrum. It's something organisations add, and it changes what the number means.
+
+## The person who may have invented story points
+
+Ron Jeffries, one of the authors of the Agile Manifesto, wrote in 2019: "I may have invented story points, and if I did, I'm sorry now" - and, closing the same article, "I'm probably a little sorry now, but not very sorry." In his account, the team first estimated in ideal days, then multiplied by a load factor that "tended to be about three", and points were a way to stop arguing about why an ideal day took three real ones. His warning about how they are used now is direct: "I think comparing teams on quality of estimates or velocity is harmful." And: "Increasing pressure to do more almost inevitably has a bad result: the team tries to go faster, and wind up skimping on code quality and on tests."
+
+The general idea is usually called Goodhart's law, after the economist Charles Goodhart's observation about monetary statistics in the mid-1970s. The popular one-line version - that a measure turned into a target stops being a good measure - is a later generalisation by other writers, not Goodhart's own words. We haven't been able to read the originals, so we don't quote any of them here.
+
+## Try it
+
+The same Flow Lab, with sprints. A velocity target makes each sprint's estimates a little bigger. Nobody lies; the same work just gets sized up under pressure. **The rate of inflation is invented.** No study we could find measures how fast points inflate under a target, and figures you may see quoted, like "40% inflation", have no traceable source either.
+
+<FlowLab mission="velocity-target" />
+
+<Callout kind="trap">
+Velocity is a sum of estimates. Raise the pressure on it and the estimates are what move: the work doesn't. Throughput is a count of finished items, so the only way to raise it is to finish more. When the two charts disagree, believe the count.
+</Callout>
+
+## Forecasting without points
+
+If points can drift, how does a team answer "when will it be done"? The Kanban Guide's approach uses what already happened: throughput as an exact count, and cycle time as a distribution. "85% of items finish within 10 days" is a forecast built from the team's own history, which a target can't inflate without the team actually finishing faster. The trade-off is honesty about uncertainty: you get a range and a confidence level, never a single date.
+
+<Quiz
+  id="agile-forecasts-1"
+  q="According to the 2020 Scrum Guide, what does a Scrum Team commit to for a Sprint?"
+  options={["A velocity in story points", "The Sprint Goal - scope can be clarified and renegotiated", "Every item selected in Sprint Planning"]}
+  answer={1}
+  explain="The guide never mentions story points or velocity. The Sprint Goal is the commitment; the scope 'may be clarified and renegotiated with the Product Owner' as the team learns."
+/>
+
+<Quiz
+  id="agile-forecasts-2"
+  q="After a velocity target is introduced, velocity rises 40% over three sprints and the number of finished items stays flat. What happened?"
+  options={["The team got 40% faster", "The estimates grew; delivery didn't change", "The items got smaller"]}
+  answer={1}
+  explain="Velocity is a sum of estimates, so it can rise without anything more being finished. Throughput - the exact count of finished items - is the number that shows whether delivery changed."
+/>
+
+<Quiz
+  id="agile-forecasts-3"
+  q="A stakeholder asks when the next item will be done. Which answer comes from the team's own history and can't be inflated by a target?"
+  options={["Eight more points of velocity", "85% of our items finish within 10 days", "By the end of the sprint - we committed to it"]}
+  answer={1}
+  explain="A percentile of past cycle times is built from items that actually finished. It gives a range and a confidence instead of a single date, and the only way to improve it is to finish faster."
+/>

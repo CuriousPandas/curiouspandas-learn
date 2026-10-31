@@ -1,0 +1,208 @@
+---
+import '../styles/widgets.css';
+import { WORKERS, MAX_PER_ITEM, WINDOW, SPRINT, SLE } from '../lib/agile/flow.ts';
+interface Props { mission?: 'flow-wip' | 'velocity-target' }
+const { mission = 'flow-wip' } = Astro.props;
+const forecast = mission === 'velocity-target';
+---
+<div class="widget card flowlab" data-flow data-mission={mission}>
+  <div class="widget-head">
+    <strong>Flow Lab</strong>
+    <span class="pill info">simulated: {WORKERS} people, one unit of work each a day, at most {MAX_PER_ITEM} on an item; invented sizes and arrivals</span>
+    <span class="spacer"></span>
+    <span class="pill" data-day>day 0</span>
+  </div>
+  <div class="controls">
+    <label>arrivals
+      <select data-load><option value="steady">a little under capacity</option><option value="overload">more than the team can finish</option></select>
+    </label>
+    <label>WIP limit
+      <select data-limit><option value="none">none: start everything</option><option value="8">8</option><option value="4">4</option><option value="2">2</option><option value="1">1</option></select>
+    </label>
+    <label><input type="checkbox" data-sliced /> slice items smaller</label>
+    {forecast && <label><input type="checkbox" data-target /> velocity target</label>}
+  </div>
+  <div class="controls">
+    <button class="btn small primary" type="button" data-run={String(SPRINT)}>Run a sprint ({SPRINT} days)</button>
+    <button class="btn small" type="button" data-run="1">Run a day</button>
+    <button class="btn small" type="button" data-reset>Reset</button>
+  </div>
+  <div class="fl-grid">
+    <div class="fl-main">
+      <div class="fl-board" data-board aria-label="The board"></div>
+      <div class="stats">
+        <div class="stat">WIP now<b data-wip>0</b></div>
+        <div class="stat">finished, last {WINDOW} days<b data-tp>0</b></div>
+        <div class="stat">cycle time p50 / p85<b data-ct>-</b></div>
+        <div class="stat">oldest in progress<b data-age>-</b></div>
+      </div>
+      <svg class="fl-scatter" data-scatter viewBox="0 0 320 120" role="img" aria-label="Cycle time of each finished item"></svg>
+      <p class="fl-sle muted">Service level expectation: {SLE.percentile}% of items finish in {SLE.days} days or less.</p>
+      <section class="fl-little">
+        <button class="btn small" type="button" data-little>Check Little's Law (last {WINDOW} days)</button>
+        <div data-little-out aria-live="polite"></div>
+      </section>
+      {forecast && (
+        <section class="fl-sprints">
+          <table data-sprints><caption>Sprints</caption><thead><tr><th scope="col">sprint</th><th scope="col">velocity (points)</th><th scope="col">finished items</th><th scope="col">points per item</th></tr></thead><tbody></tbody></table>
+          <fieldset class="fl-q" data-question>
+            <legend>Which number counts delivery?</legend>
+            <label><input type="radio" name="fl-answer" value="velocity" /> velocity</label>
+            <label><input type="radio" name="fl-answer" value="ppi" /> points per item</label>
+            <label><input type="radio" name="fl-answer" value="throughput" /> finished items</label>
+          </fieldset>
+        </section>
+      )}
+      <p class="fl-absent muted">There is no "how much the team cares" control. Nobody has measured how much that changes delivery, so this lab does not pretend to.</p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { FlowBoard, WINDOW, SLE, percentile, type LittleCheck, type Load } from '../lib/agile/flow.ts';
+  import { FLOW_MISSION, FORECAST_MISSION, type FlowState } from '../lib/agile/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = (tag: string, attrs: Record<string, string | number>) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    return e;
+  };
+  const fmt = (n: number) => (Math.round(n * 100) / 100).toString();
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-flow]')) {
+    const m = root.dataset.mission === 'velocity-target' ? FORECAST_MISSION : FLOW_MISSION;
+    const state: FlowState = m.setup();
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s);
+    const refresh = mountMission(q('[data-mission-panel]')!, m, () => state, () => {});
+    const b = () => state.board;
+
+    // The controls start from the board's own settings: the forecast mission
+    // begins with a limit already set.
+    const syncControls = () => {
+      q<HTMLSelectElement>('[data-load]')!.value = b().load;
+      q<HTMLSelectElement>('[data-limit]')!.value = b().wipLimit === null ? 'none' : String(b().wipLimit);
+      q<HTMLInputElement>('[data-sliced]')!.checked = b().sliced;
+      const t = q<HTMLInputElement>('[data-target]'); if (t) t.checked = b().velocityTarget;
+    };
+
+    const card = (label: string, cls = '') => el('span', { class: `fl-card ${cls}` }, label);
+    const column = (title: string, count: number, cards: Node[], more: number) =>
+      el('div', { class: 'fl-col' }, el('strong', {}, `${title} `, el('span', { class: 'muted' }, String(count))), el('div', { class: 'fl-cards' }, ...cards, ...(more > 0 ? [el('span', { class: 'fl-more' }, `+${more} more`)] : [])));
+
+    const drawLittle = (c: LittleCheck | undefined) => {
+      const out = q('[data-little-out]')!;
+      if (!c) { out.replaceChildren(); return; }
+      if ('notMeasured' in c) { out.replaceChildren(el('p', { class: 'fl-verdict not-measured' }, 'Not measured: nothing was on the board in this window, so there is nothing to check.')); return; }
+      const p = c.practitioner;
+      out.replaceChildren(
+        el('p', { class: `fl-verdict ${c.holds ? 'holds' : 'broken'}` }, c.holds
+          ? `Holds exactly: area under the WIP line ${c.area} item-days = time items spent inside the window ${c.residence} item-days.`
+          : `Broken: area ${c.area} item-days but items account for ${c.residence}. The bookkeeping has lost or double-counted an item.`),
+        el('p', {}, `L = ${fmt(c.L)} items · λ = ${fmt(c.lambda)} items/day (${c.present} items present over ${c.days} days) · W = ${fmt(c.W)} days, and λ × W = ${fmt(c.lambda * c.W)}`),
+        el('p', { class: 'muted' }, `The everyday version, finished items only: ${p.finished} finished, throughput ${fmt(p.throughput)}/day × average cycle time ${fmt(p.cycle)} days = ${fmt(p.predictedWip)} vs average WIP ${fmt(c.L)} - ${Math.round(p.gap * 100)}% apart.`),
+      );
+    };
+
+    const drawScatter = () => {
+      const s = q('[data-scatter]')!;
+      const [a, z] = b().window();
+      const done = b().finishedIn([a, z]);
+      const ct = done.map((i) => i.finish! - i.start!);
+      const maxY = Math.max(SLE.days + 2, ...ct, 1);
+      const x = (d: number) => 30 + ((d - a) / Math.max(1, z - a)) * 280;
+      const y = (v: number) => 105 - (v / maxY) * 95;
+      const kids: Element[] = [svg('line', { x1: 30, y1: 105, x2: 312, y2: 105, class: 'axis' }), svg('line', { x1: 30, y1: 8, x2: 30, y2: 105, class: 'axis' })];
+      const line = (v: number, cls: string, label: string) => {
+        kids.push(svg('line', { x1: 30, x2: 312, y1: y(v), y2: y(v), class: cls }));
+        const t = svg('text', { x: 34, y: y(v) - 3, class: `lbl ${cls}` }); t.textContent = label; kids.push(t);
+      };
+      line(SLE.days, 'sle', `SLE ${SLE.days}d`);
+      const p50 = percentile(ct, 50), p85 = percentile(ct, 85);
+      if (p85 !== null) line(p85, 'p85', `p85 ${p85}d`);
+      if (p50 !== null) line(p50, 'p50', `p50 ${p50}d`);
+      done.forEach((i) => kids.push(svg('circle', { cx: x(i.finish!), cy: y(i.finish! - i.start!), r: 2.6, class: 'dot' })));
+      s.replaceChildren(...kids);
+      s.setAttribute('aria-label', done.length ? `${done.length} items finished in the last ${z - a} days; cycle time p50 ${p50} days, p85 ${p85} days, service level ${SLE.days} days` : 'No items finished yet');
+    };
+
+    const draw = () => {
+      const bd = b();
+      q('[data-day]')!.textContent = `day ${bd.day}`;
+      const backlog = bd.backlog, wip = bd.inProgress;
+      const done = bd.finishedIn(bd.window());
+      q('[data-board]')!.replaceChildren(
+        column('Backlog', backlog.length, backlog.slice(0, 8).map((i) => card(`#${i.id}`)), backlog.length - 8),
+        column('In progress', wip.length, wip.slice(0, 14).map((i) => { const age = bd.day - i.start!; return card(`#${i.id} · ${age}d`, age > SLE.days ? 'old' : ''); }), wip.length - 14),
+        column(`Done, last ${WINDOW} days`, done.length, done.slice(-8).map((i) => card(`#${i.id}`, 'done')), done.length - 8),
+      );
+      q('[data-wip]')!.textContent = String(wip.length);
+      q('[data-tp]')!.textContent = String(bd.throughput());
+      const ct = bd.cycleTimes();
+      const p50 = percentile(ct, 50), p85 = percentile(ct, 85);
+      q('[data-ct]')!.textContent = p85 === null ? '-' : `${p50} / ${p85} days`;
+      q('[data-ct]')!.parentElement!.classList.toggle('bad', p85 !== null && p85 > SLE.days);
+      const ages = bd.ages();
+      q('[data-age]')!.textContent = ages.length ? `${Math.max(...ages)} days` : '-';
+      drawScatter();
+      drawLittle(bd.checks.at(-1));
+      const tb = q('[data-sprints] tbody');
+      if (tb) tb.replaceChildren(...bd.sprints.map((s) => el('tr', { class: s.target ? 'target' : '' },
+        el('td', {}, `${s.n}${s.target ? ' (target)' : ''}`), el('td', {}, String(s.velocity)), el('td', {}, String(s.throughput)), el('td', {}, s.throughput ? fmt(s.velocity / s.throughput) : '-'))));
+      refresh();
+    };
+
+    q('[data-load]')!.addEventListener('change', (e) => { b().load = (e.target as HTMLSelectElement).value as Load; });
+    q('[data-limit]')!.addEventListener('change', (e) => { const v = (e.target as HTMLSelectElement).value; b().wipLimit = v === 'none' ? null : Number(v); });
+    q('[data-sliced]')!.addEventListener('change', (e) => { b().sliced = (e.target as HTMLInputElement).checked; });
+    q('[data-target]')?.addEventListener('change', (e) => { b().velocityTarget = (e.target as HTMLInputElement).checked; });
+    root.querySelectorAll<HTMLButtonElement>('[data-run]').forEach((btn) => btn.addEventListener('click', () => { b().run(Number(btn.dataset.run)); draw(); }));
+    q('[data-little]')!.addEventListener('click', () => { b().checkLittle(); draw(); });
+    root.querySelectorAll<HTMLInputElement>('[name="fl-answer"]').forEach((r) => r.addEventListener('change', () => { b().answer = r.value; draw(); }));
+    q('[data-reset]')!.addEventListener('click', () => {
+      state.board = m.setup().board;
+      root.querySelectorAll<HTMLInputElement>('[name="fl-answer"]').forEach((r) => { r.checked = false; });
+      syncControls(); draw();
+    });
+    syncControls();
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the board, scatter and tables are created by the script. */
+  .flowlab .fl-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 1000px) { .flowlab .fl-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
+  .flowlab .fl-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  .flowlab .fl-board { display: grid; gap: 8px; }
+  @media (min-width: 640px) { .flowlab .fl-board { grid-template-columns: 1fr 1.4fr 1fr; } }
+  .flowlab .fl-col { border: 1px solid var(--line); border-radius: 10px; padding: 8px; min-width: 0; font-size: 0.85rem; }
+  .flowlab .fl-cards { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .flowlab .fl-card { padding: 2px 6px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+  .flowlab .fl-card.old { border-color: var(--berry); color: var(--berry); }
+  .flowlab .fl-card.done { background: var(--bamboo-soft); color: var(--bamboo); }
+  .flowlab .fl-more { font-size: 0.76rem; color: var(--ink-2); align-self: center; }
+  .flowlab .stat.bad { border-color: var(--berry); }
+  .flowlab .stat.bad b { color: var(--berry); }
+  .flowlab .fl-scatter { width: 100%; max-width: 520px; height: auto; }
+  .flowlab .fl-scatter .axis { stroke: var(--line-2); }
+  .flowlab .fl-scatter .dot { fill: var(--sky); }
+  .flowlab .fl-scatter line.sle { stroke: var(--berry); stroke-dasharray: 4 3; }
+  .flowlab .fl-scatter line.p85 { stroke: var(--sun); }
+  .flowlab .fl-scatter line.p50 { stroke: var(--bamboo); }
+  .flowlab .fl-scatter .lbl { font-size: 8px; fill: var(--ink-2); }
+  .flowlab .fl-sle, .flowlab .fl-absent { margin: 0; font-size: 0.85rem; }
+  .flowlab .fl-little p { margin: 6px 0 0; font-size: 0.85rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .flowlab .fl-verdict { padding: 8px 10px; border-radius: 10px; font-weight: 650; }
+  .flowlab .fl-verdict.holds { background: var(--bamboo-soft); color: var(--bamboo); }
+  .flowlab .fl-verdict.broken { background: var(--berry-soft); color: var(--berry); }
+  .flowlab .fl-verdict.not-measured { background: var(--sun-soft); color: var(--sun-text); }
+  .flowlab .fl-sprints table { border-collapse: collapse; font-size: 0.84rem; font-variant-numeric: tabular-nums; width: 100%; }
+  .flowlab .fl-sprints caption { text-align: left; font-weight: 650; padding-bottom: 4px; }
+  .flowlab .fl-sprints th, .flowlab .fl-sprints td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; }
+  .flowlab .fl-sprints tr.target td { color: var(--ink); background: var(--sun-soft); }
+  .flowlab .fl-q { border: 1px solid var(--line); border-radius: 10px; margin: 10px 0 0; padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.88rem; }
+  .flowlab .fl-q legend { font-weight: 650; padding: 0 4px; }
+</style>
