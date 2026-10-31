@@ -91,8 +91,19 @@ inline scripts, and has not been added yet.
 
 Node 24 (see `.nvmrc`; Astro 7 needs at least 22.23.4).
 
+The everyday loop is [Tilt](https://tilt.dev), the same tool the site's
+"Do it for real" labs use. `tilt up` keeps the dev server running and re-runs
+the unit tests and typecheck when the files they cover change. The browser
+check is a button in the dashboard, because it takes minutes.
+
 ```bash
 npm ci
+tilt up                # dashboard at http://localhost:10350, site at http://127.0.0.1:4321
+```
+
+Each piece also runs on its own:
+
+```bash
 npm run dev            # http://localhost:4321
 npm test               # engines, parity with git, missions
 npm run check          # typecheck
@@ -101,11 +112,22 @@ BROWSER=webkit npm run check:site      # also firefox; needs: npx playwright ins
 npm run sync:cncf      # refresh CNCF maturity, then review the diff
 ```
 
+## Changing the site
+
+Work on a branch and open a pull request. CI runs the full verification on it
+(the `verify` job: unit tests, typecheck, build, and the browser check in
+Chromium, WebKit and Firefox), and `main` accepts a squash merge only once
+`verify` is green. Nobody pushes to `main` directly, admins included. The rules
+live in `.github/rulesets/main.json` and are applied, with the merge settings,
+by `scripts/configure-repo.sh`.
+
 ## Deploying
 
-Every push to `main` runs the full verification. The exact `dist/` it checked
-is published to GitHub Pages, and nothing is rebuilt between check and
-deploy. Two one-time settings live outside the repo, recorded here so the setup
+Only a merge to `main` deploys. The merge commit runs the full verification
+again, and the exact `dist/` it checked is published to GitHub Pages, with
+nothing rebuilt between check and deploy. Pull requests and manual runs verify
+but never publish, and the Pages environment accepts deployments from `main`
+only. Two one-time settings live outside the repo, recorded here so the setup
 can be rebuilt:
 
 ```bash
