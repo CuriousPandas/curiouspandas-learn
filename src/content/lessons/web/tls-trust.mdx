@@ -100,10 +100,22 @@ Tilt lab 04 does this for real, against a certificate that cert-manager issues o
 ./scripts/platform.sh lab 04
 ```
 
-Without the platform, the public test site badssl.com has one host per failure:
+Without the platform, you can make the same failure yourself:
 
 ```bash
-openssl s_client -connect wrong.host.badssl.com:443 -servername wrong.host.badssl.com -verify_hostname wrong.host.badssl.com </dev/null | grep "Verify return"
+# A throwaway CA, and a leaf certificate whose name is deliberately wrong
+printf 'subjectAltName=DNS:other.example' > /tmp/san.cnf
+openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/ca.key -out /tmp/ca.pem -days 1 -subj "/CN=Test Root" 2>/dev/null
+openssl req -new -newkey rsa:2048 -nodes -keyout /tmp/leaf.key -out /tmp/leaf.csr -subj "/CN=other.example" 2>/dev/null
+openssl x509 -req -in /tmp/leaf.csr -CA /tmp/ca.pem -CAkey /tmp/ca.key -CAcreateserial -out /tmp/leaf.pem -days 1 -extfile /tmp/san.cnf 2>/dev/null
+# Serve it, then verify: the chain is fully trusted, only the name is wrong
+openssl s_server -accept 18443 -cert /tmp/leaf.pem -key /tmp/leaf.key -www &
+sleep 1
+openssl s_client -connect 127.0.0.1:18443 -CAfile /tmp/ca.pem -verify_hostname shop.example </dev/null 2>&1 | grep "Verify return"
+#   Verify return code: 62 (hostname mismatch)
+openssl s_client -connect 127.0.0.1:18443 -CAfile /tmp/ca.pem -verify_hostname other.example </dev/null 2>&1 | grep "Verify return"
+#   Verify return code: 0 (ok)
+kill $!
 ```
 
 </DoItForReal>
