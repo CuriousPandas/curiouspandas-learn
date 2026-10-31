@@ -1497,7 +1497,10 @@ const xpNow = async (page) => Number(JSON.parse(await page.evaluate(() => localS
 
 await scenario('expeditions-index', '/expeditions/', async (page) => {
   const ready = await page.locator('a.xcard').count(), planned = await page.locator('.xcard.soon').count();
-  if (ready !== 4 || planned !== 4) throw new Error(`expected 4 open and 4 planned expeditions, saw ${ready} and ${planned}`);
+  if (ready !== 4 || planned !== 5) throw new Error(`expected 4 open and 5 planned expeditions, saw ${ready} and ${planned}`);
+  // A partly written route must not show an hour total that counts only the
+  // written lessons: Teamwork once read "about 1.3 h" for 11 lessons.
+  await expectText(page, '.xcard.soon:has-text("Teamwork") .facts', /^11 lessons, 5 written so far · Trail Crew badge/);
   // A planned card must not be a way onto an unfinished route.
   if (await page.locator('.xcard.soon a, a.xcard.soon').count()) throw new Error('a planned expedition card is a link');
   await expectText(page, '[data-xcard="first-steps"] [data-xcount]', /Not started/);
@@ -1662,6 +1665,48 @@ await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => 
   // counts, but no route's pill may still say "differences".
   if (await page.locator(`${r} .st-rule.differences`).count()) throw new Error('a finished migration still shows open differences');
   await expectText(page, `${r} [data-harm]`, /wrong answers served\s*0[\s\S]*charged twice\s*0[\s\S]*items lost\s*0[\s\S]*failed requests\s*0/);
+});
+
+// ---- agile
+// The Little's Law panel must say "not measured" before anything has run, and
+// the forecast question must not pass on "velocity".
+
+await scenario('flow-lab', '/learn/agile/flow/', async (page) => {
+  const r = '[data-flow]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const sprint = async (n = 1) => { for (let i = 0; i < n; i++) { await page.click(`${r} [data-run="10"]`); await page.waitForTimeout(60); } };
+  await page.click(`${r} [data-little]`);
+  await expectText(page, `${r} [data-little-out]`, /^Not measured/);
+  await page.selectOption(`${r} [data-load]`, 'overload');
+  await sprint(3);
+  const wip = Number(await page.locator(`${r} [data-wip]`).innerText());
+  if (wip < 15) throw new Error(`no WIP limit under overload should pile up work on the board, got WIP ${wip}`);
+  await page.click(`${r} [data-little]`);
+  const out = await expectText(page, `${r} [data-little-out]`, /^Holds exactly: area under the WIP line \d+ item-days = time items spent inside the window \d+ item-days/);
+  const [, area, res] = out.match(/line (\d+) item-days = .* window (\d+) item-days/);
+  if (area !== res) throw new Error(`"holds" shown for unequal totals ${area} vs ${res}`);
+  await page.selectOption(`${r} [data-limit]`, '4');
+  await sprint(4);
+  await expectText(page, `${r} .m-steps li:nth-child(3)`, /./);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 3) throw new Error(`expected 3 flow steps done after the limit drained the board, got ${await page.locator(`${r} .m-steps li.done`).count()}`);
+  await page.selectOption(`${r} [data-limit]`, '1');
+  await sprint(2);
+  await expectText(page, `${r} .m-debrief`, /an identity about what you measured/);
+});
+
+await scenario('flow-forecast', '/learn/agile/forecasts/', async (page) => {
+  const r = '[data-flow]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const sprint = async (n = 1) => { for (let i = 0; i < n; i++) { await page.click(`${r} [data-run="10"]`); await page.waitForTimeout(60); } };
+  await sprint(3);
+  await page.check(`${r} [data-target]`);
+  await sprint(3);
+  await expectText(page, `${r} [data-sprints] tbody`, /6 \(target\)/);
+  // The tempting answer: velocity went up, so delivery went up.
+  await page.check(`${r} [name="fl-answer"][value="velocity"]`);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 2) throw new Error('answering "velocity" ticked the last step');
+  await page.check(`${r} [name="fl-answer"][value="throughput"]`);
+  await expectText(page, `${r} .m-debrief`, /no study has measured one/);
 });
 
 await browser.close();

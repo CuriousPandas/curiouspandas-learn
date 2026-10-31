@@ -30,7 +30,11 @@ const ready = all.filter((e) => e.status === 'ready');
             <strong>{e.title} <span class="pill">planned</span></strong>
             <span class="who">"{e.who}"</span>
             <span class="tag">{e.tagline}</span>
-            <span class="facts">{e.steps.length} lessons · about {hours(e.minutes)} · route mapped, opening soon</span>
+            {/* An unwritten lesson has no minutes yet, so a total over a partly
+                written route would understate it. Say how much is written instead. */}
+            <span class="facts">{e.steps.every((s) => s.ready)
+              ? `${e.steps.length} lessons · about ${hours(e.minutes)}`
+              : `${e.steps.length} lessons, ${e.steps.filter((s) => s.ready).length} written so far`} · {e.badge} badge · route mapped, opening soon</span>
           </span>
         </div>
       ))}

@@ -1,0 +1,94 @@
+---
+title: Count the work, then limit it
+summary: Starting more work feels like progress. Measure what it actually does - work in progress, cycle time, throughput - check the books with Little's Law, and find out why a WIP limit helps until the day it starves the team.
+minutes: 20
+xp: 50
+tiers: [browser]
+builds_on: []
+sources:
+  - title: Daniel Vacanti and Jim Coleman - The Kanban Guide (kanbanguides.org)
+    url: https://kanbanguides.org/english/
+  - title: John D. C. Little - Little's Law as Viewed on Its 50th Anniversary, Operations Research 59(3) (2011)
+    url: https://pubsonline.informs.org/doi/10.1287/opre.1110.0940
+  - title: Daniel Vacanti - Little's Law for Professional Scrum with Kanban, Scrum.org (2018)
+    url: https://scrumorg-website-prod.s3.amazonaws.com/drupal/2018-05/Little%E2%80%99s%20Law%20for%20Professional%20Scrum%20with%20Kanban.pdf
+  - title: Peter Middleton and David Joyce - Lean Software Management - BBC Worldwide Case Study, IEEE Transactions on Engineering Management 59(1) (2012), accepted manuscript
+    url: https://pureadmin.qub.ac.uk/ws/files/724967/Lean%20Software%20Management%20BBC%20Worldwide%20Case%20Study%20Feb%202011.pdf
+  - title: Kanban University - The Official Guide to The Kanban Method
+    url: https://kanban.university/kanban-guide/
+  - title: kanbanguides.org - history of the Kanban Guide and the Open Guide to Kanban
+    url: https://kanbanguides.org/open-guide-to-kanban/history/
+---
+
+A team with too much to do usually does the natural thing: it starts more of it. Every item someone picks up is visibly "in progress", the board fills, and it feels like the team is moving. Whether it is moving any faster is a different question, and it has an answer you can measure.
+
+## Four numbers, defined once
+
+The Kanban Guide, by Daniel Vacanti and Jim Coleman, defines four flow measures. They are worth learning exactly as written, because the lab below implements them that way:
+
+- **WIP**: "The number of work items started but not finished."
+- **Throughput**: "The number of work items finished per unit of time. Note the measurement of throughput is the exact count of work items."
+- **Work Item Age**: "The elapsed time between when a work item started and the current date."
+- **Cycle Time**: "The elapsed time between when a work item started and when a work item finished."
+
+Notice what is *not* on the list: points, hours, estimates. Throughput is a count of finished things. Nobody can make it go up by estimating harder.
+
+"Kanban" names more than one thing, so say which you mean. The Kanban Guide is one document. Kanban University's Kanban Method is another, with its own practices. There is also an "Open Guide to Kanban" fork. This lesson uses the Kanban Guide's definitions.
+
+## Little's Law, as Little wrote it
+
+The three measures are tied together by an identity called Little's Law: average WIP equals the arrival rate times the average time in the system, usually written L = λW. John Little proved it in 1961. In a 2011 retrospective he showed that, measured over a finite window, it "holds exactly even if the queuing system is never empty". In that version L is the area under the WIP line divided by the window's length, and W is that same area shared out over the items that were present, so the identity is true by construction.
+
+Little was also clear about what it is for: "we are in the measurement business, not the forecasting business." Little's Law describes what you measured. It doesn't promise what happens when you change something.
+
+Daniel Vacanti makes that point with an example. A team averages 20 items in progress, a 5-day cycle time and a throughput of 4 a day. Doubling WIP to 40 does not double throughput to 8. "All Little's Law will say is that an increase in average WIP will result in a change to one or both of average Cycle Time and average Throughput." If the team's capacity hasn't changed, it is cycle time that changes.
+
+## Try it
+
+The lab is a board with four people who can each do one unit of work a day, and at most two people on any item. The sizes of items and how fast they arrive are invented. Cycle time is never calculated from Little's Law: it comes out of who works on what.
+
+Because Little's identity is true by construction, checking it proves nothing on its own. So the lab adds a check of its own, not Little's: it counts item-days twice, once from the board's WIP each day and once from every item's own start and finish, and shows both totals. If they ever differ, the records have lost an item.
+
+<FlowLab mission="flow-wip" />
+
+<Callout kind="trap">
+The WIP limit only stops *new* starts. Set it after a month with no limit and the board still holds everything that was started; cycle time stays high until that pile has finished. A limit is a policy about tomorrow, not a cleanup of yesterday.
+</Callout>
+
+## Where the queue went
+
+With no limit, every arriving item was started the day it arrived, then waited on the board while the team worked on older ones. That waiting time was counted as cycle time, and as age on the board. With a limit of four, the same items waited in the backlog instead. The team finished just as many, because nothing about their capacity changed. The difference is that the work in progress now meant what it said: being worked on.
+
+Push the limit too low and the trade flips. With a limit of one, only two people can work, the other two sit idle, and throughput drops by about half. A lower WIP is better only while there is enough started work to keep everyone busy. That's the "one or both" in Vacanti's sentence.
+
+## A measured case, read carefully
+
+At BBC Worldwide, a nine-person team's mean lead time fell from 22.8 to 14.4 working days, about 37%, between October 2008 and October 2009, and the upper control limit of its lead times fell from 70.7 to 37.3 days. It is a real measurement, and it is one team. WIP limits came with smaller work items (the share of small features rose from 52% to 75%), visible boards and a team whose skills were growing. The study can't say which change did what. Read it as "this happened here", not "WIP limits cut lead time by 37%".
+
+## Forecast with percentiles, not averages
+
+The Kanban Guide asks for a **service level expectation**: "a forecast of how long it should take a work item to flow from started to finished", given as an elapsed time and a probability. "85% of items finish in 10 days or less" says something an average cannot: how bad the slow ones get. The lab draws that line on the cycle-time chart. When the dots stay under it, the team is keeping its own forecast.
+
+<Quiz
+  id="agile-flow-1"
+  q="A team averages 20 items in progress, 5-day cycle time and 4 items finished a day. A manager doubles WIP to 40. What does Little's Law say happens?"
+  options={["Throughput doubles to 8 a day", "Cycle time, throughput, or both change - and if capacity didn't change, it is mostly cycle time that grows", "Nothing - the law only applies to stable systems"]}
+  answer={1}
+  explain="This is Vacanti's example. Little's Law is an identity about averages you measured. It says a change in WIP must show up in cycle time, throughput or both. It does not create capacity."
+/>
+
+<Quiz
+  id="agile-flow-2"
+  q="You set a WIP limit of 4 on a board that already has 30 items in progress. A week later, cycle time is still high. Why?"
+  options={["WIP limits don't work", "The limit stops new starts; the 30 items already started still have to finish", "The limit should be 30"]}
+  answer={1}
+  explain="A limit is a rule about what you start next. The items already on the board keep aging until they finish, so cycle time comes down only after that pile has drained."
+/>
+
+<Quiz
+  id="agile-flow-3"
+  q="Your Little's Law check over the last 20 days shows the area under the WIP line does not equal the total time items spent in the window. What does that tell you?"
+  options={["The team is overloaded", "The measurement has lost or double-counted items - fix the data before trusting any flow metric", "Little's Law doesn't apply to software"]}
+  answer={1}
+  explain="The two totals are the same item-days counted two ways, so they must agree. If they don't, an item went missing from the records - abandoned work dropped from the data instead of counted, for example."
+/>

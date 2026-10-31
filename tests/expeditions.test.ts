@@ -24,17 +24,32 @@ for (const t of readdirSync(dir)) for (const f of readdirSync(join(dir, t))) {
     buildsOn: list[1].split(',').map((s) => s.trim()).filter(Boolean),
   });
 }
+// A lesson still marked 'soon' has no file yet, so nothing it builds on is
+// known. The build counts it as a lesson with no prerequisites
+// (src/lib/curriculum.ts); this does the same, so a planned expedition may
+// list planned lessons, and their order is checked once they are written.
+for (const t of TRACKS) for (const l of t.lessons) {
+  const id = `${t.id}/${l.slug}`;
+  if (!lessons.has(id)) lessons.set(id, { title: l.title, minutes: 0, ready: false, buildsOn: [] });
+}
 
 test('every expedition, ready or planned, teaches before it relies', () => {
   assert.deepEqual(checkExpeditions(EXPEDITIONS, lessons), []);
 });
 
-test('all eight are planned and the first four are ready', () => {
-  assert.equal(EXPEDITIONS.length, 8);
+test('all nine are planned and the first four are ready', () => {
+  assert.equal(EXPEDITIONS.length, 9);
   assert.deepEqual(EXPEDITIONS.filter((e) => e.status === 'ready').map((e) => e.id), ['first-steps', 'platform-engineer', 'ai-builder', 'founder']);
 });
 
 const plan = (lessons: string[]): ExpeditionPlan => ({ id: 'x', title: 'X', who: '', tagline: '', badge: 'B', icon: 'star', hue: 0, status: 'soon', lessons });
+
+test('a ready expedition may not list an unwritten lesson; a planned one may', () => {
+  const unwritten = 'agile/manifesto';
+  assert.equal(lessons.get(unwritten)?.ready, false, 'the fixture lesson must still be unwritten');
+  assert.match(checkExpeditions([{ ...plan([unwritten]), status: 'ready' }], lessons).join(), /lists agile\/manifesto, which is not ready/);
+  assert.deepEqual(checkExpeditions([plan([unwritten])], lessons), []);
+});
 
 test('the check refuses a skipped prerequisite, a wrong order and a cycle', () => {
   assert.match(checkExpeditions([plan(['git/branches'])], lessons).join(), /git\/branches builds on git\/what-is-git, which the expedition skips/);

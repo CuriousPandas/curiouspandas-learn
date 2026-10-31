@@ -196,6 +196,21 @@ export const TRACKS: Track[] = [
       { slug: 'business-basics', title: 'The boring essentials: company, terms, taxes', status: 'ready' },
     ],
   },
+  {
+    // Flow and forecasts come first because the Flow Lab is the measuring
+    // instrument the other lessons point at.
+    id: 'agile', title: 'Agile, Scrum & Flow', tagline: 'What the guides actually say, what the evidence actually shows - and how to tell a team working from one performing.', icon: 'crew', hue: 60,
+    lessons: [
+      { slug: 'manifesto', title: 'Four values and a "while"', status: 'soon' },
+      { slug: 'scrum-guide', title: 'Scrum as written, not as rumoured', status: 'soon' },
+      { slug: 'flow', title: 'Count the work, then limit it', status: 'ready' },
+      { slug: 'forecasts', title: 'Forecasts, not promises', status: 'ready' },
+      { slug: 'xp', title: 'The engineering Scrum leaves out', status: 'soon' },
+      { slug: 'teams', title: 'What the evidence says about teams', status: 'soon' },
+      { slug: 'scaling', title: 'Frameworks for many teams', status: 'soon' },
+      { slug: 'in-name-only', title: "Agile in name only: how you'd know", status: 'soon' },
+    ],
+  },
 ];
 
 export const trackById = (id: string) => TRACKS.find((t) => t.id === id);

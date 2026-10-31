@@ -118,4 +118,15 @@ export const EXPEDITIONS: ExpeditionPlan[] = [
       'security/supply-chain', 'frontiers/superintelligence', 'launch/pricing',
     ],
   },
+  {
+    // Trail Crew, not anything with "Scrum Master" in it: that reads as a
+    // credential next to Scrum Alliance's and Scrum.org's certification marks,
+    // and the evidence points at how a team works together, not at a role.
+    id: 'teamwork', title: 'Teamwork', who: 'I want the team I am on to work well together.', badge: 'Trail Crew', icon: 'crew', hue: 60, status: 'soon',
+    tagline: "How work flows, what agile's own sources say, and what the evidence says actually makes teams work.",
+    lessons: [
+      'agile/manifesto', 'agile/scrum-guide', 'agile/flow', 'agile/forecasts', 'agile/xp',
+      'launch/validate', 'launch/mvp', 'agile/teams', 'resilience/incidents', 'agile/scaling', 'agile/in-name-only',
+    ],
+  },
 ];
