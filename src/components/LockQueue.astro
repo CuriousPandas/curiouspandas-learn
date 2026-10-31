@@ -1,0 +1,110 @@
+---
+import '../styles/widgets.css';
+import { APP_EVERY, CLIENT_GIVES_UP, REPORT_HOLD, DDL_AT } from '../lib/change/locks.ts';
+---
+<div class="widget card lockq" data-lockq>
+  <div class="widget-head">
+    <strong>Lock queue</strong>
+    <span class="pill info">simulated: one table, an app query every {APP_EVERY} ms that gives up after {CLIENT_GIVES_UP / 1000} s; PostgreSQL's documented lock rules</span>
+  </div>
+  <div class="controls">
+    <label>change
+      <select data-ddl>
+        <option value="add-column">ADD COLUMN note text</option>
+        <option value="add-column-constant-default">ADD COLUMN status text DEFAULT 'new'</option>
+        <option value="add-column-volatile-default">ADD COLUMN seen_at ... DEFAULT clock_timestamp()</option>
+      </select>
+    </label>
+    <label>PostgreSQL
+      <select data-version><option value="11">11 or later</option><option value="10">10</option></select>
+    </label>
+    <label>lock_timeout
+      <select data-timeout><option value="none">none (wait forever)</option><option value="2000">2s</option></select>
+    </label>
+    <label><input type="checkbox" data-report checked /> report transaction open ({REPORT_HOLD / 1000} s)</label>
+    <button class="btn small primary" type="button" data-run>Run migration</button>
+  </div>
+  <div class="lq-grid">
+    <div class="lq-main">
+      <pre class="lq-sql" data-sql></pre>
+      <p class="lq-note muted">The migration starts {DDL_AT / 1000} s in. Each bar is one second: how many app queries are stuck waiting at that moment.</p>
+      <div class="lq-strip" data-strip role="img" aria-label="App queries waiting, per second: nothing run yet"></div>
+      <div class="lq-status" data-status aria-live="polite">Nothing run yet.</div>
+      <div class="stats">
+        <div class="stat">migration waited<b data-waited>-</b></div>
+        <div class="stat">migration held the lock<b data-held>-</b></div>
+        <div class="stat">app queries waiting &gt; 1 s<b data-slow>-</b></div>
+        <div class="stat">app requests that gave up<b data-failed>-</b></div>
+      </div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { DDL_SQL, APP_EVERY, CLIENT_GIVES_UP, type Ddl, type PgVersion } from '../lib/change/locks.ts';
+  import { LOCK_MISSION } from '../lib/change/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-lockq]')) {
+    const state = LOCK_MISSION.setup();
+    const lab = state.lab;
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const refresh = mountMission(q('[data-mission-panel]'), LOCK_MISSION, () => state, () => {});
+    const read = () => {
+      const t = q<HTMLSelectElement>('[data-timeout]').value;
+      lab.set({ ddl: q<HTMLSelectElement>('[data-ddl]').value as Ddl, version: Number(q<HTMLSelectElement>('[data-version]').value) as PgVersion, lockTimeout: t === 'none' ? null : Number(t), reportRunning: q<HTMLInputElement>('[data-report]').checked });
+      const s = lab.settings;
+      q('[data-sql]').textContent = `${s.lockTimeout === null ? '' : `SET lock_timeout = '${s.lockTimeout / 1000}s';\n`}${DDL_SQL[s.ddl]}`;
+    };
+    const s1 = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+    const draw = () => {
+      const o = lab.runs.at(-1);
+      refresh();
+      if (!o) return;
+      // A fixed scale: the most queries that can be waiting at once before they
+      // give up. Scaling to each run's own peak drew one query waiting for a
+      // moment as tall as a hundred stuck ones.
+      const max = CLIENT_GIVES_UP / APP_EVERY;
+      q('[data-strip]').replaceChildren(...o.blockedBySecond.map((n, i) => {
+        const bar = el('span', { class: `lq-bar${n ? ' busy' : ''}`, title: `${i} s: ${n} waiting` });
+        bar.style.setProperty('--h', `${Math.min(100, Math.round((n / max) * 100))}%`);
+        return bar;
+      }));
+      const peak = Math.max(...o.blockedBySecond);
+      q('[data-strip]').setAttribute('aria-label', peak ? `App queries waiting, per second: up to ${peak} at once, for ${o.blockedBySecond.filter((n) => n > 0).length} of ${o.blockedBySecond.length} seconds` : 'App queries waiting, per second: none waited');
+      q('[data-waited]').textContent = s1(o.ddl.waited);
+      q('[data-held]').textContent = o.ddl.result === 'applied' ? s1(o.ddl.held) : '-';
+      q('[data-slow]').textContent = String(o.app.waitedOverSecond);
+      q('[data-failed]').textContent = String(o.app.failed);
+      q('[data-failed]').parentElement!.classList.toggle('bad', o.app.failed > 0);
+      const st = q('[data-status]');
+      const siteBad = o.app.failed > 0;
+      st.className = `lq-status ${siteBad ? 'bad' : o.ddl.result === 'aborted' ? 'warn' : 'ok'}`;
+      st.textContent = o.ddl.result === 'aborted'
+        ? `Migration aborted after waiting ${s1(o.ddl.waited)}. ${siteBad ? '' : 'The site kept serving: retry when the long transaction is gone.'}`
+        : `Migration applied after waiting ${s1(o.ddl.waited)}, holding the lock ${s1(o.ddl.held)}. ${siteBad ? `${o.app.failed} app requests gave up while it waited or ran.` : 'No app request was held up for long.'}`;
+    };
+    root.querySelectorAll('select, input').forEach((c) => c.addEventListener('change', read));
+    q('[data-run]').addEventListener('click', () => { read(); lab.run(); draw(); });
+    read();
+    draw();
+  }
+</script>
+
+<style is:global>
+  .lockq .lq-grid { display: grid; gap: 14px; margin-top: 12px; }
+  @media (min-width: 1000px) { .lockq .lq-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
+  .lockq .lq-main { min-width: 0; display: grid; gap: 8px; align-content: start; }
+  .lockq .lq-sql { margin: 0; font-size: 0.8rem; overflow-x: auto; }
+  .lockq .lq-note { margin: 0; font-size: 0.84rem; }
+  .lockq .lq-strip { display: flex; align-items: flex-end; gap: 2px; height: 70px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; }
+  .lockq .lq-bar { flex: 1; min-width: 2px; height: max(2px, var(--h)); background: var(--line-2); border-radius: 2px; }
+  .lockq .lq-bar.busy { background: var(--berry); }
+  .lockq .lq-status { padding: 10px 12px; border-radius: 10px; background: var(--bg-2); font-weight: 650; font-size: 0.92rem; }
+  .lockq .lq-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .lockq .lq-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .lockq .lq-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .lockq .stat.bad { border-color: var(--berry); }
+  .lockq .stat.bad b { color: var(--berry); }
+</style>

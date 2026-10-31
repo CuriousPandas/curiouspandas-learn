@@ -7,6 +7,7 @@
 import type { Mission } from '../missions.ts';
 import { ShadowBench } from './shadow.ts';
 import { Strangler, ENDPOINTS } from './strangler.ts';
+import { LockLab } from './locks.ts';
 
 // ---- prove it in production -------------------------------------------------
 
@@ -46,4 +47,51 @@ export const STRANGLER_MISSION: Mission<StranglerState> = {
     { text: 'Switch legacy off, keep it off for a whole month with nothing reaching it, archive it, then delete it', hint: 'Something calls legacy only once a month. Read legacy\'s access log after a month end', done: (s) => s.lab.finished() },
   ],
   debrief: 'Every trap in that run reported success while checking nothing. The cart rule said "shadow" and matched no request. "Ignore all numbers" turned a real price bug into a match. The search difference was legacy\'s bug - GitHub\'s merge rewrite found two in old Git the same way. Dual writes diverged without a single error. And the export nobody listed only showed up when legacy went quiet at a month end. The façade made each step reversible; the counters - compared, not compared, served by - are what made each one checkable.',
+};
+
+// ---- expand/contract: the lock queue -----------------------------------------
+
+export type LockState = { lab: LockLab };
+const lockRuns = (s: LockState) => s.lab.runs;
+
+export const LOCK_MISSION: Mission<LockState> = {
+  id: 'lock-queue', title: 'A sub-second migration, a site-wide stall', xp: 60,
+  setup: () => ({ lab: new LockLab() }),
+  steps: [
+    { text: 'Run the 300 ms ADD COLUMN while the report\'s transaction is still open, with no lock_timeout. How long did the app wait?', hint: 'Leave the report running, lock_timeout: none, then Run migration', done: (s) => lockRuns(s).some((r) => r.settings.ddl === 'add-column' && r.settings.reportRunning && r.settings.lockTimeout === null && r.app.failed > 0) },
+    { text: 'Set lock_timeout to 2 seconds and run it again. What failed this time - the site, or the migration?', hint: 'lock_timeout: 2s, then Run migration', done: (s) => lockRuns(s).some((r) => r.settings.reportRunning && r.settings.lockTimeout !== null && r.ddl.result === 'aborted' && r.app.failed === 0) },
+    { text: 'The report has finished. Retry the migration', hint: 'Untick "report transaction open", then Run migration', done: (s) => lockRuns(s).some((r) => r.settings.ddl === 'add-column' && !r.settings.reportRunning && r.ddl.result === 'applied' && r.app.worstWait <= 1000) },
+    { text: 'Add a column with a volatile default, clock_timestamp(), with nothing else running. Does lock_timeout save you?', hint: 'Change: ... DEFAULT clock_timestamp(), report not running, then Run migration', done: (s) => lockRuns(s).some((r) => r.settings.ddl === 'add-column-volatile-default' && !r.settings.reportRunning && r.app.failed > 0) },
+    { text: 'Add a column with a constant default on PostgreSQL 10, then on 11', hint: "Change: ... DEFAULT 'new'. Run it with version 10, then version 11", done: (s) => lockRuns(s).some((r) => r.settings.ddl === 'add-column-constant-default' && r.settings.version === 10 && r.app.failed > 0) && lockRuns(s).some((r) => r.settings.ddl === 'add-column-constant-default' && r.settings.version === 11 && r.app.failed === 0) },
+  ],
+  debrief: 'The ALTER itself took 300 ms. It still stopped the site for ten seconds, because it waited in the lock queue behind a long transaction, and every ordinary SELECT that arrived after it waited behind it. lock_timeout made the migration fail instead of the site: "It\'s better to abort a deploy than take your application down." It could not help with the rewrite, though - that lock is granted at once and then held while the whole table is copied. Whether a default rewrites depends on the default and on the PostgreSQL version, which is why every migration plan should say which version it was checked against.',
+};
+
+// ---- decommissioning ------------------------------------------------------------
+
+/** A migration finished the careful way, up to the point where every route the
+ * team knows about is served by new. The export nobody listed is still out there. */
+export function migratedLab(): Strangler {
+  const l = new Strangler();
+  l.setMode('product', 'shadow'); l.normaliser = 'scrub'; l.setVerdict('price', 'fix-new');
+  l.setMode('search', 'shadow'); l.setMatch('cart', '/cart'); l.setMode('cart', 'shadow');
+  l.setSync('cdc'); l.writes = 'stub';
+  for (const id of ['add', 'checkout', 'orders']) l.setMode(id, 'shadow');
+  l.runDays(10);
+  l.setVerdict('dupes', 'legacy-wrong'); l.setVerdict('bigorder', 'fix-new');
+  for (const id of known) l.setMode(id, 'new');
+  l.runDays(2); l.reconcile();
+  l.events = [];
+  return l;
+}
+
+export const DECOMMISSION_MISSION: Mission<StranglerState> = {
+  id: 'decommission', title: 'Switch it off without breaking anyone', xp: 70,
+  setup: () => ({ lab: migratedLab() }),
+  steps: [
+    { text: 'Every route you know about is on new. Find what still needs legacy', hint: 'Run to month end and read legacy\'s access log - or switch legacy off as a planned brownout and see what fails', done: (s) => !!s.lab.rule('export') },
+    { text: 'Move it to new, compared at least once first', hint: 'Add its façade rule, shadow it through a month end, then set it to new', done: (s) => s.lab.servedByNew('export') && s.lab.enoughCompared('export') },
+    { text: 'Switch legacy off, keep it off for a whole month with nothing reaching it, archive it, then delete it', hint: 'Disable before deleting, and watch a full business cycle', done: (s) => s.lab.finished() },
+  ],
+  debrief: 'Every route on the team\'s list had moved, and legacy still had a caller: a monthly job nobody wrote down, invisible for 29 days out of 30. Reading legacy\'s own access log over a full cycle finds it; so does a planned brownout, which is why Google describes deprecation outages of increasing length. Switching legacy off was reversible. Deleting it was not - which is why the delete came last, after a clean month and an archive.',
 };

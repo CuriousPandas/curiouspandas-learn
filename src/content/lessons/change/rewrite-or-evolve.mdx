@@ -1,0 +1,70 @@
+---
+title: Most rewrites ship late, and some never ship
+summary: Rewriting a system from scratch feels cleaner than changing it. Read what the famous warnings actually say, what really went wrong at TSB, and sort real decisions into the ones you can undo and the ones you can't.
+minutes: 14
+xp: 35
+tiers: [browser]
+builds_on: []
+sources:
+  - title: Joel Spolsky - Things You Should Never Do, Part I (2000)
+    url: https://www.joelonsoftware.com/2000/04/06/things-you-should-never-do-part-i/
+  - title: Mozilla development roadmap, 26 October 1998
+    url: https://www-archive.mozilla.org/roadmap/roadmap-26-oct-1998.html
+  - title: Financial Conduct Authority - Final Notice to TSB Bank plc (2022)
+    url: https://www.fca.org.uk/publication/final-notices/tsb-bank-plc-2022.pdf
+  - title: Slaughter and May - independent review of the TSB migration (2019)
+    url: https://www.tsb.co.uk/content/dam/tsb-public/documents/media-centre/Slaughter-and-May-final-report.pdf
+  - title: Hyrum Wright - Deprecation, ch. 15, Software Engineering at Google (CC BY-NC-ND 4.0)
+    url: https://abseil.io/resources/swe-book/html/ch15.html
+  - title: Site Reliability Engineering, ch. 1 - Introduction (Google, CC BY-NC-ND 4.0)
+    url: https://sre.google/sre-book/introduction/
+  - title: The Site Reliability Workbook, Appendix C - Results of Postmortem Analysis (Google, CC BY-NC-ND 4.0)
+    url: https://sre.google/workbook/postmortem-analysis/
+---
+
+Every team with an old system has had the conversation. The code is tangled, nobody understands parts of it, and starting again looks so much cleaner. Sometimes it is the right call. This lesson is about why it so often isn't, and about the one property that separates the safe ways to change a system from the dangerous ones.
+
+## What the famous warning says
+
+In April 2000 Joel Spolsky called Netscape's decision to rewrite its browser "the single worst strategic mistake that any software company can make". His argument was about knowledge: "When you throw away code and start from scratch, you are throwing away all that knowledge." Years of bug fixes for odd cases live in the old code, often without a comment to say why.
+
+Two corrections to the way the story is usually told. Spolsky's essay doesn't say the rewrite alone killed Netscape. And the long gap between releases wasn't all rewrite: the decision to replace the old layout code came in October 1998, well after Netscape 4. The rewritten engine, Gecko, later became the engine of Firefox. The lesson is not "never rewrite"; it's that a rewrite has to relearn everything the old code knew, while the old system keeps changing underneath it.
+
+## TSB: the headline and the documents
+
+In April 2018 the UK bank TSB moved its customers to a new platform in a single weekend, and the result was months of disruption. The popular version is "the data migration failed" or "big bang was the mistake". The official documents say otherwise:
+
+- The Financial Conduct Authority's Final Notice says the data migration itself was successful. What failed was the new platform, which wasn't ready to support TSB's full customer base.
+- The independent review by Slaughter and May said a largely single-event migration would not necessarily have been the wrong approach, had the right mitigants been in place.
+- Rolling back was essentially impossible once customers were on the new platform.
+- Testing of the two data centres working together had been cut back, in a decision taken outside the forum that should have approved it. The FCA says that testing would likely have found the configuration problem that took online banking down.
+
+Read that way, TSB is a story about a one-way step and a check removed in front of it.
+
+## Changes are the usual trigger
+
+Google's SRE book puts it bluntly: "SRE has found that roughly 70% of outages are due to changes in a live system." The book doesn't say what that figure rests on. Google's later workbook does publish data: across thousands of its own postmortems from 2010 to 2017, binary pushes triggered 37% of outages and configuration pushes 31%. That is one company's data, and it counts triggers, not root causes, so quote both as Google's findings, not industry statistics. But the direction is clear: the risk is in changing things, and a rewrite is the biggest change there is.
+
+Google's book on software engineering adds the cost side: "Evolving a system in place is usually cheaper than replacing it with a new one, when turndown costs are included."
+
+## Try it
+
+Sort four real kinds of decision into the ones you could walk back and the ones you couldn't. That distinction is what every pattern in the rest of this trail is built on.
+
+<CardSort mission="one-way-doors" />
+
+<Quiz
+  id="change-rewrite-1"
+  q="According to the FCA, what failed in TSB's 2018 migration?"
+  options={["The data migration lost customer records", "The new platform wasn't ready to support the full customer base", "The old platform crashed during the move"]}
+  answer={1}
+  explain="The FCA's Final Notice says the data migration itself succeeded. The platform it moved to, and the testing that should have proved it ready, are where things went wrong."
+/>
+
+<Quiz
+  id="change-rewrite-2"
+  q="Why should Google's 'roughly 70% of outages are due to changes' be quoted carefully?"
+  options={["It is from 1995", "It is one company's finding, and the closest published data - Google's own postmortems - counts triggers, not root causes", "Google retracted it"]}
+  answer={1}
+  explain="The SRE book states the figure without its basis. The workbook's Appendix C publishes Google's internal postmortem data, categorised by what triggered each outage. A strong signal, from one company."
+/>

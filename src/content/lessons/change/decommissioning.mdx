@@ -1,0 +1,69 @@
+---
+title: Switching it off is the riskiest change
+summary: Removing an old system looks like housekeeping. It is a production change with its own blast radius, and two famous failures happened there. Find the caller nobody listed, switch the old system off the reversible way, and delete it last.
+minutes: 18
+xp: 45
+tiers: [browser]
+builds_on: [change/strangler-fig]
+sources:
+  - title: Hyrum Wright - Deprecation, ch. 15, Software Engineering at Google (CC BY-NC-ND 4.0)
+    url: https://abseil.io/resources/swe-book/html/ch15.html
+  - title: Microsoft Azure Well-Architected Framework - Safe deployment practices
+    url: https://learn.microsoft.com/en-us/azure/well-architected/operational-excellence/safe-deployments
+  - title: RFC 9745 - The Deprecation HTTP Response Header Field (2025)
+    url: https://www.rfc-editor.org/rfc/rfc9745.html
+  - title: RFC 8594 - The Sunset HTTP Header Field (2019)
+    url: https://www.rfc-editor.org/rfc/rfc8594.html
+  - title: GitHub - Improving Git protocol security on GitHub (2021)
+    url: https://github.blog/security/application-security/improving-git-protocol-security-github/
+  - title: Atlassian - Post-incident review, April 2022 outage
+    url: https://www.atlassian.com/blog/how-we-build/post-incident-review-april-2022-outage
+  - title: Atlassian - April 2022 outage update (CTO)
+    url: https://www.atlassian.com/blog/how-we-build/april-2022-outage-update
+  - title: SEC - In the Matter of Knight Capital Americas LLC, Release No. 70694 (16 Oct 2013)
+    url: https://www.sec.gov/files/litigation/admin/2013/34-70694.pdf
+---
+
+At the end of a migration there's an old system nobody wants to look after any more. Turning it off feels like the easy part. It isn't, and Google's guidance on deprecation starts from the reason: "code is a liability, not an asset". Every line you keep has to be secured, upgraded and understood. But removing it is a change to production too, with its own ways to fail.
+
+## Two failures, mirror images
+
+**Knight Capital, 2012: something that should have been removed wasn't.** When a new release went out, according to the SEC, "one of Knight's technicians did not copy the new code to one of the eight SMARS computer servers". That server still held old, unused code, and a reused flag woke it up. Knight "lost over $460 million" in "a 45-minute period".
+
+**Atlassian, 2022: the wrong thing was removed.** A script was retiring an old app. "Instead of providing the IDs of the intended app being marked for deletion, the team provided the IDs of the entire cloud site where the apps were to be deleted." The CTO's update adds: "The script was executed with the wrong execution mode and the wrong list of IDs" - permanent deletion rather than the recoverable mode. Customers lost access for up to two weeks.
+
+## Announcing it is not removing it
+
+HTTP has two headers for this. A `Deprecation` header says an endpoint is deprecated, and RFC 9745 is explicit about what that does: "The act of deprecation does not change any behavior of the resource." A `Sunset` header gives a date, and RFC 8594 calls such dates hints. Both are useful. Neither tells you who is still calling. An endpoint can carry a deprecation header for a year and still have a caller nobody knows about: configured, and inert.
+
+Google's chapter makes the same point about process: deprecation needs owners and deadlines, and warnings people actually act on. It also describes a blunter tool, planned outages of increasing length, that find dependencies nobody listed. GitHub announced exactly that in 2021 when retiring weak SSH keys, old ciphers and unencrypted `git://` connections: several short, scheduled brownouts before the final cut-off.
+
+## Disable, watch, then delete
+
+Microsoft's Well-Architected guidance turns this into a checklist. Define "clear indicators of inactivity across a full user or business cycle". "Disable before deleting." Then watch a window in which any unexpected activity resets the clock.
+
+## Try it
+
+The same shop as the Strangler Lab, after the migration: every route the team knows about is already on the new system. Legacy is still on. Your job is to find what still needs it, then switch it off without breaking anyone. Reading legacy's own access log over a full month works; so does a planned brownout - switching it off and seeing what fails, then switching it back on.
+
+<StranglerLab mission="decommission" />
+
+<Callout kind="trap">
+"Nothing has called it for twelve days" is not "nothing calls it". A monthly job is invisible for 29 days out of 30. Switch off first, which you can undo; watch a full business cycle; archive; and only then delete, which you can't undo.
+</Callout>
+
+<Quiz
+  id="change-decom-1"
+  q="An endpoint has returned a Deprecation header for six months. Can you remove it now?"
+  options={["Yes - everyone has been warned", "Not yet - the header changes no behaviour and tells you nothing about who still calls it; check real traffic over a full cycle", "Only after a Sunset header too"]}
+  answer={1}
+  explain="RFC 9745: deprecation 'does not change any behavior of the resource'. Whether anyone still depends on it is a measurement, not an announcement."
+/>
+
+<Quiz
+  id="change-decom-2"
+  q="What made Atlassian's 2022 deletion so hard to recover from?"
+  options={["The data was never backed up", "The script was given site IDs instead of app IDs, and ran in permanent-delete mode instead of the recoverable one", "An attacker deleted the sites"]}
+  answer={1}
+  explain="Atlassian's review: the wrong list of IDs and the wrong execution mode. A removal step with a reversible mode available is safest run that way first."
+/>

@@ -1,14 +1,7 @@
-// Card decks: a situation, a few readings of it, one that the sources support.
-// Each wrong option says why it is wrong, because "no" teaches less than "no,
-// because". Every deck has to be passable only by reading the cards: a deck
-// where the broken answer is always the same position, or where everything is
-// broken, teaches pattern-matching instead.
+// The agile trail's card decks. The deck shape and its mission live in
+// src/lib/cards.ts; every deck is registered in src/lib/decks.ts.
 
-import type { Mission } from '../missions.ts';
-
-export type Option = { id: string; text: string; why: string };
-export type Card = { id: string; title: string; body: string; options: Option[]; answer: string; source: string };
-export type Deck = { id: string; title: string; xp: number; cards: Card[]; debrief: string; licence?: string };
+import { deckMission, type Deck } from '../cards.ts';
 
 export const IN_NAME_ONLY: Deck = {
   id: 'in-name-only', title: 'Diagnose four teams', xp: 60,
@@ -120,19 +113,6 @@ export const SCRUM_EVENTS: Deck = {
   debrief: 'Every wrong answer in that deck is something real teams do: report to a manager, read three questions in turn, treat the review as a sign-off, hold the retrospective because it is in the calendar. Each one keeps the event and loses what it was for. The guide is strict about the frame and silent about almost everything inside it, which is why "what is this for?" is the question that keeps a team doing Scrum rather than performing it.',
 };
 
-export const DECKS: Record<string, Deck> = { [IN_NAME_ONLY.id]: IN_NAME_ONLY, [SCRUM_EVENTS.id]: SCRUM_EVENTS };
-
-export type CardState = { deck: Deck; answers: Record<string, string> };
-
-/** One step per card: done when that card's chosen reading is the supported one. */
-export function deckMission(deck: Deck): Mission<CardState> {
-  return {
-    id: deck.id, title: deck.title, xp: deck.xp,
-    setup: () => ({ deck, answers: {} }),
-    steps: deck.cards.map((c) => ({ text: `${c.title}: what is going on?`, hint: 'Read the body, then pick the reading the sources support', done: (s: CardState) => s.answers[c.id] === c.answer })),
-    debrief: deck.debrief,
-  };
-}
 
 export const IN_NAME_ONLY_MISSION = deckMission(IN_NAME_ONLY);
 export const SCRUM_EVENTS_MISSION = deckMission(SCRUM_EVENTS);

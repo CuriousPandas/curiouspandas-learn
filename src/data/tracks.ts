@@ -124,15 +124,15 @@ export const TRACKS: Track[] = [
     // Lab is where "compared, not compared, served by" gets taught.
     id: 'change', title: 'Changing Running Software', tagline: 'Replace a system while people are using it - and prove each step did what it said.', icon: 'vine', hue: 315,
     lessons: [
-      { slug: 'rewrite-or-evolve', title: 'Most rewrites ship late, and some never ship', status: 'soon' },
-      { slug: 'characterization-tests', title: 'Pin what it does before you change what it should do', status: 'soon' },
-      { slug: 'branch-by-abstraction', title: 'Branch by abstraction, and delete the flag', status: 'soon' },
-      { slug: 'expand-contract-schemas', title: 'A sub-second migration, a 15-second outage', status: 'soon' },
-      { slug: 'evolving-apis', title: "Every observable behaviour is somebody's contract", status: 'soon' },
+      { slug: 'rewrite-or-evolve', title: 'Most rewrites ship late, and some never ship', status: 'ready' },
+      { slug: 'characterization-tests', title: 'Pin what it does before you change what it should do', status: 'ready' },
+      { slug: 'branch-by-abstraction', title: 'Branch by abstraction, and delete the flag', status: 'ready' },
+      { slug: 'expand-contract-schemas', title: 'A sub-second migration, a 15-second outage', status: 'ready' },
+      { slug: 'evolving-apis', title: "Every observable behaviour is somebody's contract", status: 'ready' },
       { slug: 'prove-it-in-production', title: 'A mirror that compares nothing', status: 'ready' },
       { slug: 'strangler-fig', title: 'Strangle it one route at a time', status: 'ready' },
-      { slug: 'boundaries-and-teams', title: 'Your architecture copies your org chart', status: 'soon' },
-      { slug: 'decommissioning', title: 'Switching it off is the riskiest change', status: 'soon' },
+      { slug: 'boundaries-and-teams', title: 'Your architecture copies your org chart', status: 'ready' },
+      { slug: 'decommissioning', title: 'Switching it off is the riskiest change', status: 'ready' },
     ],
   },
   {
