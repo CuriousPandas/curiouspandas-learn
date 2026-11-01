@@ -172,7 +172,7 @@ import { FORMULAS, MAX_LENGTH, MODELS } from '../lib/cs/midpoint.ts';
 <style is:global>
   .midpoint .mp-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 1000px) { .midpoint .mp-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
-  .midpoint .mp-main { min-width: 0; display: grid; gap: 12px; align-content: start; }
+  .midpoint .mp-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
   .midpoint .mp-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; display: grid; gap: 8px; }
   .midpoint h4 { margin: 0; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
   .midpoint h4 .muted { font-weight: 400; font-size: 0.8rem; }

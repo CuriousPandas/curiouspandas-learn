@@ -255,7 +255,7 @@ import { CACHE_LINES, CACHE_WORDS, LINE_WORDS, MAX_SIZE, MIN_SIZE, SIZE_STEP, WA
 <style is:global>
   .layout .ll-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 1000px) { .layout .ll-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
-  .layout .ll-main { min-width: 0; display: grid; gap: 12px; align-content: start; }
+  .layout .ll-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
   .layout .ll-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
   .layout h4 { margin: 0 0 6px; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
   .layout h4 .pill { font-weight: 600; white-space: normal; }
