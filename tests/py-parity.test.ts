@@ -6,7 +6,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PyProgram } from '../src/lib/py/vm.ts';
+import { formatTraceback } from '../src/lib/py/lab.ts';
 
 function findPython(): string {
   // On Windows `python3` can be the Store stub, which exits non-zero with no
@@ -198,6 +202,69 @@ const PROGRAMS: Record<string, string[]> = {
     'float(10 ** 400)',
     'print(min([]))',
   ],
+  // Added for the Programming from Zero errors lessons. Every shape here is one
+  // where a lazy finally would go wrong: the order of the prints is the assertion.
+  'finally': [
+    'try:\n    print("body")\nfinally:\n    print("cleanup")\nprint("after")',
+    'try:\n    print("body")\n    1 / 0\nexcept ZeroDivisionError:\n    print("caught")\nelse:\n    print("else")\nfinally:\n    print("cleanup")\nprint("after")',
+    'try:\n    print("body")\nexcept ZeroDivisionError:\n    print("caught")\nelse:\n    print("else")\nfinally:\n    print("cleanup")',
+    'try:\n    1 / 0\nfinally:\n    print("cleanup runs, then it stays loud")\nprint("never")',
+    'try:\n    int("x")\nexcept KeyError:\n    print("no")\nfinally:\n    print("cleanup")\nprint("never")',
+    'try:\n    1 / 0\nexcept ZeroDivisionError:\n    int("x")\nfinally:\n    print("cleanup after a handler failed")',
+    'try:\n    print("else raises")\nexcept ValueError:\n    print("not caught here")\nelse:\n    int("x")\nfinally:\n    print("cleanup")',
+    // return inside try/finally: the value is computed, then the finally, then the return
+    'def f():\n    try:\n        return "from try"\n    finally:\n        print("cleanup")\nprint(f())',
+    'def g():\n    print("computed first")\n    return 1\ndef f():\n    try:\n        return g()\n    finally:\n        print("then cleanup")\nprint(f())',
+    'def f():\n    x = 1\n    try:\n        return x\n    finally:\n        x = 2\n        print("x is now", x)\nprint(f())',
+    'def f():\n    x = [1]\n    try:\n        return x\n    finally:\n        x.append(2)\nprint(f())',
+    'def f():\n    try:\n        return "try"\n    finally:\n        return "finally"\nprint(f())',
+    'def f():\n    try:\n        1 / 0\n    finally:\n        return "swallowed"\nprint(f())',
+    'def f():\n    try:\n        1 / 0\n    except ZeroDivisionError:\n        return "from handler"\n    finally:\n        print("cleanup")\nprint(f())',
+    'def f():\n    try:\n        return "try"\n    finally:\n        1 / 0\nf()',
+    'def f():\n    try:\n        try:\n            return "inner"\n        finally:\n            print("one")\n    finally:\n        print("two")\nprint(f())',
+    'def f():\n    try:\n        try:\n            1 / 0\n        finally:\n            print("one")\n    except ZeroDivisionError:\n        print("caught outside")\n        return "done"\n    finally:\n        print("two")\nprint(f())',
+    'def f(n):\n    try:\n        if n == 0:\n            return "bottom"\n        return f(n - 1)\n    finally:\n        print("leaving", n)\nprint(f(2))',
+    // break, continue and return through a finally, with loop iterators on the stack
+    'for i in range(3):\n    try:\n        if i == 1:\n            continue\n        print(i)\n    finally:\n        print("cleanup", i)',
+    'for i in range(3):\n    try:\n        if i == 1:\n            break\n        print(i)\n    finally:\n        print("cleanup", i)\nprint("out", i)',
+    'i = 0\nwhile i < 3:\n    i += 1\n    try:\n        if i == 2:\n            continue\n        print(i)\n    finally:\n        print("cleanup", i)',
+    'for i in range(3):\n    try:\n        1 / 0\n    finally:\n        print("drop it", i)\n        break\nprint("survived")',
+    'for i in range(2):\n    try:\n        1 / 0\n    finally:\n        print("next", i)\n        continue\nprint("survived")',
+    'def f():\n    for i in range(3):\n        try:\n            return i\n        finally:\n            print("cleanup", i)\nprint(f())',
+    'def f():\n    for i in range(3):\n        try:\n            for j in range(3):\n                return (i, j)\n        finally:\n            print("cleanup", i)\n            continue\n    return "fell out"\nprint(f())',
+    'def f():\n    for i in range(2):\n        try:\n            return i\n        finally:\n            break\n    return "break won"\nprint(f())',
+    'for i in range(2):\n    try:\n        try:\n            continue\n        finally:\n            print("inner", i)\n    finally:\n        print("outer", i)',
+    'for i in range(3):\n    try:\n        1 / 0\n    except ZeroDivisionError as e:\n        if i == 1:\n            break\n        print("handled", i)\n    finally:\n        print("cleanup", i)',
+    'for i in range(2):\n    try:\n        raise ValueError(i)\n    except ValueError as e:\n        continue\nprint(e)',
+    'def f():\n    try:\n        raise ValueError("v")\n    except ValueError as e:\n        return "r"\n    finally:\n        print(e)\nf()',
+    // the name in `except E as e` and the finally's scope
+    'def f():\n    try:\n        y = 1\n    finally:\n        z = 2\n    return y + z\nprint(f())',
+    'def f():\n    try:\n        pass\n    finally:\n        w = 3\n    print(w)\nf()\nprint("ok")',
+    'x = 1\ndef f():\n    try:\n        print(x)\n    finally:\n        x = 2\nf()',
+    'class C:\n    try:\n        a = 1\n    finally:\n        b = 2\nprint(C.a, C.b)',
+    'try:\n    pass\nelse:\n    pass',
+    'try:\n    pass\nfinally:\n    pass\nexcept ValueError:\n    pass',
+    'try:\n    pass',
+    'try:\n    pass\nexcept:\n    pass\nexcept ValueError:\n    pass',
+  ],
+  'raise on its own, and exceptions raised while handling one': [
+    'raise',
+    'try:\n    try:\n        1 / 0\n    except ZeroDivisionError:\n        print("log it")\n        raise\nexcept ZeroDivisionError as e:\n    print("still here:", e)',
+    'def again():\n    raise\ntry:\n    try:\n        int("x")\n    except ValueError:\n        again()\nexcept ValueError as e:\n    print("from a call:", e)',
+    'try:\n    1 / 0\nexcept ZeroDivisionError:\n    try:\n        int("x")\n    except ValueError:\n        print("inner handled")\n    raise',
+    'try:\n    try:\n        1 / 0\n    except ZeroDivisionError:\n        try:\n            raise ValueError("second")\n        except ValueError:\n            pass\n        raise\nexcept Exception as e:\n    print(type(e).__name__)',
+    'try:\n    try:\n        raise ValueError("v")\n    except ValueError as e:\n        raise KeyError("k")\nexcept KeyError:\n    print(e)',
+    'def f():\n    try:\n        int("x")\n    except ValueError as e:\n        raise RuntimeError("could not read the file") \nf()',
+    'try:\n    try:\n        1 / 0\n    finally:\n        print("cleanup")\nexcept ZeroDivisionError:\n    print("seen")\n    try:\n        raise\n    except ZeroDivisionError:\n        print("again")',
+    'try:\n    1 / 0\nexcept ZeroDivisionError:\n    pass\nraise',
+    'try:\n    1 / 0\nexcept Exception:\n    print("caught by Exception")',
+    'try:\n    x = totl + 1\nexcept Exception:\n    print("a typo, swallowed")',
+    'try:\n    x = totl + 1\nexcept:\n    print("bare catches it too")',
+    'try:\n    x = totl + 1\nexcept ValueError:\n    print("never")',
+    'try:\n    raise EOFError("no more")\nexcept EOFError as e:\n    print(e, isinstance(e, Exception))',
+    'try:\n    int(None)\nexcept ValueError:\n    print("no")\nexcept TypeError as e:\n    print(e)',
+    'class Bad(Exception):\n    pass\ndef f(x):\n    if x < 0:\n        raise Bad(f"negative: {x}")\n    return x\ntry:\n    f(-1)\nexcept Bad as e:\n    print("bad:", e)\nf(-2)',
+  ],
   'syntax errors stay errors': [
     'if True\n    print(1)',
     'def f(:\n    pass',
@@ -243,6 +310,103 @@ test('sum() of floats is compensated, as in Python 3.12 and later', () => {
     assert.equal(ours(src).out, want, src);
     if (minor >= 12) same(src);
   }
+});
+
+// input() against real Python with real standard input. Real Python writes the prompt
+// to standard output and does not echo the line when input is a pipe, so these
+// compare byte for byte. Running out of input is the one deliberate difference.
+const STDIN: [string, string[]][] = [
+  ['print(input())', ['hello']],
+  ['print(input("Name? "))', ['Ana']],
+  ['a = input("A: ")\nb = input("B: ")\nprint(b, a)', ['one', 'two']],
+  ['print(repr(input()))', ['  spaces kept  ']],
+  ['print(repr(input()))', ['']],
+  ['print(int(input()) + 1)', ['41']],
+  ['print(int(input()) + 1)', ['forty-one']],
+  ['print(int(input(">")) + 1)', ['']],
+  ['print(float(input()))', ['1.5e3']],
+  ['print(input().upper(), input().split(","))', ['a', 'b,c']],
+  ['input(1, 2)', []],
+  ['print(input(42))', ['x']],
+  ['n = 0\nwhile True:\n    t = input()\n    if t == "done":\n        break\n    n += int(t)\nprint(n)', ['1', '2', 'done', 'ignored']],
+  ['while True:\n    try:\n        n = int(input("n? "))\n        break\n    except ValueError:\n        print("not a number")\nprint(n)', ['x', '', '7']],
+  ['def ask():\n    return input("in a function: ")\nprint(ask())', ['ok']],
+];
+test('input() reads lines exactly as real Python reads standard input', () => {
+  const wrong: string[] = [];
+  for (const [src, lines] of STDIN) {
+    const r = spawnSync(PY, ['-I', '-X', 'utf8', '-c', src], { encoding: 'utf8', input: lines.map((l) => `${l}\n`).join('') });
+    const a = { out: r.stdout.replace(/\r\n/g, '\n'), err: lastErr(r.stderr ?? '') };
+    const p = new PyProgram(src, { stdin: lines });
+    p.run();
+    const b = { out: p.stdout, err: p.error ? (p.error.message ? `${p.error.type}: ${p.error.message}` : p.error.type) : '' };
+    if (b.out !== a.out || b.err !== a.err) wrong.push(`${src}\nreal: ${JSON.stringify(a)}\nours: ${JSON.stringify(b)}`);
+  }
+  assert.equal(wrong.length, 0, wrong.join('\n\n'));
+});
+
+test('running out of input: real Python raises EOFError, the sandbox says plainly what happened', () => {
+  // The pin on the difference. If it ever stops being true that real Python raises
+  // EOFError here, the lesson's callout and the SandboxLimit's message are both wrong.
+  const r = spawnSync(PY, ['-I', '-c', 'print(input("? "))'], { encoding: 'utf8', input: '' });
+  assert.equal(lastErr(r.stderr), 'EOFError: EOF when reading a line');
+  const p = new PyProgram('print(input("? "))', { stdin: [] });
+  p.run();
+  assert.equal(p.error?.type, 'SandboxLimit');
+  assert.match(p.error!.message, /more input than this lab was given/);
+  assert.match(p.error!.message, /EOFError/);
+  // No except can catch it: this is the program waiting for someone to type, and a
+  // retry loop must stop here, not spin until the step budget says it might be slow.
+  for (const handler of ['except Exception:', 'except:', 'except EOFError:', 'except BaseException:']) {
+    const q = new PyProgram(`while True:\n    try:\n        x = input()\n    ${handler}\n        print("swallowed")`, { stdin: ['a'] });
+    q.run();
+    assert.equal(q.status, 'error', handler);
+    assert.equal(q.error?.type, 'SandboxLimit', handler);
+    assert.equal(q.stdout, '', handler);
+  }
+  const none = new PyProgram('input()');
+  none.run();
+  assert.match(none.error!.message, /no input box/);
+});
+
+// A traceback is what the debugging lesson teaches people to read, so it is compared
+// with the real one: every frame, every line number, in order. The ^^^^ markers are
+// left out, because they moved between Python versions and this engine has no columns.
+const TRACEBACKS = [
+  'def g():\n    raise ValueError("x")\ndef f():\n    return g()\nf()\n',
+  'def g():\n    raise ValueError("x")\ndef f():\n    try:\n        g()\n    except ValueError:\n        print("log")\n        raise\nf()\n',
+  'def g():\n    raise ValueError("x")\ndef f():\n    try:\n        g()\n    except ValueError as e:\n        print("log")\n        raise e\nf()\n',
+  'def g():\n    raise ValueError("x")\ndef f():\n    try:\n        g()\n    finally:\n        print("cleanup")\nf()\n',
+  'def g():\n    raise ValueError("x")\ndef f():\n    try:\n        g()\n    except KeyError:\n        print("no")\nf()\n',
+  'def f():\n    try:\n        1 / 0\n    except ZeroDivisionError:\n        raise ValueError("new")\nf()\n',
+  'def f():\n    try:\n        1 / 0\n    finally:\n        int("x")\nf()\n',
+  'def f(n):\n    return f(n + 1)\nf(0)\n',
+  'def f(n):\n    if n == 0:\n        return 1 / n\n    return f(n - 1)\nf(5)\n',
+  'd = {}\nprint(d["k"])\n',
+  'class A:\n    def m(self):\n        return 1 / 0\nA().m()\n',
+  'def f():\n    raise ValueError\nf()\n',
+  'x = 1\ndef f():\n    print(x)\n    x = 2\nf()\n',
+  'def total(items):\n    t = 0\n    for i in items:\n        t = t + i\n    return t\ndef report(lines):\n    return total([l.split(",")[1] for l in lines])\nprint(report(["a,1"]))\n',
+  // A comprehension had a frame of its own before Python 3.12, so 3.11 prints one more entry.
+  ...(minor >= 12 ? ['def f(x):\n    return 1 / x\nprint([f(i) for i in [1, 0]])\n', 'print([1 / x for x in [0]])\n'] : []),
+];
+test('a traceback matches real Python frame for frame', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cp-tb-'));
+  const file = join(dir, 'lab.py');
+  try {
+    const wrong: string[] = [];
+    for (const src of TRACEBACKS) {
+      writeFileSync(file, src);
+      const r = spawnSync(PY, ['-I', '-X', 'utf8', file], { encoding: 'utf8' });
+      const realTb = r.stderr.replace(/\r\n/g, '\n').split('\n').filter((l) => !/^\s*[~^]+[~^ ]*$/.test(l)).join('\n').replaceAll(file, '<lab>').trim();
+      const p = new PyProgram(src);
+      p.run();
+      assert.ok(p.error, `no error from: ${src}`);
+      const ours = formatTraceback(p.error, src);
+      if (ours !== realTb) wrong.push(`${src}\n--- real\n${realTb}\n--- ours\n${ours}`);
+    }
+    assert.equal(wrong.length, 0, wrong.join('\n\n'));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('python: recursion stops near the same depth as real Python', () => {

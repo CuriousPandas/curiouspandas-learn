@@ -1,0 +1,219 @@
+---
+title: Bad input and things going wrong
+summary: Researchers read 198 real failures of big systems and found that most of the catastrophes came from code handling an error badly. Learn to read input, catch only what you planned for, and see what happens to a program that catches everything and carries on.
+minutes: 24
+xp: 55
+tiers: [browser, machine]
+builds_on: [programming/functions]
+sources:
+  - title: Yuan et al. - Simple Testing Can Prevent Most Critical Failures (OSDI 2014, free)
+    url: https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-yuan.pdf
+  - title: Python tutorial - Errors and Exceptions
+    url: https://docs.python.org/3/tutorial/errors.html
+  - title: Python docs - Built-in Exceptions
+    url: https://docs.python.org/3/library/exceptions.html
+  - title: Python docs - the input() function
+    url: https://docs.python.org/3/library/functions.html#input
+  - title: Python docs - the try statement and its finally clause
+    url: https://docs.python.org/3/reference/compound_stmts.html#finally-clause
+  - title: Python tutorial - Reading and Writing Files
+    url: https://docs.python.org/3/tutorial/inputoutput.html#reading-and-writing-files
+---
+
+In 2014 a team led by Ding Yuan read through 198 randomly chosen failures that users had reported in five big open-source storage and data systems. They wanted to know how small faults turn into outages. Of the 198, 48 were catastrophic, meaning most or all users lost service or data.
+
+They reported that "almost all (92%) of the catastrophic system failures are the result of incorrect handling of non-fatal errors explicitly signaled in software." In other words, something went wrong in a way the software noticed and could have survived. Then the code that was meant to deal with it made things worse, or did nothing.
+
+The embarrassing part was how simple many of them were. In 35% of the catastrophes, the code at fault fell into one of three patterns, and the first was this: "the error handler is simply empty or only contains a log printing statement". One had just a logging line and a comment saying "TODO". The authors write: "While this error would only occur rarely, it took down a production cluster of 4,000 nodes."
+
+That is five systems of one kind, and the percentages are of those 48 failures. It doesn't tell you the rate everywhere. But you can write that same bug in your first week, and in this lesson you will.
+
+## Everything a person types is text
+
+A program usually gets data from outside: a person, a file, another program. `input()` stops, waits for a line of text and hands it back. If you give it a prompt, it prints that first.
+
+The important word is *text*. Run this. It fails, because `"41"` and `41` are different things, and Python won't guess which you meant.
+
+<CodeLab stdin="41" code={`age = input("How old are you? ")
+print("Next year you will be", age + 1)
+`} />
+
+Change the second line to use `int(age) + 1` and run it again. Now change what the user types to `forty`, and run it once more. That is a different failure, and it's the one this lesson is about: the code is right, and the world handed it something it can't use.
+
+<Callout kind="real">
+On a real terminal, `input()` waits for you, you see what you type, and pressing Enter moves to the next line. This lab reads from the box instead, so the prompt and the next thing printed share a line. That's what real Python does as well when its input comes from a file or another program, and this site's tests compare the two byte for byte. If the box runs out of lines the lab tells you and stops. Real Python would wait for you to type, or raise an error called `EOFError` if its input had ended.
+</Callout>
+
+## When Python can't go on, it raises an exception
+
+An **exception** is Python saying "I can't carry on from here", as a value with a type and a message. If nothing deals with it, the program stops and prints a report. Here are some you'll meet often, and every line in this table is checked against real Python:
+
+| This code | Raises | Because |
+|---|---|---|
+| `int("forty")` | `ValueError` | right type, a value it can't use |
+| `"a" + 1` | `TypeError` | the wrong type for this operation |
+| `1 / 0` | `ZeroDivisionError` | no answer exists |
+| `{}["x"]` | `KeyError` | no such key in the dictionary |
+| `[][5]` | `IndexError` | no such position in the list |
+| `totl + 1` | `NameError` | no such name, often a typo |
+
+To deal with one yourself, put the risky code in `try`, and say what to do in `except`:
+
+```python
+try:
+    n = int("forty")
+    print("got", n)
+except ValueError:
+    print("that wasn't a number")
+print("carrying on")
+```
+
+If nothing is raised inside `try`, the `except` is skipped. If a `ValueError` is raised, Python jumps straight to the `except`, skipping the rest of the `try`, and the program carries on below. Any other type of exception goes straight past this `except` and keeps travelling up, out through whichever functions called this one.
+
+## Keep asking
+
+Now use that. People make typing mistakes, so a crash is the wrong response here. The right one is to say what's wrong and ask again.
+
+<CodeLab mission="prog-errors-ask" rows={9} />
+
+## The program that catches everything
+
+The obvious next thought is: why not catch every error, so the program never crashes? Here is why not. This function is meant to add up some amounts and skip any line that isn't a number. It has a `try`, it never crashes, and it has a bug.
+
+<CodeLab mission="prog-errors-swallow" rows={12} />
+
+Look at what `except Exception: pass` did. `pass` means do nothing: Python needs something in that block, and this says so on purpose. `Exception` covers almost every error Python has, including the typo. So a line that can never work ran for every amount, failed every time, and the failure was thrown away each time. The function returned its starting value, and the program finished with no error. Anyone looking at the output sees a total of 0, which is a believable total. It looks like a quiet day.
+
+This is the failure to fear. A crash is annoying and it tells you where to look. A wrong answer with no error can sit there for months.
+
+**So catch what you planned for, and let the rest be loud.**
+
+- *The outside world will send you nonsense.* A person types `forty`. Catch that specific error and handle it.
+- *Your own bugs are not bad input.* A typo, a wrong type passed by your own code: you want those to stop the program, so that you can fix them.
+
+If you skip a bad line on purpose, as the function above does, the honest version also tells someone that it did. Quietly dropping data is its own silent failure. You'll build a program that reports what it skipped in [a later lesson](/learn/programming/real-program/).
+
+<Callout kind="trap" title="A bare except: catches even more">
+`except:` with no type catches everything, including `KeyboardInterrupt`, the exception raised when you press Ctrl-C to stop a program. Python's docs say `KeyboardInterrupt` inherits from `BaseException` "so as to not be accidentally caught by code that catches Exception". So a loop with a bare `except:` inside it can ignore your attempts to stop it. Avoid it. The labs can't show the Ctrl-C part, because nothing here can press it, but `raise KeyboardInterrupt` does get past `except Exception` and is caught by a bare `except:`, as on real Python. The same study found the opposite mistake too: in 8% of the catastrophes, code caught an overly general exception and shut the whole cluster down for a small problem. Catching too widely can make things worse in either direction.
+</Callout>
+
+<Quiz
+  id="prog-err-1"
+  q="A nightly report's try/except Exception: pass has been in place for a year. The report has shown a total of 0 for the last three weeks. Nobody has seen an error. What's the most useful conclusion?"
+  options={["Nothing failed, because any failure would have shown an error", "The except may be hiding a real failure, so narrow it to the errors you expect and see what appears", "Zero is probably right, because the code would crash otherwise"]}
+  answer={1}
+  explain="The except is exactly what would stop an error from being seen, so 'no errors' tells you nothing. Narrowing it to the specific error you expect makes everything else loud again."
+/>
+
+## Raising your own, and passing one on
+
+Your own functions can refuse bad values with `raise`. Give the message enough detail that whoever reads it knows what to fix.
+
+```python
+def percent(part, whole):
+    if whole == 0:
+        raise ValueError(f"percent of nothing: {part} of {whole}")
+    return part * 100 / whole
+
+print(percent(1, 4))
+print(percent(1, 0))
+```
+
+Sometimes you want to note that something failed and still let it travel on. `raise` on its own, inside an `except`, passes along the exception you caught, with its report still pointing at where it began:
+
+```python
+def load(text):
+    try:
+        return int(text)
+    except ValueError:
+        print("load failed on:", text)
+        raise
+
+print(load("12"))
+print(load("twelve"))
+```
+
+## Cleaning up: finally
+
+Some work has to happen whether or not things went well. If you opened something, you have to close it. Whatever is in `finally` runs on every way out your program takes while it's still running: normally, through a `return`, or with an exception on its way past. A killed process or a power cut runs no more Python at all, so a `finally` can't help there. Press **Run**, then **Step** through it.
+
+<CodeLab code={`def save(record, disk_ok):
+    print("open the file")
+    try:
+        if not disk_ok:
+            raise RuntimeError("disk full")
+        print("wrote", record)
+        return "saved"
+    finally:
+        print("close the file")
+
+print(save("a", True))
+print(save("b", False))
+print("this line never runs")
+`} />
+
+Notice two things. The `return` worked out its value, then the `finally` ran, and only then did the function hand the value back. And `finally` doesn't catch anything: "disk full" still reached the top and stopped the program, after the file was closed. That's what you want, because cleaning up isn't the same as pretending it went fine.
+
+<Callout kind="trap" title="A return inside finally eats the exception">
+Python's docs say it plainly: "If the finally clause executes a return, break or continue statement, the saved exception is discarded." Their example divides by zero, returns 42 from the `finally`, and the error vanishes. Run it below. Since Python 3.14 the compiler warns about this with a `SyntaxWarning`, and this sandbox doesn't.
+
+<CodeLab code={`def f():
+    try:
+        1 / 0
+    finally:
+        return 42
+
+print(f())
+print("no error was reported")
+`} />
+</Callout>
+
+<Quiz
+  id="prog-err-2"
+  q="In try: risky() / except ValueError: fix() / finally: tidy(), risky() raises KeyError. What happens?"
+  options={["fix() runs, then tidy(), then the program carries on", "tidy() runs, then the KeyError keeps travelling up and stops the program if nothing else catches it", "Nothing else runs: the program stops at once and tidy() is skipped"]}
+  answer={1}
+  explain="except ValueError doesn't match a KeyError, so fix() is skipped. finally runs on the way out. Then the KeyError carries on up, because finally cleans up and does not catch."
+/>
+
+<Quiz
+  id="prog-err-3"
+  q="Which of these is bad input, and should be caught and handled where it arrives?"
+  options={["A user types 12x into a quantity box", "Your code has a typo in a variable name", "Your own function is called with None because of a mistake elsewhere in your program"]}
+  answer={0}
+  explain="The first comes from outside and you can't prevent it, so you plan for it. The other two are bugs in your program. Catching them hides the place you need to fix."
+/>
+
+<DoItForReal id="prog-err-files" needs="terminal" xp={20}>
+
+Files are input too, and they fail in the same way. This sandbox has no files for Python, so try this on a real machine with Python 3 installed. Save it as `notes.py`, and run `python3 notes.py` in a folder with no `notes.txt`:
+
+```python
+# real machine
+try:
+    with open("notes.txt") as f:
+        for line in f:
+            print(line.strip())
+except FileNotFoundError:
+    print("No notes.txt here yet.")
+```
+
+It prints `No notes.txt here yet.` `with` closes the file when its block ends, even if an exception is raised inside it, which is a `finally` you don't have to write. Now add a note and run it again. `"a"` means add to the end, and `"w"` would replace the whole file:
+
+```python
+# real machine
+with open("notes.txt", "a") as f:
+    f.write("first note\n")
+```
+
+Finally, make `except FileNotFoundError` into `except Exception`, and change the program so it opens a folder instead of a file: `open(".")`. See how it now says the file doesn't exist, when that isn't what went wrong.
+
+</DoItForReal>
+
+## What to remember
+
+- Everything from `input()` is text. Convert it, and expect the conversion to fail.
+- Catch the specific errors you planned for. Let the rest stop the program, because a loud bug is one you can find.
+- `except Exception: pass` turns a bug into a believable wrong answer.
+- If you skip bad data, say so.
+- `finally` cleans up on every way out your program takes while it's running, and doesn't stop the exception.

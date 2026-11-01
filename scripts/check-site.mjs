@@ -145,7 +145,9 @@ async function scenario(name, path, fn, opts) {
   const { ctx, page, errors } = await visit(path, opts);
   try {
     await fn(page);
-    if (errors.length) fail(name, `console errors: ${errors.join(' | ')}`);
+    // A scenario that injects a fault expects the page to log it. Anything else still fails.
+    const unexpected = errors.filter((e) => !opts?.expectErrors?.test(e));
+    if (unexpected.length) fail(name, `console errors: ${unexpected.join(' | ')}`);
     await page.screenshot({ path: join(OUT, `scenario-${name}.png`), fullPage: false });
     report.push({ scenario: name, ok: true });
   } catch (e) {
@@ -1668,10 +1670,11 @@ await scenario('alg-what-is-an-algorithm', '/learn/algorithms/what-is-an-algorit
   await page.locator(first).scrollIntoViewIfNeeded();
   await page.locator(first).locator('[data-run]').click();
   await page.waitForFunction(() => /1 bottles of beer/.test(document.querySelector('[data-codelab] [data-out]').textContent));
-  // The note promises read-along, and must not link to a track that isn't written.
+  // The note sends someone who has never seen code to the track written for them.
   const note = await page.locator('main .callout').first().innerText();
   if (!/Programming from Zero/.test(note)) throw new Error(`note reads: ${note}`);
-  if (await page.locator('main .callout').first().locator('a').count()) throw new Error('the note links somewhere: Programming from Zero is not written yet');
+  const noteLink = await page.locator('main .callout').first().locator('a').getAttribute('href');
+  if (!noteLink?.includes('/learn/programming/first-program/')) throw new Error(`the note links to ${noteLink}`);
 
   const r = mission('alg-what-last-day');
   const starter = await page.locator(`${r} [data-src]`).inputValue();
@@ -2333,6 +2336,636 @@ await scenario('people-labs', '/learn/algorithms/algorithms-and-people/', async 
   await debriefShown(page, r, /a larger share of the innocent people/);
   await expectText(page, `${r} [data-eq]`, /Chouldechova's equation[\s\S]*the same as the table/);
 });
+
+// ---- Programming from Zero, first half --------------------------------------
+// Each drives a lesson the way a beginner would: runs the starter, makes the mistake,
+// reads what the page says, then fixes it. A beginner can't see the hidden inputs, so
+// these also check the reason shown on an unticked step: a bare unticked box is the
+// silent failure here.
+const progRun = (page, r) => page.click(`${r} [data-run]`);
+// Polls: a run finishes a moment after the click, and until then the reason on screen is
+// the previous run's, which is correct for that run and wrong to judge this one by.
+const progWhy = async (page, r, re) => {
+  const why = page.locator(`${r} .m-steps li.current .m-why`);
+  await why.waitFor({ state: 'visible', timeout: 15000 });
+  const deadline = Date.now() + 15000;
+  let text = await why.innerText();
+  while (!re.test(text)) {
+    if (Date.now() > deadline) throw new Error(`${r}: the reason shown is "${text}"`);
+    await page.waitForTimeout(100);
+    text = await why.innerText();
+  }
+};
+const progTry = async (page, r, src) => { await setCode(page, r, src); await progRun(page, r); };
+
+await scenario('prog-first-program', '/learn/programming/first-program/', async (page) => {
+  const r = mission('prog-first-hello');
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await progRun(page, r);
+  await expectText(page, `${r} [data-out]`, /Hello, panda/);
+  await debriefHidden(page, r);
+  await progTry(page, r, 'print("I wrote this")\n');
+  await expectText(page, `${r} [data-out]`, /I wrote this/);
+  await progTry(page, r, 'prin("I wrote this")\n');
+  await expectText(page, `${r} [data-status]`, /NameError on line 1: name 'prin' is not defined/);
+  await debriefHidden(page, r);
+  await progTry(page, r, 'print("I wrote this")\n');
+  await debriefShows(page, r);
+
+  // The lesson's claim: a runtime error has run the lines above it, a syntax error has run nothing.
+  const labs = page.locator('[data-codelab]:not([data-mission])');
+  const runtime = labs.nth(1), syntax = labs.nth(2);
+  await runtime.scrollIntoViewIfNeeded();
+  await runtime.locator('[data-run]').click();
+  await runtime.locator('[data-status].bad').waitFor({ timeout: 15000 });
+  if (!/^one\s*$/.test(await runtime.locator('[data-out]').innerText())) throw new Error('the runtime error should leave "one" printed');
+  await syntax.locator('[data-run]').click();
+  await syntax.locator('[data-status].bad').waitFor({ timeout: 15000 });
+  if (!/SyntaxError on line 2: unterminated string literal/.test(await syntax.locator('[data-status]').innerText())) throw new Error(await syntax.locator('[data-status]').innerText());
+  if ((await syntax.locator('[data-out]').innerText()).trim() !== '') throw new Error('a syntax error should print nothing');
+
+  // Say what's sandbox: import is refused by name, and never reads as the learner's bug.
+  await syntax.locator('[data-src]').fill('import math\n');
+  await syntax.locator('[data-run]').click();
+  await syntax.locator('[data-status].warn').waitFor({ timeout: 15000 });
+  if (!/Not your bug: real Python has 'import'/.test(await syntax.locator('[data-status]').innerText())) throw new Error(await syntax.locator('[data-status]').innerText());
+
+  const c = mission('prog-first-countdown');
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await progRun(page, c);
+  await expectText(page, `${c} [data-status]`, /NameError on line 3/);
+  await expectText(page, `${c} [data-out]`, /Go!\s+3/);
+  await progTry(page, c, 'print("Go!")\nprint(3)\nprint(2)\nprint(1)\n');
+  await progWhy(page, c, /It printed/);
+  await debriefHidden(page, c);
+  await progTry(page, c, 'print(3)\nprint(2)\nprint(1)\nprint("Go!")\n');
+  await debriefShows(page, c);
+});
+
+await scenario('prog-values', '/learn/programming/values-and-variables/', async (page) => {
+  const r = mission('prog-vals-share');
+  const starter = await page.locator(`${r} [data-src]`).inputValue();
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await progRun(page, r);
+  await expectText(page, `${r} [data-out]`, /^15\s*$/);
+  await progTry(page, r, starter.replace('bill = 60', 'bill = 90'));
+  await expectText(page, `${r} [data-out]`, /^22\s*$/);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .m-steps li.done`).length === 2, r);
+  // A hard-coded answer fails on a bill the learner never saw, and the page says which.
+  await progTry(page, r, 'bill = 60\npeople = 4\nprint(15)\n');
+  await progWhy(page, r, /With bill = 90 and people = 4, it printed "15"; expected 22\.5/);
+  await debriefHidden(page, r);
+  await progTry(page, r, starter.replace('//', '/'));
+  await debriefShows(page, r);
+
+  const a = mission('prog-vals-age');
+  await page.locator(a).scrollIntoViewIfNeeded();
+  await progRun(page, a);
+  await expectText(page, `${a} [data-status]`, /TypeError on line 2: can only concatenate str \(not "int"\) to str/);
+  await progTry(page, a, 'age_text = "41"\nprint(age_text + "1")\n');
+  await expectText(page, `${a} [data-out]`, /411/);
+  await progWhy(page, a, /expected/);
+  await progTry(page, a, 'age_text = "41"\nprint(int(age_text) + 1)\n');
+  await debriefShows(page, a);
+
+  // input() is refused by name, with what to do instead.
+  await progTry(page, a, 'name = input()\n');
+  await expectText(page, `${a} [data-status]`, /Not your bug: this lab has no input box/);
+});
+
+// The review's worst freeze: "a1".strip(1) threw a raw JavaScript error and left the lab on
+// "Running…" with Stop hanging. The engine no longer throws on that, so a fault is injected
+// in two places: inside the engine, and in the page's own code after the run.
+await scenario('prog-lab-fails-loudly', '/learn/programming/first-program/', async (page) => {
+  const lab = page.locator('[data-codelab]:not([data-mission])').first();
+  await lab.scrollIntoViewIfNeeded();
+  const buttonsBack = async () => {
+    await page.waitForFunction((el) => el.querySelector('[data-run]').textContent === 'Run' && !el.querySelector('[data-step]').disabled, await lab.elementHandle(), { timeout: 15000 });
+    const said = await lab.locator('[data-status]').innerText();
+    if (!/bug in this page's Python sandbox, not in your code/.test(said)) throw new Error(`status says: ${said}`);
+    if (/Running/.test(said)) throw new Error('still reads as running');
+    if (await lab.locator('[data-status].bad').count()) throw new Error('a sandbox bug is styled as the learner\'s error');
+    if (await lab.locator('[data-tb-box]').isVisible()) throw new Error('a sandbox bug shows a Python traceback');
+  };
+  // The real failure first: it's a TypeError now, and it reads as one.
+  await lab.locator('[data-src]').fill('print("a1".strip(1))\n');
+  await lab.locator('[data-run]').click();
+  await expectText(page, '[data-codelab]:not([data-mission]) >> nth=0 >> [data-status]', /TypeError on line 1: strip arg must be None or str/);
+  // A fault inside the engine: Array.prototype.at is on the path of every instruction.
+  await page.evaluate(() => { const real = Array.prototype.at; window.__realAt = real; Array.prototype.at = function () { throw new TypeError('injected engine fault'); }; });
+  await lab.locator('[data-src]').fill('print("hello")\n');
+  await lab.locator('[data-run]').click();
+  await page.waitForFunction((el) => /injected engine fault/.test(el.querySelector('[data-status]').textContent), await lab.elementHandle(), { timeout: 15000 });
+  await page.evaluate(() => { Array.prototype.at = window.__realAt; });
+  await buttonsBack();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await lab.scrollIntoViewIfNeeded();
+  if (process.env.CHECK_SHOTS) await lab.screenshot({ path: `${process.env.CHECK_SHOTS}/sandbox-bug-desktop.png` });
+  await page.setViewportSize({ width: 375, height: 800 });
+  await lab.scrollIntoViewIfNeeded();
+  if (process.env.CHECK_SHOTS) await lab.screenshot({ path: `${process.env.CHECK_SHOTS}/sandbox-bug-375.png` });
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  if (wide) throw new Error('the sandbox bug message overflows a phone');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  // And it recovers: the next run works.
+  await lab.locator('[data-run]').click();
+  await expectText(page, '[data-codelab]:not([data-mission]) >> nth=0 >> [data-out]', /^hello\s*$/);
+  // A fault in the page's own code, past the engine: the same message, the same buttons.
+  await page.evaluate(() => { window.__realRC = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function () { throw new TypeError('injected page fault'); }; });
+  await lab.locator('[data-run]').click();
+  await page.waitForFunction((el) => /injected page fault/.test(el.querySelector('[data-status]').textContent), await lab.elementHandle(), { timeout: 15000 });
+  await page.evaluate(() => { Element.prototype.replaceChildren = window.__realRC; });
+  await buttonsBack();
+  await lab.locator('[data-run]').click();
+  await expectText(page, '[data-codelab]:not([data-mission]) >> nth=0 >> [data-status]', /Finished in/);
+  // The hint is code to read. It used to promise a terminal this page doesn't have.
+  const title = await page.locator(`${mission('prog-first-hello')} .m-steps code`).first().getAttribute('title');
+  if (title !== null) throw new Error(`a hint says: ${title}`);
+}, { expectErrors: /injected (engine|page) fault/ });
+
+await scenario('prog-fix-first', '/learn/programming/values-and-variables/', async (page) => {
+  // Right first time, with a word after the number, before ever running the broken starter.
+  const r = mission('prog-vals-share');
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await debriefHidden(page, r);
+  await progTry(page, r, 'bill = 60\npeople = 4\nshare = bill / people\nprint(share, "each")\n');
+  await debriefShows(page, r);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 3) throw new Error('a correct program should tick every step');
+});
+
+await scenario('prog-decisions', '/learn/programming/decisions/', async (page) => {
+  const first = page.locator('[data-codelab]').first();
+  await first.scrollIntoViewIfNeeded();
+  await first.locator('[data-run]').click();
+  await first.locator('[data-status].bad').waitFor({ timeout: 15000 });
+  const said = await first.locator('[data-status]').innerText();
+  if (!/SyntaxError on line 2: invalid syntax\. Maybe you meant '==' or ':=' instead of '='\?/.test(said)) throw new Error(said);
+
+  const r = mission('prog-dec-ticket');
+  const starter = await page.locator(`${r} [data-src]`).inputValue();
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await progRun(page, r);
+  await expectText(page, `${r} [data-out]`, /adult/);
+  await progTry(page, r, starter.replace('age = 30', 'age = 8'));
+  await expectText(page, `${r} [data-status]`, /Finished/);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .m-steps li.done`).length === 2, r);
+  // The edge: > where >= belongs passes on 30 and 8, and fails on 13.
+  await progTry(page, r, 'age = 30\nif age > 18:\n    print("adult")\nelif age > 13:\n    print("teen")\nelse:\n    print("child")\n');
+  await progWhy(page, r, /With age = 13, it printed "child"; expected "teen"/);
+  await debriefHidden(page, r);
+  await progTry(page, r, `${starter}else:\n    print("child")\n`);
+  await debriefShows(page, r);
+
+  const l = mission('prog-dec-leap');
+  const leap = await page.locator(`${l} [data-src]`).inputValue();
+  await page.locator(l).scrollIntoViewIfNeeded();
+  await progRun(page, l);
+  await expectText(page, `${l} [data-status]`, /Maybe you meant/);
+  await progTry(page, l, leap.replace('% 4 = 0', '% 4 == 0'));
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .m-steps li.done`).length === 2, l);
+  await progWhy(page, l, /With year = 1900, it printed "leap"; expected "not leap"/);
+  await progTry(page, l, leap.replace('year % 4 = 0', 'year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)'));
+  await debriefShows(page, l);
+});
+
+await scenario('prog-loops', '/learn/programming/loops/', async (page) => {
+  const first = page.locator('[data-codelab]').first();
+  await first.scrollIntoViewIfNeeded();
+  // Step shows the value changing, which is what the lesson asks a beginner to watch.
+  await first.locator('[data-step]').click();
+  await first.locator('[data-step]').click();
+  await first.locator('[data-step]').click();
+  if (!/n\s+3/.test(await first.locator('[data-vars]').innerText())) throw new Error(await first.locator('[data-vars]').innerText());
+
+  const r = mission('prog-loop-stuck');
+  const starter = await page.locator(`${r} [data-src]`).inputValue();
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await progRun(page, r);
+  await expectText(page, `${r} [data-status]`, /Stopped/, 30000);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .m-steps li.done`).length === 1, r);
+  await debriefHidden(page, r);
+  await progTry(page, r, 'n = 5\nprint(5)\nprint(4)\nprint(3)\nprint(2)\nprint(1)\nprint("Go!")\n');
+  await progWhy(page, r, /With n = 3/);
+  await progTry(page, r, starter.replace('n - 1', 'n = n - 1'));
+  await debriefShows(page, r);
+
+  const s = mission('prog-loop-sum');
+  const sum = await page.locator(`${s} [data-src]`).inputValue();
+  await page.locator(s).scrollIntoViewIfNeeded();
+  await progRun(page, s);
+  await expectText(page, `${s} [data-out]`, /^45\s*$/);
+  await progTry(page, s, sum.replace('range(1, n)', 'range(n)'));
+  await progWhy(page, s, /expected 55/);
+  await progTry(page, s, sum.replace('range(1, n)', 'range(1, n + 1)'));
+  await debriefShows(page, s);
+});
+
+await scenario('prog-stop-counts', '/learn/programming/loops/', async (page) => {
+  // The step's own hint says to press Stop, and pressing it used to tick nothing.
+  const r = mission('prog-loop-stuck');
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await progRun(page, r);
+  await page.waitForFunction((sel) => /[1-9][\d,]* steps/.test(document.querySelector(`${sel} [data-steps]`).textContent) && document.querySelector(`${sel} [data-run]`).textContent === 'Stop', r, { timeout: 15000 });
+  await progRun(page, r);
+  await expectText(page, `${r} [data-status]`, /You stopped it at/);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .m-steps li.done`).length === 1, r);
+  if (await page.locator(`${r} [data-run]`).innerText() !== 'Run') throw new Error('Stop should hand the Run button back');
+});
+
+await scenario('prog-functions', '/learn/programming/functions/', async (page) => {
+  const r = mission('prog-fn-fahrenheit');
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await progRun(page, r);
+  await expectText(page, `${r} [data-out]`, /212\.0/);
+  // Looks right on screen, and fails: this is the point of the mission.
+  await progWhy(page, r, /to_fahrenheit\(0\) returned None; expected 32\.0/);
+  await debriefHidden(page, r);
+  await progTry(page, r, 'def to_fahrenheit(c):\n    return c * 1.8 + 32\n');
+  await debriefShows(page, r);
+
+  const l = mission('prog-fn-leap');
+  await page.locator(l).scrollIntoViewIfNeeded();
+  await progRun(page, l);
+  await progWhy(page, l, /is_leap\(2023\) returned None; expected False/);
+  await progTry(page, l, 'def is_leap(year):\n    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\n\ndef days_in_year(year):\n    return 366 if is_leap(year) else 365\n');
+  await debriefShows(page, l);
+
+  // The call stack: stepping into a call shows that call's own variables.
+  const stack = page.locator('[data-codelab]:not([data-mission])').nth(1);
+  await stack.scrollIntoViewIfNeeded();
+  // Press 1 shows line 1, press 2 runs the def, press 3 enters the call. A fourth has returned.
+  for (let i = 0; i < 3; i++) await stack.locator('[data-step]').click();
+  const vars = await stack.locator('[data-vars]').innerText();
+  if (!/with_tax\(\)[\s\S]*price\s+3/.test(vars)) throw new Error(`after stepping into the call, the panel reads: ${vars}`);
+});
+
+await scenario('prog-lists', '/learn/programming/lists/', async (page) => {
+  const first = page.locator('[data-codelab]').first();
+  await first.scrollIntoViewIfNeeded();
+  await first.locator('[data-run]').click();
+  await first.locator('[data-status].ok').waitFor({ timeout: 15000 });
+  if (!/\[1, 2, 3\]\s+\[1, 2, 3\]/.test(await first.locator('[data-out]').innerText())) throw new Error('the opening aliasing program should show both names changed');
+
+  const c = mission('prog-list-copy');
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await progRun(page, c);
+  await progWhy(page, c, /the list it was given is now \[2, 3, 4\]/);
+  await debriefHidden(page, c);
+  await progTry(page, c, 'def with_bonus(scores):\n    return [s + 1 for s in scores]\n');
+  await debriefShows(page, c);
+
+  const d = mission('prog-list-default');
+  await page.locator(d).scrollIntoViewIfNeeded();
+  await progRun(page, d);
+  await expectText(page, `${d} [data-out]`, /\['tea', 'milk'\]/);
+  // The starter's own two calls have already filled the shared list, and the reason shows it.
+  await progWhy(page, d, /add_item\('a'\) returned \['tea', 'milk', 'a'\]; expected \['a'\]/);
+  await progTry(page, d, 'def add_item(item, basket=None):\n    if basket is None:\n        basket = []\n    basket.append(item)\n    return basket\n');
+  await debriefShows(page, d);
+
+  const m = mission('prog-list-remove');
+  const rm = await page.locator(`${m} [data-src]`).inputValue();
+  await page.locator(m).scrollIntoViewIfNeeded();
+  await progRun(page, m);
+  await progTry(page, m, rm.replace('[5, 1, 7]', '[1, 1, 2]'));
+  await expectText(page, `${m} [data-out]`, /\[1, 2\]/);
+  await progWhy(page, m, /remove_all\(\[1, 1, 2\], 1\) returned \[1, 2\]; expected \[2\]/);
+  await progTry(page, m, 'def remove_all(items, target):\n    return [x for x in items if x != target]\n');
+  await debriefShows(page, m);
+});
+
+await scenario('prog-records', '/learn/programming/records-and-maps/', async (page) => {
+  const first = page.locator('[data-codelab]').first();
+  await first.scrollIntoViewIfNeeded();
+  await first.locator('[data-run]').click();
+  await first.locator('[data-status].ok').waitFor({ timeout: 15000 });
+  if (!/Bo is 7\s+Bo is 19/.test(await first.locator('[data-out]').innerText())) throw new Error('the parallel lists should drift apart with no error');
+
+  const r = mission('prog-map-count');
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await progRun(page, r);
+  await expectText(page, `${r} [data-status]`, /KeyError on line 4: 'tea'/);
+  await debriefHidden(page, r);
+  // Built in a different order, and still right.
+  await progTry(page, r, 'def count_words(words):\n    counts = {}\n    for w in sorted(words):\n        counts[w] = counts.get(w, 0) + 1\n    return counts\n');
+  await debriefShows(page, r);
+
+  const o = mission('prog-map-orders');
+  await page.locator(o).scrollIntoViewIfNeeded();
+  await progRun(page, o);
+  await expectText(page, `${o} [data-status]`, /Finished/);
+  // Runs clean and prints a plausible {}: the check is what says it isn't done.
+  await progWhy(page, o, /returned \{\}; expected/);
+  await debriefHidden(page, o);
+  await progTry(page, o, 'def totals(orders):\n    result = {}\n    for order in orders:\n        result[order["name"]] = result.get(order["name"], 0) + order["amount"]\n    return result\n');
+  await debriefShows(page, o);
+
+  const s = mission('prog-set-common');
+  await page.locator(s).scrollIntoViewIfNeeded();
+  await progRun(page, s);
+  await expectText(page, `${s} [data-out]`, /\[1, 1, 1, 1\]/);
+  await progTry(page, s, 'def in_both(a, b):\n    return list(set(a) & set(b))\n');
+  await progWhy(page, s, /expected \[1, 3\]/);
+  await debriefHidden(page, s);
+  await progTry(page, s, 'def in_both(a, b):\n    return sorted(set(a) & set(b))\n');
+  await debriefShows(page, s);
+});
+
+await scenario('prog-text', '/learn/programming/text/', async (page) => {
+  const t = mission('prog-text-tidy');
+  await page.locator(t).scrollIntoViewIfNeeded();
+  await progRun(page, t);
+  await expectText(page, `${t} [data-out]`, /\[ {2}Mei@Example\.COM \]/);
+  await progWhy(page, t, /returned '  Mei@Example\.COM '; expected 'mei@example\.com'/);
+  await debriefHidden(page, t);
+  await progTry(page, t, 'def tidy_email(s):\n    return s.strip().lower()\n');
+  await debriefShows(page, t);
+
+  const w = mission('prog-text-count');
+  await page.locator(w).scrollIntoViewIfNeeded();
+  await progRun(page, w);
+  await expectText(page, `${w} [data-out]`, /^2\s*$/);
+  await progTry(page, w, 'def count_word(text, word):\n    return text.lower().count(word.lower())\n');
+  await progWhy(page, w, /expected 1/);
+  await progTry(page, w, 'def count_word(text, word):\n    return text.lower().split().count(word.lower())\n');
+  await debriefShows(page, w);
+
+  // Escapes and emoji have to survive the trip through MDX and the page: a sample that
+  // arrives with \\n or a broken joiner would still run, and teach the wrong thing.
+  const labs = page.locator('[data-codelab]:not([data-mission])');
+  const count = await labs.count();
+  let family = null, escapes = null;
+  for (let i = 0; i < count; i++) {
+    const src = await labs.nth(i).locator('[data-src]').inputValue();
+    if (src.includes('👨‍👩‍👧')) family = labs.nth(i);
+    if (src.includes('one\\ntwo')) escapes = labs.nth(i);
+  }
+  if (!family || !escapes) throw new Error(`samples not found intact: family ${!!family}, escapes ${!!escapes}`);
+  await family.scrollIntoViewIfNeeded();
+  await family.locator('[data-run]').click();
+  await family.locator('[data-status].ok').waitFor({ timeout: 15000 });
+  if (!/^1\s+2\s+2\s+5\b/.test(await family.locator('[data-out]').innerText())) throw new Error(await family.locator('[data-out]').innerText());
+  await escapes.locator('[data-run]').click();
+  await escapes.locator('[data-status].ok').waitFor({ timeout: 15000 });
+  if (!/^one\s+two\s+a\s+b\s+back\\slash\s+1\s*$/.test(await escapes.locator('[data-out]').innerText())) throw new Error(await escapes.locator('[data-out]').innerText());
+});
+// ---- Programming from Zero, second half. Each plays its lab as a learner would,
+// including the tempting wrong answer, and reads the verdict off the screen.
+{
+  const lab = (id) => `[data-codelab][data-mission="${id}"]`;
+  const setCode = async (page, id, code) => {
+    await page.locator(`${lab(id)} [data-src]`).scrollIntoViewIfNeeded();
+    await page.locator(`${lab(id)} [data-src]`).fill(code);
+  };
+  const run = async (page, id) => page.locator(`${lab(id)} [data-run]`).click();
+  const stepsDone = (page, id) => page.locator(`${lab(id)} .m-steps li.done`).count();
+  const waitDone = async (page, id, n) => {
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) { if (await stepsDone(page, id) === n) return; await page.waitForTimeout(100); }
+    throw new Error(`${id}: expected ${n} steps done, saw ${await stepsDone(page, id)}`);
+  };
+
+  await scenario('prog-input-stdin', '/learn/programming/input-and-errors/', async (page) => {
+    // The input box really feeds input(), and bad input really reaches the program.
+    const m = 'prog-errors-ask';
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-tb]`, /ValueError: invalid literal for int\(\) with base 10: 'forty'/);
+    await expectText(page, `${lab(m)} [data-tb]`, /Traceback \(most recent call last\):/);
+    await waitDone(page, m, 1);
+    await setCode(page, m, `def ask_age():
+    while True:
+        try:
+            age = int(input("How old are you? "))
+        except ValueError:
+            continue
+        if 0 <= age <= 150:
+            return age
+
+print("You are", ask_age())
+`);
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /You are 41/);
+    await waitDone(page, m, 3);
+    await expectText(page, `${lab(m)} .m-debrief`, /makes up an age/);
+    // Too little input says what happened, as a sandbox limit, not as the learner's bug.
+    await page.locator(`${lab(m)} [data-stdin]`).fill('nope');
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-status]`, /Not your bug: the program asked for more input/);
+  });
+
+  await scenario('prog-swallowed-error', '/learn/programming/input-and-errors/', async (page) => {
+    const m = 'prog-errors-swallow';
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /^0\s*$/);
+    await expectText(page, `${lab(m)} [data-status]`, /Finished/);
+    await waitDone(page, m, 1);
+    // The tempting fix: repair the typo and keep catching everything. Right answer, not done.
+    const start = await page.locator(`${lab(m)} [data-src]`).inputValue();
+    await setCode(page, m, start.replace('totl', 'total'));
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /350/);
+    await waitDone(page, m, 1);
+    // Narrowing with the typo still there: the hidden bug comes out loud.
+    await setCode(page, m, start.replace('except Exception', 'except ValueError'));
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-tb]`, /NameError: name 'totl' is not defined/);
+    await waitDone(page, m, 2);
+    await setCode(page, m, start.replace('except Exception', 'except ValueError').replace('totl', 'total'));
+    await run(page, m);
+    await expectText(page, `${lab(m)} .m-debrief`, /has to stay loud/);
+  });
+
+  await scenario('prog-debug-hidden-inputs', '/learn/programming/debugging/', async (page) => {
+    const m = 'prog-debug-step';
+    await run(page, m);
+    await waitDone(page, m, 1);
+    const start = await page.locator(`${lab(m)} [data-src]`).inputValue();
+    // Special-casing the visible input prints the right thing and doesn't pass.
+    await setCode(page, m, start.replace('    best = 0\n', '    if items == ["a", "a", "b", "b", "b"]:\n        return 3\n    best = 0\n'));
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /2\s+3/);
+    await waitDone(page, m, 1);
+    await setCode(page, m, start.replace('    return best\n', '    return max(best, current)\n'));
+    await run(page, m);
+    await expectText(page, `${lab(m)} .m-debrief`, /longest run comes last/);
+    // Step shows the call stack, with the function's own frame on top.
+    const t = 'prog-debug-traceback';
+    await page.locator(`${lab(t)} [data-step]`).click();
+    for (let i = 0; i < 6; i++) await page.locator(`${lab(t)} [data-step]`).click();
+    await expectText(page, `${lab(t)} [data-vars]`, /report\(\)/);
+  });
+
+  await scenario('prog-mutants', '/learn/programming/your-first-tests/', async (page) => {
+    const m = 'prog-tests-mutants';
+    await expectText(page, `${lab(m)} [data-given]`, /def ticket_price/);
+    await run(page, m);
+    await waitDone(page, m, 1);
+    // A test that can't fail: it passes on the correct function and catches nothing.
+    await setCode(page, m, 'assert ticket_price(5) == ticket_price(5)\nassert True\nprint("all tests passed")\n');
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /all tests passed/);
+    await waitDone(page, m, 1);
+    // A test that's wrong about the function fails on the correct one, so it doesn't count.
+    await setCode(page, m, 'assert ticket_price(5) == 0\n');
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-tb]`, /AssertionError/);
+    await waitDone(page, m, 0);
+    // Upper edges only: passed before, and misses the version that stops at 17.
+    await setCode(page, m, 'assert ticket_price(30) == 10\nassert ticket_price(3) == 0\nassert ticket_price(10) == 5\nassert ticket_price(70) == 6\nassert ticket_price(5) == 5\nassert ticket_price(18) == 10\nassert ticket_price(65) == 6\nprint("all tests passed")\n');
+    await run(page, m);
+    await waitDone(page, m, 5);
+    await setCode(page, m, 'assert ticket_price(30) == 10\nassert ticket_price(3) == 0\nassert ticket_price(10) == 5\nassert ticket_price(70) == 6\nassert ticket_price(4) == 0\nassert ticket_price(5) == 5\nassert ticket_price(17) == 5\nassert ticket_price(18) == 10\nassert ticket_price(64) == 10\nassert ticket_price(65) == 6\nprint("all tests passed")\n');
+    await run(page, m);
+    await expectText(page, `${lab(m)} .m-debrief`, /thirteen broken ones/);
+  });
+
+  // The mission that couldn't be finished: its last step changes a rate its first two
+  // steps still demanded, so finishing it cleared all three ticks and hid the debrief.
+  await scenario('prog-refactor-finishes', '/learn/programming/readable-code/', async (page) => {
+    const m = 'prog-readable-refactor';
+    const start = await page.locator(`${lab(m)} [data-src]`).inputValue();
+    const renamed = start.replace('def f(d, r):', 'def late_fee(due_day, returned_day):').replace('x = r - d', 'x = returned_day - due_day').replace('print(f(10, 15))', 'print(late_fee(10, 15))').replace('print(f(10, 50))', 'print(late_fee(10, 50))');
+    await setCode(page, m, renamed);
+    await run(page, m);
+    await waitDone(page, m, 1);
+    const fee = (rate) => `def days_late(due_day, returned_day):\n    return max(0, returned_day - due_day)\n\ndef late_fee(due_day, returned_day):\n    days = days_late(due_day, returned_day)\n    if days > 30:\n        return 30 * ${rate} + (days - 30) * 50\n    return days * ${rate}\n\nprint(late_fee(10, 15))\n`;
+    await setCode(page, m, fee(25));
+    await run(page, m);
+    await waitDone(page, m, 2);
+    await setCode(page, m, fee(30));
+    await run(page, m);
+    await waitDone(page, m, 3);
+    await expectText(page, `${lab(m)} .m-debrief`, /charged people the wrong amount/);
+  });
+
+  await scenario('prog-hypothesis-needs-a-print', '/learn/programming/debugging/', async (page) => {
+    const m = 'prog-debug-hypothesis';
+    const start = await page.locator(`${lab(m)} [data-src]`).inputValue();
+    // The unchanged starter used to tick the step that asks for a new print.
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /\[1, -3, 4\]/);
+    await waitDone(page, m, 0);
+    await expectText(page, `${lab(m)} .m-why`, /still broken/);
+    await setCode(page, m, `${start}print(without_negatives([-1, -2, -3]))\n`);
+    await run(page, m);
+    await waitDone(page, m, 1);
+    await setCode(page, m, 'def without_negatives(items):\n    return [x for x in items if x >= 0]\n');
+    await run(page, m);
+    await waitDone(page, m, 2);
+  });
+
+  await scenario('prog-recursion-limit', '/learn/programming/recursion/', async (page) => {
+    const m = 'prog-rec-trees';
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-tb]`, /\[Previous line repeated \d+ more times\]/);
+    await waitDone(page, m, 1);
+    const probe = page.locator('[data-codelab]').nth(2);
+    await probe.locator('[data-run]').click();
+    await page.waitForFunction(() => /stopped after 999 calls/.test(document.querySelectorAll('[data-codelab]')[2].querySelector('[data-out]').textContent));
+    // The call stack is visible while stepping: three frames of count_down, by name.
+    const first = page.locator('[data-codelab]').first();
+    for (let i = 0; i < 10; i++) await first.locator('[data-step]').click();
+    await page.waitForFunction(() => document.querySelector('[data-codelab]').querySelectorAll('.cl-frame').length >= 3);
+  });
+
+  await scenario('prog-real-trip', '/learn/programming/real-program/', async (page) => {
+    const m = 'prog-real-trip';
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-tb]`, /write parse_expense/);
+    await waitDone(page, m, 1);
+    const start = await page.locator(`${lab(m)} [data-src]`).inputValue();
+    const solved = start.replace('def test_parse_expense():', `def parse_expense(line, people):
+    words = line.split()
+    if len(words) < 2 or words[0] not in people:
+        raise ValueError(f"can't read: {line}")
+    return (words[0], to_cents(words[1]))
+
+def balances(people, expenses):
+    total = sum([c for n, c in expenses])
+    share, extra = total // len(people), total % len(people)
+    b = {}
+    for i, p in enumerate(people):
+        b[p] = -share - (1 if i < extra else 0)
+    for n, c in expenses:
+        b[n] += c
+    return b
+
+def settle(balance):
+    left = dict(balance)
+    out = []
+    while True:
+        a = max(left, key=lambda p: left[p])
+        z = min(left, key=lambda p: left[p])
+        if left[a] == 0:
+            return out
+        amount = min(left[a], -left[z])
+        out.append((z, a, amount))
+        left[a] -= amount
+        left[z] += amount
+
+def test_parse_expense():`);
+    await setCode(page, m, solved);
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /Cai pays Ana 32\.16/);
+    await expectText(page, `${lab(m)} [data-out]`, /Skipped line 4: not an amount: lots/);
+    // Not done yet: the last step wants the learner's own numbers.
+    await waitDone(page, m, 4);
+    await page.locator(`${lab(m)} [data-stdin]`).fill('Mo, Jo\nMo 10 lunch\ndone');
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /Jo pays Mo 5\.00/);
+    await expectText(page, `${lab(m)} .m-debrief`, /still owes you money/);
+  });
+
+  await scenario('prog-shell-silent', '/learn/programming/shell-scripts/', async (page) => {
+    const r = '[data-shell-pg][data-mission="prog-shell-silent"]';
+    await type(page, r, './cleanup.sh');
+    await expectText(page, `${r} .term-out`, /cache cleaned/);
+    await type(page, r, 'echo $?');
+    await expectText(page, `${r} .term-out`, /cache cleaned[\s\S]*\n0\s*$/);
+    // * skips hidden files, here as in real bash, so .bashrc is the only survivor.
+    await expectText(page, `${r} [data-files]`, /^(?![\s\S]*notes\.txt)[\s\S]*\.bashrc/);
+    // Safe and useless does not pass: it never empties anything.
+    await type(page, r, `echo 'echo "cache cleaned"' > cleanup.sh`);
+    if (await page.locator(`${r} .m-steps li.done`).count() !== 1) throw new Error('a script that does nothing passed as a fix');
+    await type(page, r, `echo 'cd cache && rm -r * && echo "cache cleaned"' > cleanup.sh`);
+    await type(page, r, 'bash cleanup.sh');
+    await type(page, r, 'echo $?');
+    await expectText(page, `${r} .m-debrief`, /deleted nothing and exited non-zero/);
+    // Things this sandbox lacks say so by name, and aren't "command not found".
+    await type(page, r, 'set -e');
+    await expectText(page, `${r} .term-out`, /real bash has it/);
+  });
+
+  // The typo the lesson teaches: wc on it printed nothing, threw in the page, and $? said 0.
+  await scenario('prog-shell-missing-file', '/learn/programming/shell-scripts/', async (page) => {
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const r = '[data-shell-pg]:not([data-mission="prog-shell-report"]):not([data-mission="prog-shell-silent"])';
+    await type(page, r, 'wc -l acces.log; echo $?');
+    await expectText(page, `${r} .term-out`, /wc: acces\.log: No such file or directory[\s\S]*\n1\s*$/);
+    await type(page, r, 'grep -c zebra notes.txt; echo $?');
+    await expectText(page, `${r} .term-out`, /\n0\s*\n1\s*$/);
+    await type(page, r, 'rm -rf /; echo $?');
+    await expectText(page, `${r} .term-out`, /dangerous to operate recursively[\s\S]*\n1\s*$/);
+    if (errors.length) throw new Error(`the page threw: ${errors.join('; ')}`);
+  });
+
+  await scenario('prog-whose-catch', '/learn/programming/whose-code/', async (page) => {
+    const m = 'prog-whose-catch';
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-out]`, /all tests passed/);
+    await waitDone(page, m, 1);
+    const start = await page.locator(`${lab(m)} [data-src]`).inputValue();
+    // assert False fails on the correct version too, so it isn't catching anything.
+    await setCode(page, m, `assert False\n${start}`);
+    await run(page, m);
+    await waitDone(page, m, 1);
+    await setCode(page, m, `assert remove_duplicates([1, 2, 1]) == [1, 2]\na = [1, 1]\nremove_duplicates(a)\nassert a == [1, 1]\n`);
+    await run(page, m);
+    await expectText(page, `${lab(m)} [data-tb]`, /AssertionError/);
+    await expectText(page, `${lab(m)} .m-debrief`, /Plausible isn't the same as correct/);
+  });
+}
 
 await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {
   const r = '[data-strangler]';

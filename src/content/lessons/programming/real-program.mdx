@@ -1,0 +1,182 @@
+---
+title: Build a whole small program
+summary: From a plain-English problem to a program you could send to a friend. Build a trip cost splitter that reads messy input, refuses what it can't read, does its sums in whole cents, and has tests you can read. Everything so far, in one place.
+minutes: 40
+xp: 80
+tiers: [browser, machine]
+builds_on: [programming/your-first-tests, programming/records-and-maps]
+sources:
+  - title: Python docs - Floating-Point Arithmetic, Issues and Limitations
+    url: https://docs.python.org/3/tutorial/floatingpoint.html
+  - title: Python docs - Built-in Types, including dict and str
+    url: https://docs.python.org/3/library/stdtypes.html
+---
+
+So far you've met one idea at a time, in small labs written around that idea. Real programs aren't like that. A real program starts from a problem somebody has, in plain words, and nobody tells you which idea to use.
+
+So here's a problem somebody has.
+
+> Four friends go away for the weekend. One pays for the hostel, another for the train, someone gets the snacks. At the end, everyone should have paid the same. Who pays whom?
+
+You could do this on a napkin for two people. With five people and twenty receipts, you'll get it wrong and someone will be annoyed. That's a good sign you're looking at a program worth writing.
+
+## From a problem to a plan
+
+Don't start with code. Start with what goes in and what comes out, using a real example:
+
+```text
+Who is on the trip? Ana, Ben, Cai
+Ana 90.00 hostel
+Ben 30.50 train tickets
+Cai 12.00 snacks
+done
+```
+
+```text
+Spent 132.50 between 3 people.
+Cai pays Ana 32.16
+Ben pays Ana 13.67
+```
+
+Now look for the problems hiding in that example, before they find you:
+
+- **People type things badly.** `Cai lots of snacks` isn't a payment. A crash would lose everything, so it shouldn't crash. Quietly skipping it would give everybody wrong totals with no warning. So: skip it, and *say so*. That's [the errors lesson](/learn/programming/input-and-errors/).
+- **Names can be wrong.** If someone types `Anna`, a careless program invents a fourth traveller. Refuse names that aren't on the list.
+- **Money doesn't suit floats.** `int(float("19.99") * 100)` is 1998, not 1999: try it in any lab. So all the sums use whole **cents**, as plain integers, and only the printed output has a dot in it.
+- **Totals don't always divide.** 100 cents between 3 people is 33, 33, 33 and one cent left over. That cent has to go to somebody, or the books won't balance.
+
+Then split it into pieces you can each test alone. The pieces name themselves:
+
+| Function | Takes | Gives |
+|---|---|---|
+| `parse_expense` | one line of text, and who's on the trip | a name and an amount in cents, or a `ValueError` |
+| `balances` | who's on the trip, and all their expenses | each person's paid minus their fair share, in a dictionary |
+| `settle` | those balances | a list of who pays whom |
+
+Three small functions, each with an answer you can check by hand. The rest is reading input and printing, and that's already written for you.
+
+## Build it
+
+Read the starting program below, from the top and then from the tests at the bottom up. `to_cents`, `money` and `main` are done. The three functions in the table aren't: their tests fail, on purpose, and each test tells you what its function must do. One form in `main` is new: `except ValueError as e` catches the error and names it `e`, so the program can print its message.
+
+Work in this order: press **Run**, read the report, write just enough to get past that failure, and run it again. If you get stuck, every mission step has a hint, and there's a full worked version at the end of this page. Try without it first. Getting it working yourself is most of the fun.
+
+<CodeLab mission="prog-real-trip" rows={18} />
+
+The mission checks your code on lines and trips you can't see, because passing only the tests you can read would prove little. Any correct approach counts: nobody will check that your code looks like ours. For `settle` that means any list of payments, however many, as long as each is a positive whole number of cents from one person to another, and everyone ends at 0.
+
+The last step is the one you came for. Put your own numbers in the box. Try the shared bills from your flat, or the last group meal that got complicated.
+
+<Callout kind="trap" title="Where this program is still wrong">
+It's a good program, and it isn't finished. There are real limits you should know before you trust it with anything important: it assumes one currency, and everybody shares everything equally. If only three of four people came to dinner, it has no way of saying so. It trusts that each amount is really what was paid, and its leftover cents always land on whoever is listed first, which is arbitrary, if fair enough. Knowing what your own program doesn't do is part of having written it.
+</Callout>
+
+## What you just used
+
+Look back at what's in there. That's almost everything from this course:
+
+- **Variables and types:** text from `input()`, integers for cents.
+- **Decisions and loops:** the `while True` that reads until `done`, and the search in `settle`.
+- **Functions:** three you wrote, each testable by itself.
+- **Lists and dictionaries:** the expenses, and each person's balance.
+- **Text:** `split`, `strip`, and f-strings that print `12.05` instead of `12.5`.
+- **Errors:** `ValueError` raised on purpose, caught where it's expected, and reported instead of swallowed.
+- **Tests:** ones you can read, plus ones you can't. A change that breaks the program now fails loudly.
+
+<Callout kind="real">
+This lab's program is real Python, and this site's tests run the worked version below on real Python to check that it prints the same. On your own machine, a program usually reads from a file as well as from a person. On a Linux or Mac terminal, `python3 trip.py < mytrip.txt` feeds a file in as if it were typed, with no change to the program at all. You don't see your input echoed, just as in this lab. Windows PowerShell rejects that `<`, and `Get-Content mytrip.txt | python trip.py` does the same job there.
+</Callout>
+
+<Quiz
+  id="prog-real-1"
+  q="Why does this program keep money as a whole number of cents?"
+  options={["Integers are faster, and speed matters for receipts", "Floats can't hold most decimal fractions exactly, so sums can come out slightly wrong, as 19.99 * 100 does", "Python can't print decimal points otherwise"]}
+  answer={1}
+  explain="In a float, 19.99 * 100 is 1998.9999999999998, and int() cuts that to 1998. Whole cents have none of that problem. Python's docs explain why in the floating-point section of the tutorial."
+/>
+
+<Quiz
+  id="prog-real-2"
+  q="A line says 'Anna 20 taxi', and the trip list has 'Ana'. What should the program do, and why?"
+  options={["Add Anna as a new traveller, since the program should be flexible", "Skip the line silently, because bad lines shouldn't stop the program", "Skip the line and report it, because accepting it invents a person, and hiding it gives wrong totals"]}
+  answer={2}
+  explain="Either silent option produces confident, wrong payments. Reporting it costs one line of output and lets a person fix the typo."
+/>
+
+<Quiz
+  id="prog-real-3"
+  q="The mission accepts any payments that bring every balance to 0, not one exact list. Why?"
+  options={["It's easier to write that check", "There are many correct answers, and a test that demands one exact list would reject right programs", "The exact list changes each run"]}
+  answer={1}
+  explain="When 2 people owe 2 others, there can be several valid sets of payments. A good test checks what must be true of the answer. Checking one possible answer would fail correct code and teach the wrong thing."
+/>
+
+<GoDeeper title="Does this always use the fewest payments?">
+No, and this is worth knowing. The method in the worked version, largest debtor pays largest creditor, never needs more than one fewer payment than there are people with a balance, because each payment clears at least one of them, and the last clears two. But that isn't always the minimum. Say Ana is owed 4, Ben 3 and Cai 2, while Dee owes 4 and Eli owes 5. The worked version below makes four payments: Eli pays Ana 4, Dee pays Ben 3, then Dee and Eli each pay Cai 1. Three would do: Dee pays Ana 4, and Eli pays Ben 3 and Cai 2. Finding the true minimum means finding groups of people whose balances add up to exactly zero, and that gets expensive as the group grows. For a holiday, this is close enough. This site's tests check that example by running it.
+</GoDeeper>
+
+<DoItForReal id="prog-real-file" needs="terminal" xp={20}>
+
+Run your finished program on your own machine with Python 3 installed. Copy your code from the lab into a file called `trip.py`. In the same folder, make a file called `mytrip.txt` with your trip in it, ending with a line that says `done`. Then:
+
+```bash
+python3 trip.py < mytrip.txt
+```
+
+In Windows PowerShell, use `Get-Content mytrip.txt | python trip.py`.
+
+Now change it. Pick one of the limits above and fix it. Letting a line say who shared the cost is a good one: `Ana 30.00 dinner: Ana Ben`. Write the test first and watch it fail.
+
+</DoItForReal>
+
+<details class="card">
+<summary><strong>A full worked version, if you get stuck</strong></summary>
+
+This is one correct answer out of many. These three go in place of the unfinished ones.
+
+```python
+def parse_expense(line, people):
+    words = line.split()
+    if len(words) < 2:
+        raise ValueError(f"can't read: {line}")
+    if words[0] not in people:
+        raise ValueError(f"nobody called {words[0]} is on this trip")
+    return (words[0], to_cents(words[1]))
+
+def balances(people, expenses):
+    total = sum([cents for name, cents in expenses])
+    share = total // len(people)
+    extra = total % len(people)
+    balance = {}
+    for i, person in enumerate(people):
+        balance[person] = -share
+        if i < extra:
+            balance[person] -= 1
+    for name, cents in expenses:
+        balance[name] += cents
+    return balance
+
+def settle(balance):
+    left = balance.copy()
+    payments = []
+    while True:
+        owed = max(left, key=lambda p: left[p])
+        owes = min(left, key=lambda p: left[p])
+        if left[owed] == 0:
+            return payments
+        amount = min(left[owed], -left[owes])
+        payments.append((owes, owed, amount))
+        left[owed] -= amount
+        left[owes] += amount
+```
+
+One form here is new. `max(left, key=lambda p: left[p])` finds the person with the largest balance: `key=` says what to compare them by, and `lambda p: left[p]` is a small function with no name, which takes a person and gives back their balance.
+
+</details>
+
+## What to remember
+
+- Start from what goes in and what comes out, with a real example, before any code.
+- Look for what will go wrong in that example, and decide what should happen.
+- Split it into pieces you can check by hand, and write the tests as you go.
+- Know what your program doesn't do. Then you can decide whether that matters.

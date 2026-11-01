@@ -1,0 +1,202 @@
+---
+title: Tell a computer what to do
+summary: Write your first program in the first minute, break it on purpose, and learn to read what the error message is telling you. No installing anything, and no experience needed.
+minutes: 14
+xp: 40
+tiers: [browser]
+builds_on: []
+sources:
+  - title: The Python Tutorial - An Informal Introduction to Python (comments, print)
+    url: https://docs.python.org/3/tutorial/introduction.html
+  - title: The Python Tutorial - Using the Python Interpreter
+    url: https://docs.python.org/3/tutorial/interpreter.html
+  - title: python.org - Download Python
+    url: https://www.python.org/downloads/
+  - title: Python documentation - Using Python on Windows
+    url: https://docs.python.org/3/using/windows.html
+  - title: Python documentation - Using Python on macOS
+    url: https://docs.python.org/3/using/mac.html
+  - title: Python documentation - Using Python on Unix platforms
+    url: https://docs.python.org/3/using/unix.html
+  - title: Lister et al. - A Multi-National Study of Reading and Tracing Skills in Novice Programmers (2004)
+    url: https://www.cs.auckland.ac.nz/~j-hamer/ITiCSE04-wg.pdf
+  - title: Patitsas et al. - Evidence That Computer Science Grades Are Not Bimodal (2016)
+    url: https://www.cs.toronto.edu/dcs/documents/p113-patitsas.pdf
+---
+
+This is a program. Press **Run**.
+
+<CodeLab mission="prog-first-hello" />
+
+You just ran a program. A **program** is a list of instructions for a computer, and to **run** it is to make the computer carry them out. This one has a single instruction: `print` means "show this on the screen". It has nothing to do with paper. The box the words appeared in is the **output**, which is whatever the program shows you.
+
+Now do the rest of that mission. Its steps are in the panel beside the code, or below it on a small screen. It takes about a minute, and it asks you to break the program on purpose.
+
+## What just happened when you broke it
+
+You got a message like this one:
+
+```text
+NameError on line 1: name 'prin' is not defined.
+```
+
+That message is worth reading slowly. It has three parts:
+
+1. **The kind of error**, here `NameError`. A **name** is a word that stands for something, and Python had no meaning for this one.
+2. **Where**, here line 1.
+3. **What it found**, here the word `prin`.
+
+Notice what it didn't do. It didn't work out that you meant `print`. A person reading your note would fix a slip like that without noticing. A computer does what the text says, and if the text makes no sense, it stops and tells you where.
+
+That's the deal with programming. It's exact, and it's fussy, and it tells you what it didn't understand. Reading the message is a skill, you'll use it in every lesson, and you've started.
+
+## Words and numbers
+
+The quote marks matter. Before you press **Run** on this one, say what you expect each line to print.
+
+<CodeLab code={`print("Hello")
+print(2 + 3)
+print("2 + 3")
+`} />
+
+Text inside quote marks is called a **string**, and Python shows it exactly as written. Without quotes, `2 + 3` is a sum, and Python works it out. So the last two lines look nearly the same and do different things.
+
+Saying what you expect before you run something is worth making a habit. In 2004 a group of researchers tested students from seven countries, and part of the test was "to predict the outcome of executing a short piece of code". The other part was choosing the right ending for nearly finished code. Their conclusion was "Many students were weak at these tasks", especially the second one, and they suggest those students have a fragile grip on skills that come before solving problems with code. That was one study of students who were already taking courses, not an experiment on how to teach. But predicting is cheap, and this page lets you check yourself straight away.
+
+## Two ways of being wrong
+
+Here are two broken programs. Each has three lines, and each has a mistake on line 2. Run both, and look at the Output box as well as the red message.
+
+<CodeLab code={`print("one")
+prnt("two")
+print("three")
+`} />
+
+<CodeLab code={`print("one")
+print("two)
+print("three")
+`} />
+
+The first printed `one`, then stopped. The second printed nothing at all, even though line 1 is fine.
+
+That difference tells you something true about how Python works. It reads your whole program before it runs any of it. If it can't make sense of the text, that's a **SyntaxError**, and nothing runs. **Syntax** means the rules for how a program has to be written, like grammar. The missing quote mark broke those rules, so Python never started.
+
+`prnt` isn't against the rules. It's a perfectly good-looking name, and Python only finds out that nothing has that name when it reaches that line. So line 1 had already run. An error that happens while the program is running is called a **runtime error**.
+
+So when you see an error, look at the output too. Output followed by an error tells you how far it got.
+
+<Callout kind="trap" title="Things that look like nothing, and matter">
+Try each of these in the lab below, one at a time, and read the message each time:
+
+- Change `print` to `Print`. Capital letters count, so these are different names.
+- Put one space in front of the second `print`. Spaces at the start of a line mean something in Python, and you'll see what in a couple of lessons. Here it's an `IndentationError`.
+- Take away the closing `)` on the last line. Python tells you which bracket was never closed.
+</Callout>
+
+<CodeLab code={`print("line up")
+print("line up")
+`} />
+
+## Watching it run
+
+Press **Step** on this one instead of **Run**. The highlighted line is the one about to happen. Each press runs that line and moves on. Keep an eye on the Output box as you go.
+
+<CodeLab code={`print("first")
+print("second")
+print("third")
+`} />
+
+Python runs one line at a time, from the top. It sounds too obvious to say, and it's the most useful thing to remember when a program surprises you. **Step** will still be useful when your programs are far longer than this, because you can watch them instead of guessing.
+
+## Notes to yourself
+
+Anything after a `#` on a line is a **comment**, unless the `#` is inside quote marks, as in `print("#1 fan")`. Python ignores a comment, and it's there for whoever reads the program next, which is often you.
+
+<CodeLab code={`# Python skips this whole line.
+print("this runs")
+# print("this does not")
+print("this runs too")  # A note can follow the code as well.
+`} />
+
+Putting a `#` in front of a line is also a handy way to switch it off without deleting it. Good comments say why something is there, because the code already says what it does. You don't need many yet.
+
+## Put it in order
+
+Python runs what you wrote, in the order you wrote it. Here's a countdown that got it wrong in two different ways.
+
+<CodeLab mission="prog-first-countdown" />
+
+## The "two kinds of people" picture didn't hold up
+
+A lot of people believe programmers are born, and that a class splits into those who can and those who can't. Teachers of computing have believed it too. Researchers at the University of Toronto tested the idea on real grades. They analyzed 778 distributions of final course grades from the University of British Columbia and "found only 5.8% of the distributions passed tests of multimodality", which means nearly all of them did not show two separate groups. One university can't prove anything about everyone. It does mean the popular picture of two kinds of people didn't appear where they looked for it. If this feels strange at first, that isn't evidence about you.
+
+## This page, and real Python
+
+The language you're writing is **Python**. It's real, and it's widely used. The programs on this page run in your browser, on a small Python built into this site, and nothing you type leaves your device.
+
+<Callout kind="real" title="What is different from real Python">
+This page's Python is smaller than the real one. It's checked against real Python 3.12 by this site's tests. They run the lessons' programs on both, and tens of thousands of calls of every built-in function and method with odd arguments, and the answers have to match or the page has to refuse. The mistakes in these lessons give the same message, on the same line. Differences you can expect:
+
+- **It refuses some things by name.** Try `import math`, and the page says "Not your bug" and tells you real Python has it. `import` isn't available in these labs, and neither is `input()` in any lab so far. Where a program would normally ask a person to type something, these lessons set a variable instead, and say so. [Bad input and things going wrong](/learn/programming/input-and-errors/) has labs with an input box.
+- **It stops runaway programs.** Real Python doesn't.
+- **Errors look a little different.** The page gives you a one-line summary above Python's report. Real Python prints only the report, which is called a **traceback**. It ends in the same message, and it adds `^^^^` markers and sometimes a guess:
+
+```text
+one
+Traceback (most recent call last):
+  File "/home/mei/hello.py", line 2, in <module>
+    prnt("two")
+    ^^^^
+NameError: name 'prnt' is not defined. Did you mean: 'print'?
+```
+
+Read a traceback from the bottom. The last line is the message, and the lines above it say where. The "Did you mean" part is a guess, and it can be a poor one: for `print(hello)`, Python 3.12 suggests `help`. Newer versions may word some errors differently.
+
+Tests can't reach everything. If a message makes no sense to you, or you're sure a program is right, try it on a real install. When this page and real Python disagree, real Python is right, and that's this page's bug.
+</Callout>
+
+The code in these lessons is ordinary Python, and we ran it on Python 3.12, which is what this site's tests compare against. A copy you install today will be newer: the Python docs now show 3.15, and we haven't run these lessons on that. To see which one you have, run `python --version`, or `python3 --version` on a Mac or Linux. If a program does something different on yours, believe yours. You don't need to install anything to carry on, and these lessons never require it. When you want your own copy:
+
+1. Go to [python.org/downloads](https://www.python.org/downloads/). On Windows, the docs say you can get the Python install manager there or from the Microsoft Store. On a Mac, use the installer from the same page. On Linux, Python "comes preinstalled on most Linux distributions".
+2. Save your program in a plain text file with a name like `hello.py`.
+3. Open a **terminal**, a window where you type commands instead of clicking. On a Mac it's called Terminal, and on Windows you can use Terminal or PowerShell. Go to the folder with `cd`, followed by the folder's path, and run your program. On Windows that's `python hello.py`, and on a Mac or Linux it's `python3 hello.py`.
+
+<GoDeeper title="Why a syntax error stops everything">
+Python doesn't run your text directly. It first reads the whole file and turns it into an internal form, a step called **parsing**, then it compiles that into simple instructions called bytecode, and only then does it run them. A syntax error happens during the first step, so no instruction has been run yet.
+
+A name like `prnt` can't be caught in that step, because a name can be given a meaning while the program runs. Whether it has one at line 2 depends on what the lines above did. So Python has to get there and look.
+
+This page does the same three steps. They're why it can stop between any two instructions, which is how **Step** works.
+</GoDeeper>
+
+<Quiz
+  id="prog-first-1"
+  q="A program has five lines. Line 3 uses a misspelled name. What do you expect to see when you run it?"
+  options={["Nothing, because Python checks every name before it starts", "The output of lines 1 and 2, then a NameError on line 3", "Lines 1, 2, 4 and 5, with line 3 skipped"]}
+  answer={1}
+  explain="Python only finds out that a name means nothing when it reaches it. So lines 1 and 2 have already run, and the program stops at line 3. It doesn't skip the line and carry on."
+/>
+
+<Quiz
+  id="prog-first-2"
+  q="You run a five-line program and it prints nothing at all, with a SyntaxError on line 4. What does that tell you?"
+  options={["Lines 1 to 3 ran and happened to print nothing", "Python couldn't make sense of the text, so it didn't run any of it", "Line 4 is the only line that needs to change, and lines 1 to 3 must be correct"]}
+  answer={1}
+  explain="Python reads the whole program before it runs a line, so a syntax error means nothing ran. It says nothing about whether the other lines are right, only that they haven't had their chance yet."
+/>
+
+<Quiz
+  id="prog-first-3"
+  q="What does this print? print(&quot;4 * 2&quot;)"
+  options={["8", "4 * 2", "An error, because you can't multiply inside print"]}
+  answer={1}
+  explain="The quote marks make it a string, so Python shows those characters and does no arithmetic. Without the quotes, print(4 * 2) would print 8."
+/>
+
+## What to remember
+
+- A program is a list of instructions, run from the top, one line at a time.
+- Quote marks make text. Without them, Python tries to work out what you wrote.
+- An error message tells you the kind of error, the line, and what it found. Read it first.
+- A SyntaxError means nothing ran. A runtime error means Python got as far as that line.
+- Press **Step** when you can't predict what a program will do.

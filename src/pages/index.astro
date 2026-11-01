@@ -9,10 +9,12 @@ const tracks = await curriculum();
 // Named from the data, so opening a fifth expedition cannot leave this list stale.
 const openExpeditions = new Intl.ListFormat('en', { type: 'disjunction' }).format(EXPEDITIONS.filter((e) => e.status === 'ready').map((e) => e.title));
 const t = totals(tracks);
-// The first lesson that is written, not the first listed: when Linux & the
-// Shell went first with every lesson still 'soon', the home page's start
-// button linked to a page that did not exist.
-const startTrack = tracks.find((t) => t.lessons.some((l) => l.status === 'ready'))!;
+// Someone who has never written code is who this button is for. It still looks
+// for a written lesson, because when Linux & the Shell went first with every lesson
+// 'soon', this button linked to a page that did not exist.
+const hasLesson = (t: (typeof tracks)[number]) => t.lessons.some((l) => l.status === 'ready');
+const programming = tracks.find((t) => t.id === 'programming');
+const startTrack = programming && hasLesson(programming) ? programming : tracks.find(hasLesson)!;
 const first = startTrack.lessons.find((l) => l.status === 'ready')!;
 // The hash toy is about git specifically, wherever the course happens to start,
 // so it links to the first git lesson - and the build fails if that is unwritten.
@@ -25,7 +27,7 @@ if (!gitFirst || gitFirst.status !== 'ready') throw new Error('The home page lin
       <div>
         <p class="eyebrow">Free forever · open source · no account</p>
         <h1>Learn tech by <span class="hl">breaking things.</span></h1>
-        <p class="lede">From your first git commit to Kubernetes, the CNCF toolbox, neural networks and how vLLM serves a language model. Every lesson is something you can poke, break and fix - right here in your browser.</p>
+        <p class="lede">From your first line of code to algorithms, Kubernetes, the CNCF toolbox, neural networks and how vLLM serves a language model. Every lesson is something you can poke, break and fix - right here in your browser.</p>
         <div class="cta">
           <a class="btn primary" href={first.href}>Start with {startTrack.title} →</a>
           <a class="btn" href="/playground/">Just let me play</a>

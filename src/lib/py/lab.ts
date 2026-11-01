@@ -1,8 +1,10 @@
 // What the code lab and its missions need on top of the VM: run a program, hand
 // values across, and measure how a function's work grows with its input.
 
-import { PyProgram, type PyFailure, type Status } from './vm.ts';
-import { PyList, repr, type Val } from './values.ts';
+import { GIVEN_FILE, PyProgram, type PyFailure, type Status } from './vm.ts';
+import { PyDict, PyList, dictSet, repr, type Val } from './values.ts';
+
+export const PROGRAM_FILE = '<lab>';
 
 export type RunResult = { src: string; status: Status; stdout: string; ops: number; depth: number; error?: PyFailure; program: PyProgram };
 
@@ -16,6 +18,12 @@ export function runAll(src: string, maxOps?: number): RunResult {
 export function toPy(v: unknown): Val {
   if (typeof v === 'number') return Number.isInteger(v) ? BigInt(v) : v;
   if (Array.isArray(v)) return new PyList(v.map(toPy));
+  // Plain objects only: a value that is already Python's has its own class.
+  if (v !== null && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+    const d = new PyDict();
+    for (const [k, x] of Object.entries(v)) dictSet(d, k, toPy(x));
+    return d;
+  }
   return v as Val;
 }
 
@@ -30,7 +38,9 @@ export function checkCases(r: RunResult, fn: string, cases: { args: unknown[]; w
     const shown = `${fn}(${c.args.map((a) => repr(toPy(a))).join(', ')})`;
     // Fresh each time: a function that mutates its input or keeps global state
     // must not pass or fail because of an earlier case.
-    const p = new PyProgram(r.src, { maxOps: 2_000_000 });
+    // With the same input lines and given code the run had, or a program that reads
+    // at its top level would fail here for a reason that has nothing to do with it.
+    const p = new PyProgram(r.src, { maxOps: 2_000_000, stdin: r.program.stdin, given: r.program.given });
     p.run();
     const got = p.call(fn, c.args.map(toPy));
     if (!got.ok) return { ok: false, why: `${shown} raised ${got.error.type}: ${got.error.message}` };
@@ -38,6 +48,40 @@ export function checkCases(r: RunResult, fn: string, cases: { args: unknown[]; w
     if (text !== c.want) return { ok: false, why: `${shown} returned ${text}; expected ${c.want}` };
   }
   return { ok: true, why: `Passed ${cases.length} checks.` };
+}
+
+const REPEAT_SHOWN = 3;
+/**
+ * The error as real Python prints it, word for word, minus the ^^^^ markers under a
+ * line, whose placement this engine does not track. tests/py-parity.test.ts compares
+ * this with the real interpreter's output.
+ */
+export function formatTraceback(err: PyFailure, src: string, given?: string): string {
+  const head = err.context ? `${formatTraceback(err.context, src, given)}\n\nDuring handling of the above exception, another exception occurred:\n\n` : '';
+  const last = err.message ? `${err.type}: ${err.message}` : err.type;
+  // A syntax error never ran, so it has no frames, and the status line says where.
+  if (!err.stack.length) return head + last;
+  const lines = (s: string) => s.replace(/\r\n/g, '\n').split('\n');
+  const sources: Record<string, string[]> = { [PROGRAM_FILE]: lines(src), [GIVEN_FILE]: lines(given ?? '') };
+  const out = ['Traceback (most recent call last):'];
+  let prev = '', repeats = 0;
+  const flushRepeats = () => {
+    if (repeats > REPEAT_SHOWN) out.push(`  [Previous line repeated ${repeats - REPEAT_SHOWN} more time${repeats - REPEAT_SHOWN === 1 ? '' : 's'}]`);
+    repeats = 0;
+  };
+  for (const f of err.stack) {
+    const file = f.file ?? PROGRAM_FILE, key = `${file}:${f.line}:${f.fn}`;
+    // Deep recursion would otherwise print the same entry a thousand times.
+    if (key !== prev) { flushRepeats(); prev = key; }
+    repeats++;
+    if (repeats > REPEAT_SHOWN) continue;
+    out.push(`  File "${file}", line ${f.line}, in ${f.fn}`);
+    const text = sources[file]?.[f.line - 1]?.trim();
+    if (text) out.push(`    ${text}`);
+  }
+  flushRepeats();
+  out.push(last);
+  return head + out.join('\n');
 }
 
 export type GrowthPoint = { n: number; ops: number | null };

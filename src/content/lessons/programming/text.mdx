@@ -1,0 +1,267 @@
+---
+title: Text is harder than it looks
+summary: Spotify once let people take over accounts using a name that looked different and wasn't treated as different. Learn to slice, search, split and format strings, why strings never change, and why the length of a piece of text isn't what you'd count.
+minutes: 22
+xp: 65
+tiers: [browser]
+builds_on: [programming/lists]
+sources:
+  - title: Spotify Engineering - Creative usernames and Spotify account hijacking (2013)
+    url: https://engineering.atspotify.com/2013/06/creative-usernames/
+  - title: The Python Tutorial - An Informal Introduction to Python (strings)
+    url: https://docs.python.org/3/tutorial/introduction.html
+  - title: The Python Tutorial - Input and Output (f-strings)
+    url: https://docs.python.org/3/tutorial/inputoutput.html
+  - title: Python documentation - Built-in Types (text sequence type, string methods)
+    url: https://docs.python.org/3/library/stdtypes.html
+  - title: Python documentation - Unicode HOWTO
+    url: https://docs.python.org/3/howto/unicode.html
+  - title: Unicode Standard Annex 29 - Text Segmentation (grapheme clusters)
+    url: https://www.unicode.org/reports/tr29/
+---
+
+Spotify wants `BigBird` and `bigbird` to count as one username, so that nobody can register a lookalike. So it worked out a simplified form of each name, and that form had to be unique. In a post from 2013, its engineers described what happened one Good Friday. A user on their forum said he could take over accounts, and when the forum manager challenged him to try, the manager's account had a new password within minutes.
+
+The trick went like this. To take over `bigbird`, register a new account called `ᴮᴵᴳᴮᴵᴿᴰ`. Those are not ordinary capitals, but special small raised letters from another part of Unicode, the world's list of characters. The simplifying code turned that into `BIGBIRD`, which wasn't taken, so the new account was allowed. Then ask for a password reset. The reset ran the name through the simplifier a second time, and that made it `bigbird`, so the new password landed on somebody else's account.
+
+The code they relied on assumed its input came from an old version of Unicode. In their words: "It turns out that the code points making up ᴮᴵᴳᴮᴵᴿᴰ are not part of unicode 3.2." That code had once rejected such names, and the post's last twist is that an upgrade from Python 2.4 to 2.5 quietly stopped it rejecting them, so after the upgrade nothing checked any more. Their fix rejected any name that changes when it's simplified a second time.
+
+Text is harder than it looks, and we'll get to why. First the everyday tools.
+
+## Strings are like lists of characters, mostly
+
+Indexing and slicing work just as they do on lists, with the same 0, the same `-1`, and the same rule about the end.
+
+<CodeLab code={`word = "panda"
+print(len(word))
+print(word[0])
+print(word[-1])
+print(word[1:3])
+print(word[::-1])
+print("and" in word)
+for letter in word:
+    print(letter)
+`} rows={10} />
+
+`in` on a string looks for letters in a row anywhere inside it, so `"and" in "panda"` is `True`. `word[5]` is the same `IndexError` as for a list, one past the end. Now the big difference.
+
+## Strings never change
+
+Try to change one letter:
+
+<CodeLab code={`word = "panda"
+word[0] = "b"
+`} />
+
+`'str' object does not support item assignment`. **Item assignment** is changing a position with `word[0] = ...`, and strings don't allow it. The tutorial puts it like this: strings "cannot be changed", and "they are immutable". You make a new string instead, from pieces of the old one: `word = "b" + word[1:]`. That's fine, and it makes `word` stand for a new string.
+
+So no string method changes the string. The ones that produce text, like `strip` and `upper`, give you back a new one and leave the old one as it was. This means there's a mistake you'll make, and it's silent.
+
+<CodeLab mission="prog-text-tidy" />
+
+Lists work the other way round, and that is why people mix them up:
+
+| | Changes the original? | Hands back |
+|---|---|---|
+| `items.sort()` | Yes | `None` |
+| `sorted(items)` | No | A new list |
+| `s.upper()` | No, it can't | A new string |
+
+## The methods you'll use most
+
+<CodeLab code={`s = "  Tea, milk,bread  "
+print(s.strip())
+print(s.lower())
+print(s.upper())
+print(s.replace("milk", "honey"))
+print(s.strip().split(","))
+print("-".join(["a", "b", "c"]))
+print("tea.txt".endswith(".txt"))
+print("hello".find("l"))
+print("hello".count("l"))
+`} rows={11} />
+
+`split` breaks a string into a list, and `join` makes a list into a string. People usually expect `join` to belong to the list, but it's called on the string that goes between the pieces. And everything you join has to be a string already: try `",".join([1, 2])`, and read the error.
+
+Two traps live in those methods. Run this one, and look at each pair.
+
+<CodeLab code={`print("a  b".split(" "))
+print("a  b".split())
+print("".split())
+print("".split(","))
+
+text = "hello"
+if text.find("h"):
+    print("found h")
+else:
+    print("no h?")
+if text.find("z"):
+    print("found z?")
+`} rows={12} />
+
+- **`split()` and `split(" ")` aren't the same.** With no argument, it splits on any run of spaces and throws away empties, which is what you usually want. With `" "`, it splits on every single space, so two in a row leave an empty string between them. `"".split(",")` is a list holding one empty string, not an empty list.
+- **`find` gives a position, and -1 if it's missing.** Position 0 counts as false and -1 counts as true, so `if text.find("h")` is exactly backwards. For a yes-or-no answer, use `"h" in text`. Use `index` if you want an error when it's missing.
+
+Searching for letters isn't the same as searching for a word, either.
+
+<CodeLab mission="prog-text-count" />
+
+## Quote marks inside strings
+
+Use the other kind of quote around the outside, or put a backslash before the quote. Run this and read the error, which is a famous one.
+
+<CodeLab code={`print('it's fine')
+`} />
+
+To Python, the string ended at the apostrophe. Then comes more text, and a stray quote with nothing to close it, so it reports `unterminated string literal`. A **literal** is a value typed straight into the program. Fix it with `"it's fine"` or `'it\'s fine'`.
+
+A backslash starts an **escape**, a way of writing a character that's hard to type. `\n` is a new line, `\t` is a tab, and `\\` is one backslash.
+
+<CodeLab code={`print("one\\ntwo")
+print("a\\tb")
+print("back\\\\slash")
+print(len("\\n"))
+`} />
+
+`len("\n")` is 1, because it's one character, however you have to type it.
+
+## Putting values into text
+
+An **f-string**, with an `f` before the quote, lets you put expressions in curly brackets. After a colon, you can say how to show the value. `.2f` means two decimal places.
+
+<CodeLab code={`name = "Mei"
+price = 2.5
+print(f"{name} owes {price}")
+print(f"{name} owes {price:.2f}")
+print(f"{3 * 4} and {name.upper()}")
+print(f"{1234567:,}")
+print(f"[{name:>6}]")
+print(f"[{name:<6}]")
+`} rows={9} />
+
+This beats gluing with `+`, because `"Total: " + 3` is a `TypeError` and an f-string just works. Forget the `f`, and you get the curly brackets printed literally with no error, which is an easy thing to spot once you've seen it. Try it. A misspelled name inside the brackets is a `NameError`, as usual.
+
+## Comparing text
+
+Strings can be compared and sorted, and this isn't the alphabet you learned. Each character has a number, and comparison goes by those numbers, from left to right. `ord` shows the number, and `chr` goes the other way.
+
+<CodeLab code={`print(ord("A"), ord("Z"), ord("a"))
+print("Zebra" < "apple")
+print(sorted(["apple", "Banana", "cherry"]))
+print("10" < "9")
+print(sorted(["10", "9", "100"]))
+print(sorted([10, 9, 100]))
+`} rows={8} />
+
+Every capital has a smaller number than every small letter in the basic Latin alphabet, so `"Zebra"` comes before `"apple"`. And `"10" < "9"` is `True`, because it compares `"1"` with `"9"` and stops. Numbers stored as text sort this way, which is why some programs list files named 1, 10, 100, 2 in that order. Convert them to numbers first.
+
+## So what is a character?
+
+Python says what a string is: "Strings are immutable sequences of Unicode code points." A **code point** is a number that Unicode assigns, and `len` counts those. Most of the time, one code point is one thing you'd call a character. Then this happens.
+
+<CodeLab code={`a = "\\u00e9"
+b = "e\\u0301"
+print(a, b)
+print(a == b)
+print(len(a), len(b))
+`} />
+
+Both look like `é`. The first is one code point, "e with an acute accent". The second is a plain `e`, followed by a separate "combining" accent that sits on top of the character before it. Both are correct Unicode. They look the same and they aren't equal. The Unicode HOWTO says so about a similar pair: "These will produce the same output when printed, but one is a string of length 1 and the other is of length 2."
+
+So two identical-looking names can fail to match, and it depends on which keyboard or system typed them. Emoji show it more dramatically:
+
+<CodeLab code={`print(len("😀"))
+print(len("👍🏽"))
+print(len("🇬🇧"))
+print(len("👨‍👩‍👧"))
+print("🇬🇧"[::-1])
+print("👨‍👩‍👧"[0])
+print("noe\\u0308l"[::-1])
+`} rows={8} />
+
+The thumbs up with a skin tone is 2 code points. A flag is 2: flags are made of two special letters, and reversing the UK's (G, B) gives you Bulgaria's (B, G). The family is 5: three people, joined by two invisible joining characters. Taking `[0]` gets you one person out of the family. And reversing `noël`, written with a separate accent, moves the accent onto a different letter.
+
+So here are three different questions that "how long is this text?" could mean, and they have different answers:
+
+- **Code points**: what `len` counts. The family is 5.
+- **What a person would count**: the family is 1. `len` doesn't count these, and slicing doesn't respect them.
+- **Bytes**: how much space it takes when stored or sent. The family takes more again, and that's coming up.
+
+<Callout kind="trap" title="Length limits and cutting text short">
+If you cut text to a length with `s[:10]`, you can slice through the middle of an emoji or leave an accent behind. If you check a name's length with `len`, you're counting code points, which isn't what the person sees on screen. For a lot of programs that's fine. Know that it's what you're doing.
+</Callout>
+
+Changing case can change the length as well, and it can't always be undone:
+
+<CodeLab code={`print("ß".upper())
+print(len("ß"), len("ß".upper()))
+print("straße".upper().lower())
+print("Straße".lower() == "STRASSE".lower())
+`} />
+
+`upper` turned one letter into two, and coming back doesn't restore it. So the last line is `False`, even though a German reader would call those the same word.
+
+<Callout kind="real" title="The tools for this are on real Python, not this page">
+This page has no `import`, and no `.encode()` or `.casefold()`. Try `"ß".casefold()` and the page tells you that real Python has it. Here's what you'd use on a real install. We ran this on Python 3.12, and the comments show what it printed.
+
+```python
+import unicodedata
+
+# casefold is lower() made for comparing text.
+print("Straße".casefold() == "STRASSE".casefold())  # True
+
+# normalize picks one spelling for text that looks the same, so == works.
+a = "é"
+b = "é"
+print(unicodedata.normalize("NFC", a) == unicodedata.normalize("NFC", b))  # True
+
+# NFKC goes further, and folds lookalikes into plain letters.
+print(unicodedata.normalize("NFKC", "ᴮᴵᴳᴮᴵᴿᴰ"))  # BIGBIRD
+
+# encode gives the bytes, and the length in bytes depends on the character.
+print(len("a".encode()), len("é".encode()), len("😀".encode()))  # 1 2 4
+```
+
+That third example gives the same `BIGBIRD` that Spotify's code produced, though it isn't the function they were using. Normalizing is a defence for comparing, and it's not a whole defence on its own. Spotify's lesson was that a simplifying step has to give a stable answer, so doing it twice changes nothing, and you have to check that it does.
+</Callout>
+
+<GoDeeper title="Bytes and encodings">
+A computer's memory and files hold bytes, not characters. An **encoding** is the rule for turning code points into bytes. The usual one today is **UTF-8**. It uses 1 byte for the basic English letters and digits, and up to 4 for others, so `"a"` is 1 byte, `"é"` is 2 and `"😀"` is 4. `"日本語"` has a `len` of 3 and takes 9 bytes.
+
+That's why a size limit on a database column or a network message needs you to know whether it's counting characters or bytes. It's also where the garbled text you've seen on websites comes from: bytes written using one encoding, and read back using another.
+
+What a person would call one character has a name in the Unicode standard, the **grapheme cluster**, and Unicode publishes the rules for finding them. Python's `len` doesn't apply those rules.
+</GoDeeper>
+
+<Quiz
+  id="prog-text-1"
+  q="s = &quot; hi &quot;, then s.strip() on its own line, then print(len(s)). What does it print?"
+  options={["2, because strip removed the spaces", "4, because strip made a new string and nothing kept it", "An error, because strings can't be changed"]}
+  answer={1}
+  explain="Strings never change. strip built a new string and handed it back, and that line threw it away. There's no error, which is what makes this one hard to see. Write s = s.strip()."
+/>
+
+<Quiz
+  id="prog-text-2"
+  q="Two strings look identical on screen, but a == b is False. What's a likely reason?"
+  options={["The == operator doesn't work on strings", "They use different code points for the same visible text, such as an accent stored separately", "One of them must be a list"]}
+  answer={1}
+  explain="Unicode often has more than one way to write the same visible text, so é can be one code point or two. They print the same, have different lengths, and aren't equal until you normalize them."
+/>
+
+<Quiz
+  id="prog-text-3"
+  q="text = &quot;hello&quot;. Why is if text.find(&quot;h&quot;): a bug?"
+  options={["find gives 0 for a match at the start, and 0 counts as false", "find only works on lists", "It isn't a bug, and this runs the body as you'd expect"]}
+  answer={0}
+  explain="find gives a position, so a match at the start is 0, which counts as false. A missing value gives -1, which counts as true. So the test is backwards in the two cases that matter. Use 'h' in text."
+/>
+
+## What to remember
+
+- Strings index and slice like lists, but they can't be changed. The methods that produce text give you a new string, so keep it.
+- `split()` with no argument is usually what you want, and `find` gives -1 when it's missing, not false.
+- Strings compare by character number, so capitals come first and `"10"` comes before `"9"`.
+- `len` counts code points, which isn't always what a person would count.
+- Text can look identical and not be equal. To compare, normalize it on real Python.
+- Anything that simplifies text for comparing has to give a stable answer. Check that it does.

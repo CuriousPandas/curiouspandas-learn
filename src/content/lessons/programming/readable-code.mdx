@@ -1,0 +1,166 @@
+---
+title: Code your future self can read
+summary: The authors of Unix wrote code they later admitted they didn't understand. Read the same function written two ways, see what the research on naming really says (it disagrees with itself), and change a rule in code where one idea lives in two places.
+minutes: 18
+xp: 45
+tiers: [browser]
+builds_on: [programming/your-first-tests]
+sources:
+  - title: Dennis Ritchie - Odd Comments and Strange Doings in Unix
+    url: https://www.nokia.com/bell-labs/about/dennis-m-ritchie/odd.html
+  - title: PEP 8 - Style Guide for Python Code
+    url: https://peps.python.org/pep-0008/
+  - title: Greg Wilson - Abbreviated vs. Full-Word Identifier Names (a review of three 2017 studies, It Will Never Work in Theory, 2021)
+    url: https://neverworkintheory.org/2021/08/09/abbreviated-vs-full-names.html
+  - title: Schankin and others - Descriptive Compound Identifier Names Improve Source Code Comprehension (ICPC 2018)
+    url: https://conf.researchr.org/details/icpc-2018/icpc-2018-Technical-Research/14/Descriptive-Compound-Identifier-Names-Improve-Source-Code-Comprehension
+  - title: Binkley and others - To CamelCase or Under_score (ICPC 2009)
+    url: https://www.cs.loyola.edu/~binkley/papers/icpc09-clouds.pdf
+  - title: Sharif and Maletic - An Eye Tracking Study on camelCase and under_score Identifier Styles (ICPC 2010)
+    url: https://www.cs.kent.edu/~jmaletic/papers/ICPC2010-CamelCaseUnderScoreClouds.pdf
+  - title: Feitelson and others - How Developers Choose Names (2021)
+    url: https://arxiv.org/abs/2103.07487
+---
+
+In the Sixth Edition of Unix, from around 1975, the part of the system that switches between running programs had a comment that became famous: `You are not expected to understand this.`
+
+Dennis Ritchie, one of Unix's authors, later explained it on his own web page. It "was intended as a remark in the spirit of 'This won't be on the exam,' rather than as an impudent challenge." And then he gave the real reason: "The real problem is that we didn't understand what was going on either."
+
+The mechanism only worked because of how one compiler happened to behave. When he and Steve Johnson moved Unix to a different machine, it stopped working, and he writes: "It took about a week of agonizing before we finally convinced each other that the mechanism was wrong".
+
+If that can happen to the people who wrote Unix, it can happen to you with something you wrote last month. The person who most often has to read your code is you, later, having forgotten everything. PEP 8, Python's style guide, starts from the same idea: "code is read much more often than it is written".
+
+## Try reading both
+
+This is the core of the lesson, and it doesn't need anyone's authority. Here is one function, written twice. Cover the second and try to work out what the first does. Time yourself if you like.
+
+```python
+def f(d, r):
+    x = r - d
+    if x <= 0:
+        return 0
+    if x > 30:
+        return 30 * 25 + (x - 30) * 50
+    return x * 25
+
+print(f(10, 15))
+```
+
+```python
+FIRST_DAYS = 30
+FIRST_RATE = 25    # cents a day
+LATER_RATE = 50    # doubled, so that books come back before anyone needs them
+
+def days_late(due_day, returned_day):
+    return max(0, returned_day - due_day)
+
+def late_fee(due_day, returned_day):
+    days = days_late(due_day, returned_day)
+    if days <= FIRST_DAYS:
+        return days * FIRST_RATE
+    return FIRST_DAYS * FIRST_RATE + (days - FIRST_DAYS) * LATER_RATE
+
+print(late_fee(due_day=10, returned_day=15))
+```
+
+Both print 125. The computer doesn't care which you pick: they give the same answer, and this site's tests compare them across hundreds of inputs. The differences are all for the person reading:
+
+- **Names say what a thing is.** `d` means nothing until you've read the rest. `due_day` means something on its own.
+- **A small function names an idea.** `days_late` is a sentence you can skip once you trust it, and a piece you can test on its own.
+- **A named number has one home.** Is that `30` the same 30 as the other one? In the first version you have to work it out, and in the second you can see that it is.
+
+The second version isn't free. It's longer, and you have to look in two places to follow it. For a three-line helper you'll read once, a short version can be better. Python's own guide warns against following a style rule blindly, under the heading "A Foolish Consistency is the Hobgoblin of Little Minds". You're making a judgement about a reader, not obeying a law.
+
+## What the research says, and doesn't
+
+You'll hear confident rules about readability, often with "studies show". We went and read what we could. The honest summary is that the evidence is thin, conflicting, and much smaller than the confidence.
+
+| Question | What was found |
+|---|---|
+| Do full-word names beat abbreviations? | Greg Wilson's 2021 review of three 2017 studies says they conflict. Scanniello and others found no difference in effort or efficiency. Beniamini and others found no difference in comprehension for single-letter names. Hofmeister and others found words did better than letters and abbreviations, by 19%. He concludes the issue "probably falls under the heading of 'not worth worrying about'". |
+| Do longer, descriptive names help? | Schankin and others (88 Java developers, 2018) found people located a logic defect about 14% faster with descriptive names. That disappeared when they hunted a syntax error, and it showed for the more experienced developers and not the less experienced. |
+| `camelCase` or `under_score`? | Binkley and others (135 programmers and non-programmers, 2009) found camel case more accurate and, overall, about 13.5% slower. Sharif and Maletic set out to repeat that with an eye tracker (2010), and found no difference in accuracy and quicker recognition of underscores. A big difference between the two: which style people were trained in. |
+| Do developers agree on names? | Feitelson and others (a sequence of experiments with 334 people in total): in the first, the probability that two developers pick the same name had a median of only 6.9%. Though once a name was chosen, most developers understood it. |
+
+The caveats go further. Most of these are short exercises on small snippets, and a timed puzzle isn't the same as living with a codebase for years. We read the abstracts and Wilson's review for these studies, not every paper in full, so read them yourself before you quote them at anybody.
+
+We also went looking for good evidence behind the common advice that a function should be no longer than some number of lines. We didn't find a study we'd stand behind, so we won't give you a number. Treat "keep them small" as a craft habit, not a finding.
+
+That leaves less than the confident rules suggest. So here's our opinion, marked as opinion: a misleading name is worse than a short one, and your own experience of reading both versions above is decent evidence about you. Use it.
+
+## Comments: say why
+
+The first version's problem isn't only a lack of comments. Adding `# subtract d from r` above `x = r - d` tells you nothing the code doesn't. Good comments say what the code can't:
+
+- **Why** this way and not the obvious way.
+- **What goes wrong** if someone removes this line.
+- **What was left out on purpose,** because something missing looks like an oversight.
+
+Even so, a comment isn't checked by anything. It can be wrong for years. Run this, then decide which of the comment and the code is telling the truth.
+
+<CodeLab code={`def shipping(total):
+    # Free delivery on orders over 50.
+    if total > 40:
+        return 0
+    return 5
+
+print(shipping(45))
+`} />
+
+You can't tell from here. Either the comment is out of date, or the code has a bug, and only someone who knows the business can say. PEP 8 is blunt about it: "Comments that contradict the code are worse than no comments." When you change the code, change its comment. If a comment only repeats the code, delete it, and that's one less thing to go stale.
+
+A function can also describe itself. Python's convention for this is a **docstring**: a string on the first line of the function saying what it does for its caller, and what it expects. `help()` in real Python displays it.
+
+```python
+def days_late(due_day, returned_day):
+    """How many days overdue, and never below 0. Days are plain day numbers."""
+    return max(0, returned_day - due_day)
+
+print(days_late(10, 15))
+```
+
+## Change something
+
+Reading is half of it. The other half shows up when something has to change, so try it on the first version of that function. Your tests are the lab's hidden checks, and they're what make it safe to reshape the code.
+
+<CodeLab mission="prog-readable-refactor" rows={11} />
+
+<Callout kind="trap" title="The lab can't judge your names">
+The lab checked what your code does, that the functions it asked for exist, and that `late_fee` really calls `days_late`. It would accept `def days_late(a, b)`. This lab can't tell you if a name is good. A good reader can, which is one of the best reasons for code review.
+</Callout>
+
+<Callout kind="real">
+Real projects settle the argument about spacing and layout by handing it to a tool. Formatters rewrite your code into one consistent style, and linters point out likely mistakes and style problems. This site's sandbox has neither. PEP 8 is the usual starting point for Python: `lower_case_with_underscores` for functions and variables, and `UPPER_CASE` for constants. It also says that a project's own consistency matters more than the guide's.
+</Callout>
+
+<Quiz
+  id="prog-read-1"
+  q="Which comment is worth keeping?"
+  options={["# add 1 to count", "# Retry once: the payment service drops the first request after it has been idle", "# loop over the items"]}
+  answer={1}
+  explain="The other two say what the code already says. The second gives a reason nobody could work out from the code, and tells a future reader what would break if they removed the retry."
+/>
+
+<Quiz
+  id="prog-read-2"
+  q="A colleague says 'studies show short variable names are always worse.' What's a fair reply?"
+  options={["They're right, this is settled", "Some studies found full words helped and others found no difference, so it's not settled, and the differences found were modest", "Studies show names don't matter at all"]}
+  answer={1}
+  explain="Hofmeister and others found words did better, and Schankin and others found descriptive names helped when hunting a logic defect. Scanniello and others, and Beniamini and others, found no difference. Neither 'always worse' nor 'doesn't matter' is what these studies show."
+/>
+
+<Quiz
+  id="prog-read-3"
+  q="A rate appears as the number 25 in two places in a function. Why does that matter, given that it runs correctly today?"
+  options={["It doesn't, as long as it works", "When the rate changes, missing one copy charges the wrong amount with no error, so one idea should live in one place", "Numbers in code always run slower than named constants"]}
+  answer={1}
+  explain="The risk comes when things change. Both copies stay valid Python, so nothing fails: the program just quietly does the old thing in one branch."
+/>
+
+## What to remember
+
+- Code is read far more than it's written, usually by you, later.
+- Good names and small functions are for the reader. Read both versions and judge.
+- The research on readability is real, thin and contested. Be suspicious of "studies show" without a study.
+- Comments say why. If one only says what, delete it. If it contradicts the code, something is wrong.
+- One idea should live in one place, so a change is one edit.

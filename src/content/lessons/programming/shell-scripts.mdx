@@ -1,0 +1,245 @@
+---
+title: From one-liners to a shell script
+summary: Steam's Linux launcher was reported to have deleted a user's whole home folder, and the line blamed looks harmless. Save your pipelines as scripts, give them arguments, then watch a script report success while it destroys your files, and learn what stops it.
+minutes: 24
+xp: 55
+tiers: [browser, machine]
+builds_on: [programming/functions, linux/pipes, linux/permissions, linux/processes-and-signals]
+sources:
+  - title: ValveSoftware/steam-for-linux issue 3671 (January 2015)
+    url: https://github.com/ValveSoftware/steam-for-linux/issues/3671
+  - title: bash(1) manual - pipelines, set -e and pipefail
+    url: https://man7.org/linux/man-pages/man1/bash.1.html
+  - title: ShellCheck SC2164 - Use cd ... || exit in case cd fails
+    url: https://www.shellcheck.net/wiki/SC2164
+  - title: ShellCheck SC2115 - Use "${var:?}" to ensure this never expands to /*
+    url: https://www.shellcheck.net/wiki/SC2115
+---
+
+In January 2015 someone using Steam on Linux opened a bug report with this title: "Moved ~/.local/share/steam. Ran steam. It deleted everything on system owned by user."
+
+They had moved Steam's folder to another drive. Steam reinstalled itself "and everything looked great", they wrote. "Until I looked and saw that steam had apparently deleted everything owned by my user recursively from the root directory." That included an external drive with their backups on it. Other people in the thread reported the same thing.
+
+Readers went through Steam's launcher, a **shell script**, and pointed at two lines. They reported that one set a variable to the folder the script was running from, and another emptied that folder:
+
+```text
+STEAMROOT="$(cd "${0%/*}" && echo $PWD)"
+rm -rf "$STEAMROOT/"*
+```
+
+One commenter's diagnosis was that the first line "probably returns as empty". If it does, the second line has nothing before its slash and means `rm -rf /*`. That's their reading of the script, not a report from Valve, so hold it at that strength. The reporter, quoting a comment as `#scary!`, asked: "Can I at least get an apology from whoever committed that comment without adding a fix?"
+
+Nothing in a shell script says "stop" unless you write it. A step fails, or produces nothing, and the next line runs anyway. That's the default, and you're about to see it for yourself, where nothing real can be hurt.
+
+## A script is a file of commands
+
+**This lesson needs some shell first, and Programming from Zero hasn't taught it.** It uses `grep`, `cut`, `sort`, `uniq`, `head`, pipes and `2>/dev/null`, which are in [the pipes lesson](/learn/linux/pipes/), and `chmod`, which is in [the permissions lesson](/learn/linux/permissions/). Both are part of the separate Linux track. If you haven't met those commands, do those two first. You can copy this lesson's hints without them, but you won't be able to follow what the lines do.
+
+A **script** is commands like those saved in a file, and run from the top down. Once a one-liner is in a file you can run it again, change it, share it, and put it under version control.
+
+This sandbox has no text editor, so you write files with `echo` and `>`. Use **single quotes** around the line you're saving. They hand the text over exactly as written. Inside double quotes, the shell fills in `$1` and `$?` right then, while running `echo`.
+
+<ShellPlayground mission="prog-shell-report" title="Save your one-liner" />
+
+`$1` is what turned it from a one-off into a tool: the first word after the script's name. `$2` is the second, and `$#` is how many there are. Inside a script they hold what it was given. A variable with no value is just empty, and that matters in a moment. Write it in double quotes, as `"$1"`. Without them, a file name with a space in it becomes two words, and an empty value disappears altogether, so `grep 500 $1` with no argument goes looking for input instead of a file.
+
+<Callout kind="real">
+Most of what this terminal does is checked against real bash and GNU tools on every change, and that includes the order of lines, exit statuses, how `$1` splits into words, and what each command does with a missing file, a folder, no arguments or a bad option. It has only a small part of bash. There's no text editor, and no variables you can set, `if`, loops or functions: type one and it says so by name. Those are in the real-machine section below, with output we ran for real. One more difference: in this sandbox a command with no file and no pipe into it reads nothing and carries on, where a real `grep 500` with no file will sit waiting for you to type. Ctrl-D ends that.
+</Callout>
+
+## The script that said it worked
+
+Every command finishes with an **exit status**: 0 means it worked, and anything else means it didn't. You read the last one as `$?`, which [the processes lesson](/learn/linux/processes-and-signals/) covers. Here's what catches people: **the shell doesn't look at it unless you ask.** A script's next line runs whatever happened on the last one, and the script's own exit status is whatever its last command returned.
+
+Here's a tidy little script with a typo in it. Read it first. Its first line, `#!/bin/bash`, is called a **shebang**: when you run the file as `./cleanup.sh`, the system reads that line to find out which program should run it. Then run it, since this is only a sandbox, and **Start over** gives you the machine back.
+
+<ShellPlayground mission="prog-shell-silent" title="cleanup.sh" />
+
+Compare that with a crash. A crash would have been a much better outcome. Instead you got a reassuring message, exit status 0, and a home folder with nothing left in it but a hidden settings file, because `*` skips names that start with a dot. It reported success, and it had done the opposite. If this ran every night from a scheduler, the only sign would be missing files.
+
+The fix is to make each step depend on the last:
+
+- `a && b` runs `b` only if `a` worked.
+- `a || exit 1` stops the script if `a` failed. ShellCheck, a popular tool that finds mistakes in scripts, recommends this exact pattern for `cd`.
+
+## The failure a pipe hides
+
+There's a quieter version, and it's easy to miss. Try this line in the terminal below. Note the misspelled file name:
+
+```text
+grep 500 acces.log 2>/dev/null | wc -l; echo $?
+```
+
+```text
+0
+0
+```
+
+It says 0 failures, and it says that it worked. In truth it never looked: the file doesn't exist. The status of a pipeline is the status of its **last** command, and `wc -l` counted zero lines without any problem. `grep`'s error went into `/dev/null`, and without that `2>/dev/null` you'd at least see the message on screen, though the status would still be 0.
+
+"Checked and found nothing" and "never looked" have printed the same thing. In this case a single command can tell them apart:
+
+```text
+grep -c 500 acces.log; echo $?
+```
+
+Without the pipe, `grep -c` counts for you, and its status survives: 2 means it couldn't read the file. Even then, read that status with care: `grep` returns 1 for "looked, and found no matches", which is fine, and 2 for "something went wrong", which isn't. Try both. The terminal below has no log in it, so the line above gives you the 2, and `grep -c zebra notes.txt; echo $?` gives you the 1.
+
+<ShellPlayground title="Try it here" />
+
+`grep -E` gives you the fuller form of pattern, called a **regular expression**, for matching text by shape: `grep -E "50[0-9]$" file` matches lines ending in 500 to 509. Regular expressions are a language of their own, and this is the small end of it.
+
+<Quiz
+  id="prog-sh-1"
+  q="A script's lines are cd /backups, then rm -r old/*, then echo done. /backups doesn't exist. What happens when it runs?"
+  options={["cd fails, so the script stops with an error", "cd fails, the script carries on, and rm runs in whatever folder the script was already in", "The shell notices that the next lines depend on cd, and skips them"]}
+  answer={1}
+  explain="By default a shell script runs the next line whatever the last one did. rm -r old/* then runs from the wrong folder. If that folder has an old/ in it, those files go. Write cd /backups || exit 1, or use set -e on a real machine."
+/>
+
+<Quiz
+  id="prog-sh-2"
+  q="What does grep ERROR missing.log | wc -l; echo $? end with, on a default real bash?"
+  options={["A 0 from wc and then a status of 0, along with an error message from grep", "A 0 from wc and then a status of 2", "Only an error message and a status of 2"]}
+  answer={0}
+  explain="A pipeline's status is its last command's unless pipefail is on, and wc worked fine. grep's error message goes to the screen and isn't part of the pipe. Turning on pipefail changes the status to 2. Nothing changes the 0 that wc prints."
+/>
+
+<Quiz
+  id="prog-sh-3"
+  q="You want to save the line echo $1 into a script using echo. What goes wrong with: echo &quot;echo $1&quot; > s.sh"
+  options={["Nothing: that saves it correctly", "The shell fills in $1 right away, while running echo, so the script gets an empty value instead of $1", "Double quotes aren't allowed around a command"]}
+  answer={1}
+  explain="Double quotes let the shell fill in $ values. At your prompt $1 is empty, so the script gets just 'echo '. Single quotes keep the text exactly as written."
+/>
+
+## On a real machine
+
+The sandbox stops here. Everything in this section is **real-machine material**: it doesn't run in the terminal above, and this site's tests run each of these scripts in real bash, so the output shown is real, error messages included. These scripts use bash features, so they start with that `#!/bin/bash` line. It matters: on Ubuntu, where plain `sh` isn't bash, `sh` stops at the next line with `Illegal option -o pipefail`. Running `bash a.sh` ignores the line and uses bash anyway.
+
+**Stop on the first failure.** Put this near the top of your real scripts. `set -e` stops the script when a command fails, `set -u` treats an unset variable as an error, and `set -o pipefail` makes a pipeline fail if any part of it fails. Saved as `a.sh` and run with `bash a.sh`:
+
+```bash
+#!/bin/bash
+# real machine
+set -euo pipefail
+echo "starting"
+cd /no/such/folder
+echo "this never prints"
+```
+
+```text
+starting
+a.sh: line 5: cd: /no/such/folder: No such file or directory
+```
+
+The error names the script and the line. That's your starting point when something stops.
+
+The same thing for the pipeline from earlier. Before and after `pipefail`:
+
+```bash
+#!/bin/bash
+# real machine
+grep 500 acces.log 2>/dev/null | wc -l
+echo "status: $?"
+set -o pipefail
+grep 500 acces.log 2>/dev/null | wc -l
+echo "status: $?"
+```
+
+```text
+0
+status: 0
+0
+status: 2
+```
+
+Don't treat `set -e` as a cure. The bash manual lists the cases where it doesn't stop. They include commands tested by `if`, and "any command executed in a && or || list except the command following the final && or ||". It's a safety net, with holes in it. And `set -u` wouldn't have helped Steam, if the commenter was right: an *empty* variable isn't an *unset* one. For that, `${STEAMROOT:?}` stops with an error if the variable is empty or unset, and ShellCheck's page on this exact mistake uses the very same line from Steam as its example.
+
+**Variables, decisions, loops and functions.** Here they are together. It reads every `.log` file in a folder and reports the ones with too many failures:
+
+```bash
+#!/bin/bash
+# real machine
+set -euo pipefail
+
+limit=2
+
+count_failures() {
+    local status=0
+    grep -c ' 500$' "$1" || status=$?
+    # 1 means it looked and found nothing, which is fine. 2 means it couldn't look.
+    [ "$status" -le 1 ]
+}
+
+for log in *.log; do
+    n=$(count_failures "$log")
+    if [ "$n" -ge "$limit" ]; then
+        echo "$log: $n failures"
+    else
+        echo "$log: fine"
+    fi
+done
+```
+
+With `busy.log` holding three failures and `calm.log` holding none, it prints:
+
+```text
+busy.log: 3 failures
+calm.log: fine
+```
+
+A few traps are visible in that code. There are no spaces around `=` in `limit=2`, and spaces there are an error. `"$log"` is in double quotes so that a file name with a space in it stays one word. `$(...)` runs a command and captures its output.
+
+The last trap is the one this whole lesson is about. `grep -c` exits 1 when it finds nothing, and under `set -e` that would stop the script on a perfectly good log, so the function has to allow it. The tempting way is `grep -c ' 500$' "$1" || true`. Don't: `|| true` allows every failure, status 2 included. Run that version with no `.log` files and it prints `*.log: fine`, since `*.log` stays as it is when nothing matches. Give it a `broken.log` it can't read and it prints `broken.log: fine`. Both exit with status 0. "Never looked" has read as "checked and clear" again. This lesson's first version made that exact mistake, and called it a careful choice. A review caught it.
+
+`|| status=$?` keeps the status so the next line can tell them apart. A 1 is fine. Anything higher makes the function fail, so `set -e` stops the script, with `grep`'s own error on screen.
+
+**Lists and the environment.** A bash array is a list. Environment variables are values a program inherits from whatever started it. `$HOME` and `$USER` are two you'll see often, and `export` passes one of your own on to the programs you start:
+
+```bash
+#!/bin/bash
+# real machine
+names=(ana ben "cai jones")
+for name in "${names[@]}"; do
+    echo "hello $name"
+done
+export GREETING=hi
+bash -c 'echo "the child sees: $GREETING"'
+```
+
+```text
+hello ana
+hello ben
+hello cai jones
+the child sees: hi
+```
+
+<DoItForReal id="prog-sh-real" needs="terminal" xp={25}>
+
+Run the Steam mistake safely, with `echo` standing in front of the `rm`, so that it only prints what it would have done:
+
+```bash
+# real machine
+STEAMROOT=""
+echo rm -rf "$STEAMROOT/"* | cut -d ' ' -f 1-3
+```
+
+You'll see `rm -rf /` followed by the first thing in your root folder. Then install [ShellCheck](https://www.shellcheck.net/) and run it on the script with the typo from the mission:
+
+```bash
+shellcheck cleanup.sh
+```
+
+It tells you about the unchecked `cd`. Tools like this are cheap, and they catch this whole kind of mistake before you run anything.
+
+</DoItForReal>
+
+## What to remember
+
+- A script is your commands in a file. `$1` is what makes it reusable.
+- A failed command doesn't stop a script. The next line runs anyway, and that's the silent failure.
+- Connect steps that depend on each other: `cd x && rm y`, or `cd x || exit 1`.
+- A pipeline's status is its last command's, so a failure at the start of one can read as success.
+- `|| true` hides every failure, not only the one you meant. Keep the status and check it.
+- On a real machine, start scripts with `#!/bin/bash` and `set -euo pipefail`, know its gaps, and run ShellCheck.

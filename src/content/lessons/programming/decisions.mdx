@@ -1,0 +1,218 @@
+---
+title: If, and the else you forgot
+summary: In 2003 someone tried to hide a back door in Linux behind a single = sign. Learn how a program makes decisions, cause and read the mistakes everyone makes, and find the case your if never considered.
+minutes: 20
+xp: 55
+tiers: [browser]
+builds_on: [programming/values-and-variables]
+sources:
+  - title: LWN.net - An attempt to backdoor the kernel (2003)
+    url: https://lwn.net/Articles/57135/
+  - title: Adam Langley - Apple's SSL/TLS bug (2014)
+    url: https://www.imperialviolet.org/2014/02/22/applebug.html
+  - title: The Python Tutorial - More Control Flow Tools (if statements)
+    url: https://docs.python.org/3/tutorial/controlflow.html
+  - title: The Python Tutorial - An Informal Introduction to Python (indentation)
+    url: https://docs.python.org/3/tutorial/introduction.html
+  - title: Python documentation - Built-in Types (truth value testing, comparisons)
+    url: https://docs.python.org/3/library/stdtypes.html
+  - title: Python Language Reference - Lexical analysis (indentation)
+    url: https://docs.python.org/3/reference/lexical_analysis.html
+---
+
+In November 2003, someone managed to push a change into a copy of the Linux kernel's source code. The kernel is the part of an operating system that decides who is allowed to do what. The change was two lines, written in a language called C:
+
+```c
+if ((options == (__WCLONE|__WALL)) && (current->uid = 0))
+        retval = -EINVAL;
+```
+
+You don't need to read C to spot this. Look at the two tests. The first has `==` and the second has `=`. LWN.net reported that it "looks much like a standard error check, until you notice that the code is not testing current->uid - it is, instead setting it to zero". On Linux, user number 0 is the all-powerful administrator, called root. So any program that made this request of the kernel, with those exact options, would become root. LWN called it "a classic back door".
+
+It didn't get far. That copy of the code wasn't where changes were meant to be made, and each real change carried a link back to its original. This one had none, so it stood out, and Larry McVoy noticed quickly.
+
+Now try that slip in Python.
+
+<CodeLab code={`uid = 1000
+if uid = 0:
+    print("administrator")
+`} />
+
+Python refuses to run it: `invalid syntax. Maybe you meant '==' or ':=' instead of '='?`. C compiled that slip, and Python doesn't. One small rule in a language's design removes it. (The `:=` it mentions is a separate, deliberate way of assigning inside a test, so someone determined could still hide an assignment in Python, but you can't get there by leaving out a character. This page doesn't have `:=`, and you don't need it.) Change `=` to `==`, then run it again. It prints nothing, because 1000 isn't 0.
+
+## Questions with yes or no answers
+
+`=` stores a value. `==` asks a question, and the answer is a value of its own: `True` or `False`. These are the **comparison** operators:
+
+| You write | It asks |
+|---|---|
+| `a == b` | Are they equal? |
+| `a != b` | Are they different? |
+| `a < b`, `a > b` | Is it less, or more? |
+| `a <= b`, `a >= b` | Less or equal, more or equal? |
+
+<CodeLab code={`age = 15
+print(age == 15)
+print(age > 18)
+print(age != 15)
+print("tea" == "tea")
+print("Tea" == "tea")
+print("1" == 1)
+print(1 == 1.0)
+`} rows={10} />
+
+Two of those are worth a second look. Capital letters count, so `"Tea"` isn't `"tea"`. And `"1" == 1` isn't an error. It's `False`, because a string and a number are never equal. So if you compare what someone typed with a number, you get a quiet `False` rather than a warning.
+
+## If
+
+`if` runs some lines only when a test comes out true.
+
+<CodeLab code={`age = 15
+if age >= 18:
+    print("You can vote")
+print("This line always runs")
+`} />
+
+There are two things to notice, and Python cares about both:
+
+- **The colon** at the end of the `if` line says "here comes the part that depends on this".
+- **The indent**, four spaces, marks which lines belong to the `if`. Indented lines are its **body**. The first line that isn't indented is back outside. As the tutorial says, "indentation is Python's way of grouping statements". In the labs, pressing **Tab** puts in four spaces, and pressing **Enter** after a colon indents for you.
+
+Press **Step** to watch it skip the body. Then change `age` to 20 and step through it again.
+
+Now cause each of these yourself, in the lab above, and read what comes back:
+
+- Delete the colon. You get `expected ':'`.
+- Delete the spaces before `print("You can vote")`. You get `expected an indented block after 'if' statement on line 2`, which is a very clear message.
+- Put two spaces in front of the last `print`. Now it's `unindent does not match any outer indentation level`. **Unindent** means moving back out, and this line moved back to a position that no block above it uses: not the 4 of the body, and not the 0 of the `if`.
+
+<Callout kind="real" title="Indentation in other languages">
+In many languages, indentation is only for human readers, and that can mislead them. In 2014, a bug in Apple's code for checking secure connections came down to a repeated line, shown here in C:
+
+```c
+if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)
+    goto fail;
+    goto fail;
+```
+
+The second `goto fail` looks as if it belongs to the `if`, but in C it doesn't, so it always ran and skipped the check that came next. As Adam Langley's write-up explains, signature checking there never failed. In Python, the indent is what decides membership, so a line can't look like it's inside an `if` while being outside. That doesn't make this class of bug impossible. A copied line in Python still runs, and a line indented one level too few still leaves the `if`, with no error if the program still makes sense.
+</Callout>
+
+## Else, elif, and the one you forgot
+
+`else` is what happens otherwise. `elif`, short for "else if", adds another test. Python goes down the list, runs the **first** branch whose test is true, and skips the rest.
+
+<CodeLab mission="prog-dec-ticket" />
+
+An `if` with no `else` isn't wrong. It says "and otherwise, do nothing", which is often what you mean. But if you didn't think about the otherwise, you've left a hole, and on most days nothing shows it. [The Zune loop](/learn/algorithms/what-is-an-algorithm/), in the code reproduced after those music players froze on the last day of 2008, has this shape: an `if` with no `else`, and one rare date that went through without anything changing.
+
+It gets worse when a later line depends on the choice. Run this, then change `temp` to 30.
+
+<CodeLab code={`temp = 5
+if temp < 10:
+    advice = "Take a coat"
+print(advice)
+`} />
+
+With 5 it works. With 30, `advice` was never given a value, so it's a `NameError` on the `print` line, which is two lines away from the real cause. This is the pattern to look out for: the program works for every value you tried, and it crashes on a value someone else tries.
+
+### Order matters
+
+Python takes the first true branch and stops looking. Run this. A score of 95 should be an A.
+
+<CodeLab code={`score = 95
+if score >= 50:
+    print("pass")
+elif score >= 90:
+    print("A")
+`} />
+
+95 is at least 50, so that branch wins, and the `A` line can never run for any score. No error warns you about a branch that can't happen. When tests overlap, put the narrowest first.
+
+## And, or, not
+
+`and` needs both sides to be true, `or` needs at least one, and `not` flips the answer.
+
+<CodeLab code={`age = 30
+member = False
+print(age >= 18 and member)
+print(age >= 18 or member)
+print(not member)
+print(13 <= age <= 19)
+`} />
+
+The last line shows a Python nicety that you know from maths: a value between two limits.
+
+<Callout kind="trap" title="The if that is always true">
+It reads like English, and it's wrong. Run it, then change `x` to anything you like.
+
+<CodeLab code={`x = 7
+if x == 3 or 4:
+    print("it is 3 or 4")
+`} />
+
+Python reads this as `(x == 3) or (4)`, not as "x equals 3 or 4". And on its own, `4` counts as true, so the test always passes. It needs a whole question on each side: `x == 3 or x == 4`.
+</Callout>
+
+### What counts as true
+
+`if` doesn't need a comparison. It will test any value. These count as false: `False`, `None`, `0`, `0.0`, and anything empty, like `""` or `[]`. Nearly everything else counts as true.
+
+<CodeLab code={`name = ""
+if name:
+    print("Hello", name)
+else:
+    print("You didn't give a name")
+print(bool("False"))
+print(bool("0"))
+print(bool(0))
+`} rows={9} />
+
+`bool()` shows you how Python will treat a value in an `if`. `"False"` counts as true, because it's a string with something in it. So if you read the word "False" from a file or a form, an `if` on it passes. Compare it with `== "True"`, or convert it deliberately.
+
+## Your turn
+
+A leap year needs more than one test, and the first version that looks right isn't. The check uses years you won't see.
+
+<CodeLab mission="prog-dec-leap" />
+
+<GoDeeper title="and and or don't always give True or False">
+`and` and `or` return one of their two sides, not a fresh `True` or `False`. `or` gives the first side if it counts as true, and otherwise the second. `and` gives the first side if it counts as false, and otherwise the second. So `0 or "x"` is `"x"`, and `1 and "y"` is `"y"`.
+
+They also stop as soon as the answer is settled, which is called **short-circuiting**. In `count > 0 and total / count > 2`, the division never runs when `count` is 0, so there's no `ZeroDivisionError`. That is the order you want, and swapping the two sides breaks it.
+
+That's also why `x == 3 or 4` doesn't give an error or a plain `True`: when `x` is 7, its value is 4.
+</GoDeeper>
+
+<Quiz
+  id="prog-dec-1"
+  q="What's the difference between = and ==?"
+  options={["They mean the same, and == is the more careful spelling", "= makes a name stand for a value, and == asks whether two values are equal", "= is for numbers and == is for strings"]}
+  answer={1}
+  explain="One changes something and the other asks a question and gives back True or False. Python refuses the first one where a test belongs. C accepts it, and that's what the 2003 back door relied on."
+/>
+
+<Quiz
+  id="prog-dec-2"
+  q="score is 95. if score >= 50 prints pass, and elif score >= 90 prints A. What gets printed?"
+  options={["A", "pass", "pass, then A"]}
+  answer={1}
+  explain="Python runs only the first branch whose test is true, then skips the rest. So the A branch can never run with these tests in this order, for any score. Put the narrower test first."
+/>
+
+<Quiz
+  id="prog-dec-3"
+  q="A program has if temp < 10: advice = &quot;Take a coat&quot;, and then print(advice) with no indent. You test it with 5 and it works. What happens with 30?"
+  options={["It prints nothing and carries on", "It prints an empty line", "NameError, because advice was never given a value"]}
+  answer={2}
+  explain="With 30 the body is skipped, so the name advice never gets a value, and the print line fails. The bug was the missing else, and the error appears on a different line, only for some inputs."
+/>
+
+## What to remember
+
+- `=` stores, and `==` asks.
+- The colon and the indent aren't decoration: they're how Python knows what belongs to the `if`.
+- Python runs the first true branch and skips the rest, so order matters.
+- For every `if`, ask what happens to the values it doesn't catch.
+- `x == 3 or 4` is always true. Write the whole question on each side.
+- Test the edges of a range and the rare cases by name, because everyday values won't reach them.

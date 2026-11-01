@@ -1,0 +1,174 @@
+---
+title: Write the test that could fail
+summary: A duplicated line in Apple's code stopped a security check from ever failing, and it shipped. Write a test that fails on a real bug, see five tests that can't fail at all, then prove your tests are worth something by catching deliberately broken versions of a function.
+minutes: 22
+xp: 60
+tiers: [browser, machine]
+builds_on: [programming/debugging]
+sources:
+  - title: Adam Langley - Apple's SSL/TLS bug (2014)
+    url: https://www.imperialviolet.org/2014/02/22/applebug.html
+  - title: Python docs - the assert statement, and what -O does to it
+    url: https://docs.python.org/3/reference/simple_stmts.html#the-assert-statement
+  - title: pytest - Get Started
+    url: https://docs.pytest.org/en/stable/getting-started.html
+  - title: Python docs - unittest, the test framework that comes with Python
+    url: https://docs.python.org/3/library/unittest.html
+  - title: PIT - a mutation testing tool for Java
+    url: https://pitest.org/
+  - title: mutmut - a mutation testing tool for Python
+    url: https://mutmut.readthedocs.io/en/latest/
+---
+
+In February 2014 Apple shipped a fix for a security bug in iPhones and Macs. The bug was in the code that checks a website's proof of identity when a secure connection starts. Adam Langley, who worked on the secure connections in Chromium, explained it the next day, with this code, shortened here:
+
+```text
+if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)
+    goto fail;
+    goto fail;
+```
+
+The same line, twice. As he wrote: "The first one is correctly bound to the if statement but the second, despite the indentation, isn't conditional at all." So the code always jumped past the rest of the check, with an error value that said everything was fine, "and so the signature verification will never fail."
+
+A check that can never fail is a check that isn't there, and everything still looked as if it worked. Every real site loaded. Only a fake one could have shown the problem, so Langley built one to test with. He was fair about it: "A test case could have caught this, but it's difficult because it's so deep into the handshake."
+
+Take the idea and leave the difficulty: **the value of a check is in the cases where it can fail.** That goes for your tests too.
+
+## A test is a program that checks a program
+
+A **test** calls your code with a known input and checks the answer. Python has a statement built for this: `assert`. It does nothing if what follows is true, and raises `AssertionError` if it's false.
+
+```python
+assert 2 + 2 == 4
+print("that passed")
+assert 2 + 2 == 5, "maths has gone wrong"
+print("this line never runs")
+```
+
+The idea is small, and it's worth more than it looks. A test is a claim about your program, written so that a machine can check it again whenever anything changes.
+
+A price function below subtracts a percentage, or it's meant to. It's already written, and you can't change it, so your job is to catch what's wrong with it.
+
+<CodeLab mission="prog-tests-first" rows={8} />
+
+## Tests that can't fail
+
+A green test feels like evidence. It isn't, unless it could have been red. Here is a function that's plainly wrong, and five tests, none of which raises any alarm. Each is a mistake real people make. Run it, then work out why each one can't catch the bug.
+
+<CodeLab code={`def double(x):
+    return x + x + 1
+
+def test_only_calls_it():
+    double(2)
+
+def test_compares_it_with_itself():
+    assert double(2) == double(2)
+
+def test_true_for_any_number_but_zero():
+    assert double(2)
+
+def test_swallows_the_failure():
+    try:
+        assert double(2) == 4
+    except AssertionError:
+        pass
+
+def test_nobody_runs_this():
+    assert double(2) == 4
+
+test_only_calls_it()
+test_compares_it_with_itself()
+test_true_for_any_number_but_zero()
+test_swallows_the_failure()
+print("all tests passed")
+`} rows={18} />
+
+The first checks nothing. The second compares the answer with itself. The third accepts almost anything. The fourth is the `except` from [the errors lesson](/learn/programming/input-and-errors/), hiding the failure it was written to report. The fifth is defined and never called, so it never ran: the program can't tell that apart from "passed". Tools like pytest find `test_` functions for you, which is one reason people use them.
+
+Here is the check to run on any test of yours: **break the code on purpose and see if the test goes red.** If it stays green, you've learned something important about the test.
+
+<Callout kind="trap" title="Passing tests only speak for the inputs they tried">
+Even a good test says nothing about inputs it doesn't try. All your tests can pass while a case nobody thought of is wrong. Tests make bugs less likely, and they make a change safer. They can't show a program has no bugs.
+</Callout>
+
+## Catch the broken versions
+
+So how good are your tests? You can measure that. Take working code, break it on purpose, often with one small change, and see whether any test notices. A broken copy is called a **mutant**, and a test that fails on it has **killed** it. A mutant that survives usually points at something your tests would never notice. Now and then it can't be killed by anything, because the change makes no difference: `x + 0` changed to `x - 0` gives the same answer on every input.
+
+Here is the rule for a cinema's ticket prices. Under 5 is free. 5 to 17 pays 5. 18 to 64 pays 10. 65 and over pays 6.
+
+The function is correct, and it's given to you. The lab has thirteen broken versions you can't see, and it runs your tests against all of them each time you press **Run**. Your tests must pass on the correct function and fail on each broken one.
+
+<CodeLab mission="prog-tests-mutants" rows={12} />
+
+Notice where the last mutants were hiding. The obvious test, one adult, killed only the one that overcharges adults. Tests in the middle of each price band still left six alive. They sat at the **edges**, where one rule stops and the next begins, and an edge has two sides: `age < 18` can go wrong at 17 as well as at 18. A `<` written as `<=` is a very common bug, and you only catch it by testing exactly the number on the boundary. And say the exact answer: `assert ticket_price(18) > 5` gets past a version that charges 11.
+
+Thirteen mutants are a sample. Passing them all is good evidence about your tests, and it doesn't mean they're complete.
+
+<Callout kind="real">
+Plain `assert` is real Python, but real projects don't run tests the way this lab does. Most Python projects use **pytest**, a separate tool you install. You write `test_` functions in files named like `test_sample.py`, run `pytest`, and it finds them all, runs each one even if an earlier one failed, and shows you the values involved. Python also comes with a framework called **unittest**. Neither is available in this sandbox, which has no `import`.
+
+For mutation testing, tools such as **mutmut** for Python and **PIT** for Java generate the mutants for you and run your tests against each one, which takes a lot more computer time than running your tests once.
+
+One more real difference: running `python -O` removes every `assert` from your program, and Python's docs say so. So use `assert` for tests, and never for something like a permission check that has to run in production.
+</Callout>
+
+<Quiz
+  id="prog-test-1"
+  q="All 40 of your tests pass. You change a + to a - in the middle of the code, and all 40 still pass. What does that tell you?"
+  options={["The change was harmless, since the tests pass", "Your tests didn't notice that change, so their passing says nothing about that line", "Tests can't catch small changes like that"]}
+  answer={1}
+  explain="That's a surviving mutant. That line may never have run under test, or no assert depended on its result, or the inputs you chose can't tell + from - (2 + 0 and 2 - 0 are the same). Once in a while the change really makes no difference. Passing tests can't tell you which, so go and look."
+/>
+
+<Quiz
+  id="prog-test-2"
+  q="A shop gives free delivery on orders of 50 or more. Which single test is most likely to catch a bug?"
+  options={["An order of 200, which clearly qualifies", "An order of exactly 50", "An order of 1, which clearly doesn't"]}
+  answer={1}
+  explain="An order of 50 is the edge. A condition written as > 50 instead of >= 50 gets 200 and 1 right and 50 wrong. Test the boundary, and 49 too if you can have two tests."
+/>
+
+<Quiz
+  id="prog-test-3"
+  q="Which of these can catch a wrong answer from add()?"
+  options={["assert add(2, 2) == add(2, 2)", "assert add(2, 2) == 4", "add(2, 2)"]}
+  answer={1}
+  explain="Only the second has an answer that comes from somewhere other than the code being tested. The first compares add with itself. The third never checks anything, and fails only if add crashes."
+/>
+
+<DoItForReal id="prog-test-pytest" needs="terminal" xp={20}>
+
+On a real machine with Python 3, make a virtual environment and install pytest, as in [its getting-started guide](https://docs.pytest.org/en/stable/getting-started.html). Then save this as `test_tickets.py`:
+
+```python
+# real machine
+def ticket_price(age):
+    if age < 5:
+        return 0
+    if age < 18:
+        return 5
+    if age < 65:
+        return 10
+    return 6
+
+def test_adult():
+    assert ticket_price(30) == 10
+
+def test_edge_at_five():
+    assert ticket_price(5) == 5
+
+def test_edge_at_eighteen():
+    assert ticket_price(18) == 10
+```
+
+Run `pytest`. Notice that nothing calls these functions: pytest finds them by name. Now change `age < 18` to `age <= 18` and run it again. Read how it reports the failure, then put it back.
+
+</DoItForReal>
+
+## What to remember
+
+- A test is only worth something if it could fail. Check by breaking the code on purpose.
+- A green result from a test that can't go red is worse than no test, because it reads as protection.
+- Bugs live at the edges: test the exact values where one rule meets the next.
+- Passing tests speak only for the inputs they tried.
