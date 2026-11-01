@@ -1,0 +1,81 @@
+---
+import Base from '../../layouts/Base.astro';
+import '../../styles/widgets.css';
+import { curriculum } from '../../lib/curriculum.ts';
+import coverage from '../../data/cs2023-coverage.json';
+
+const tracks = await curriculum();
+const lessons = new Map(tracks.flatMap((t) => t.lessons.map((l) => [l.id, { title: l.title, href: l.href, ready: l.status === 'ready', track: t.title }])));
+
+// The audit's verdict is dated and stays as written; what moves on its own is how
+// many of the planned lessons exist. A unit never turns "covered" just because a
+// lesson shipped: that takes someone rereading it against the curriculum.
+const LABEL: Record<string, string> = { covered: 'Covered', partial: 'Partly', none: 'Not taught', excluded: 'Left out on purpose' };
+const units = coverage.areas.flatMap((a) => a.units);
+const count = (s: string) => units.filter((u) => u.status === s).length;
+const planned = [...new Set(units.flatMap((u) => u.planned))];
+const written = planned.filter((id) => lessons.get(id)?.ready);
+---
+<Base title="What's covered" description="How much of computer science this site teaches, measured unit by unit against the CS2023 curriculum, including everything still missing.">
+  <article class="wrap page">
+    <p class="eyebrow">Coverage</p>
+    <h1>What's covered, and what isn't</h1>
+    <p class="lede">"Everything in computing" is not something anyone can check, so this site measures itself against a published standard: <a href={coverage.source}>CS2023</a>, the computer science curriculum from ACM, IEEE-CS and AAAI. It lists {units.length} units of knowledge. This page shows where each one stands, gaps included.</p>
+    <div class="stats">
+      <div class="stat">covered<b>{count('covered')}</b></div>
+      <div class="stat">partly covered<b>{count('partial')}</b></div>
+      <div class="stat">not taught yet<b>{count('none')}</b></div>
+      <div class="stat">left out on purpose<b>{count('excluded')}</b></div>
+      <div class="stat">planned lessons written<b>{written.length} of {planned.length}</b></div>
+    </div>
+    <p class="muted">Last audited {coverage.retrieved}, by reading the lessons against the curriculum. "Partly" is generous: at least one listed topic is really taught, not most of them. Breadth is measured here, not how good a lesson is. This is one standard's view of the field, and a university course also gives you things a website can't, like feedback from people.</p>
+
+    {coverage.areas.map((a) => (
+      <section class="area">
+        <h2>{a.title}</h2>
+        <p class="muted"><a href={a.url}>This area in CS2023</a></p>
+        <ul class="units">
+          {a.units.map((u) => {
+            const plan = u.planned.filter((id) => lessons.has(id));
+            const done = plan.filter((id) => lessons.get(id)!.ready);
+            return (
+              <li class={`unit ${u.status}`} data-unit={u.id}>
+                <details>
+                  <summary>
+                    <span class="u-title">{u.title}</span>
+                    <span class={`u-status ${u.status}`}>{LABEL[u.status]}</span>
+                    {plan.length > 0 && <span class="muted u-plan">{done.length} of {plan.length} planned lessons written</span>}
+                  </summary>
+                  <div class="u-body">
+                    <p>{u.note}</p>
+                    {u.lessons.length > 0 && <p><strong>Taught today in:</strong> {u.lessons.map((id, i) => <>{i > 0 && ', '}{lessons.get(id)?.ready ? <a href={lessons.get(id)!.href}>{lessons.get(id)!.title}</a> : id}</>)}</p>}
+                    {plan.length > 0 && <p><strong>Planned:</strong> {plan.map((id, i) => <>{i > 0 && ', '}{lessons.get(id)!.ready ? <a href={lessons.get(id)!.href}>{lessons.get(id)!.title}</a> : lessons.get(id)!.title}</>)}</p>}
+                  </div>
+                </details>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    ))}
+  </article>
+</Base>
+<style>
+  .page { padding-top: 32px; padding-bottom: 40px; }
+  .lede { max-width: 720px; color: var(--ink-2); font-size: 1.06rem; }
+  .area { margin-top: 28px; }
+  .area h2 { margin-bottom: 0; }
+  .units { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line); }
+  .unit { border-bottom: 1px solid var(--line); }
+  .unit summary { cursor: pointer; padding: 8px 2px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  .u-title { font-weight: 600; flex: 1 1 260px; min-width: 0; }
+  /* Words and borders carry the status as well as colour, so no status relies on hue alone. */
+  .u-status { font-size: 0.78rem; font-weight: 700; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  .u-status.covered { background: var(--bamboo-soft); color: var(--bamboo); }
+  .u-status.partial { background: var(--sun-soft); color: var(--sun-text); }
+  .u-status.none { background: var(--berry-soft); color: var(--berry); }
+  .u-status.excluded { border-style: dashed; color: var(--ink-2); }
+  .u-plan { font-size: 0.82rem; }
+  .u-body { padding: 0 2px 8px; font-size: 0.93rem; overflow-wrap: anywhere; }
+  .u-body p { margin: 4px 0; }
+</style>

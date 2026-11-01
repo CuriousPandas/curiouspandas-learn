@@ -41,6 +41,13 @@ test('nothing a learner types is ever run as code', () => {
   assert.deepEqual(hits(/\beval\s*\(|new Function\s*\(|set(Timeout|Interval)\s*\(\s*['"`]/), []);
 });
 
+test('the Python engine touches nothing outside itself: no page, storage or timers', () => {
+  const engine = src.filter((f) => f.p.startsWith('src/lib/py/'));
+  assert.ok(engine.length >= 6, 'expected the engine files; if they moved, move this test');
+  const reach = /\b(window|document|globalThis|navigator|localStorage|sessionStorage|setTimeout|setInterval|import\s*\(|require\s*\(|Reflect|Proxy)\b/;
+  assert.deepEqual(engine.filter((f) => reach.test(f.code)).map((f) => f.p), []);
+});
+
 test('the site makes no network calls of its own: no backend, no analytics', () => {
   assert.deepEqual(hits(/\bfetch\s*\(|XMLHttpRequest|new WebSocket|EventSource|navigator\.sendBeacon/), []);
 });

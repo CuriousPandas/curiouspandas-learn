@@ -2,6 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import TrackCard from '../../components/TrackCard.astro';
 import { curriculum, totals } from '../../lib/curriculum.ts';
+import { TRACK_GROUPS, groupOf } from '../../data/tracks.ts';
 const tracks = await curriculum();
 const t = totals(tracks);
 ---
@@ -9,11 +10,22 @@ const t = totals(tracks);
   <section class="wrap page">
     <p class="eyebrow">Learn</p>
     <h1>Pick a trail through the forest</h1>
-    <p class="lede">{t.tracksWord} tracks, roughly in order: each one leans on the ones before it. {t.ready} of {t.lessons} lessons are ready today - the rest are listed so you can see where this goes, and marked plainly as still being written.</p>
-    <div class="grid three">{tracks.map((tr, i) => <TrackCard track={tr} n={i + 1} />)}</div>
+    <p class="lede">{t.tracksWord} tracks. {t.ready} of {t.lessons} lessons are ready today - the rest are listed so you can see where this goes, and marked plainly as still being written. <a href="/coverage/">See what is covered and what is missing</a>, measured against a published curriculum.</p>
+    {TRACK_GROUPS.map((g) => {
+      const group = tracks.filter((tr) => groupOf(tr) === g.id);
+      return (
+        <section class="group">
+          <h2>{g.title}</h2>
+          <p class="muted">{g.blurb}</p>
+          <div class="grid three">{group.map((tr) => <TrackCard track={tr} n={tracks.indexOf(tr) + 1} />)}</div>
+        </section>
+      );
+    })}
   </section>
 </Base>
 <style>
   .page { padding-top: 32px; }
   .lede { max-width: 680px; color: var(--ink-2); font-size: 1.06rem; margin-bottom: 28px; }
+  .group { margin-bottom: 36px; }
+  .group h2 { margin-bottom: 2px; }
 </style>

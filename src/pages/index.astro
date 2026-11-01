@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro';
 import TrackCard from '../components/TrackCard.astro';
 import Panda from '../components/Panda.astro';
 import { curriculum, totals } from '../lib/curriculum.ts';
-import { TIERS } from '../data/tracks.ts';
+import { TIERS, TRACK_GROUPS, groupOf } from '../data/tracks.ts';
 import { EXPEDITIONS } from '../data/expeditions.ts';
 const tracks = await curriculum();
 // Named from the data, so opening a fifth expedition cannot leave this list stale.
@@ -53,7 +53,16 @@ if (!gitFirst || gitFirst.status !== 'ready') throw new Error('The home page lin
   <section class="wrap">
     <h2>{t.tracksWord} trails</h2>
     <p class="muted">Not sure where to start? An <a href="/expeditions/">expedition</a> picks a route across them for you - {openExpeditions}.</p>
-    <div class="grid three">{tracks.map((tr, i) => <TrackCard track={tr} n={i + 1} />)}</div>
+    {TRACK_GROUPS.map((g) => {
+      const group = tracks.filter((tr) => groupOf(tr) === g.id);
+      return (
+        <div class="track-group">
+          <h3>{g.title}</h3>
+          <p class="muted">{g.blurb}</p>
+          <div class="grid three">{group.map((tr) => <TrackCard track={tr} n={tracks.indexOf(tr) + 1} />)}</div>
+        </div>
+      );
+    })}
   </section>
 
   <section class="wrap tiers">

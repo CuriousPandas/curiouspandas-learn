@@ -1,0 +1,4053 @@
+{
+ "source": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf",
+ "retrieved": "2026-11-01",
+ "areas": [
+  {
+   "id": "AI",
+   "title": "Artificial Intelligence",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=3",
+   "units": [
+    {
+     "id": "AI-Introduction",
+     "title": "Fundamental Issues",
+     "status": "partial",
+     "lessons": [
+      "agents/what-is-an-agent",
+      "agents/business-agents",
+      "agents/workflows-vs-agents",
+      "frontiers/superintelligence"
+     ],
+     "planned": [
+      "ai-foundations/what-counts-as-intelligence"
+     ],
+     "note": "Taught: LLM tool-using agents as model + tools + loop; action-by-action autonomy levels (alone / ask a person / never); narrow AI vs AGI vs superintelligence; survey of expert views on AI's impact. Missing: Turing test and what counts as intelligent behaviour; reactive vs deliberative and reflex/goal/utility-based agents; problem characteristics (observable, deterministic, static, discrete, single/multi-agent) and practice identifying them; decisions under uncertainty; perception and embodied agents; broad overview of AI problems and applications; AI history and philosophy."
+    },
+    {
+     "id": "AI-Search",
+     "title": "Search",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "algorithms/graphs",
+      "ai-foundations/search-as-thinking",
+      "ai-foundations/adversarial-search"
+     ],
+     "note": "Nothing taught. Needed: State-space representation; BFS, DFS, iterative deepening, uniform cost; heuristics and admissibility; hill-climbing and local minima; greedy best-first and A*; search complexity; minimax, alpha-beta; beam search; constraint satisfaction. Gradient descent's 'walk downhill' is not taught as search."
+    },
+    {
+     "id": "AI-KRR",
+     "title": "Fundamental Knowledge Representation and Reasoning",
+     "status": "partial",
+     "lessons": [
+      "ml/neural-networks",
+      "llm/run-your-own"
+     ],
+     "planned": [
+      "ai-foundations/knowledge-and-logic",
+      "ai-foundations/reasoning-under-uncertainty"
+     ],
+     "note": "Taught: Only learned subsymbolic representations: hidden layers inventing their own features, and embeddings as lists of numbers where similar meanings land close together. Missing: Symbolic and logical representations; graphical models (naive Bayes, Bayesian networks); Bayes theorem and Bayesian inference; random variables, axioms of probability; independence and conditional independence; Markov chains; utility and decision making."
+    },
+    {
+     "id": "AI-ML",
+     "title": "Machine Learning",
+     "status": "partial",
+     "lessons": [
+      "ml/what-is-learning",
+      "ml/neural-networks",
+      "ml/overfitting",
+      "llm/next-token",
+      "llm/attention",
+      "frontiers/alignment"
+     ],
+     "planned": [
+      "math/correlation-and-regression",
+      "math/many-knobs",
+      "ai-foundations/classic-ml",
+      "ai-foundations/clustering",
+      "ai-foundations/reinforcement-learning"
+     ],
+     "note": "Taught: Supervised classification in a neural playground: weights, loss, gradient descent, learning rate; feature expansion (xy, sin x) vs learned features; hidden layers and activations; overfitting with early stopping and smaller models; train/validation/test split; held-out accuracy; LLMs and transformers as generative networks; RLHF as a brief example of reinforcement learning. Missing: Regression tasks and performance metrics; clustering and unsupervised learning; overview of RL methods; no free lunch; a simple statistical learner (linear regression, decision trees) named as such; data preprocessing, missing values, categorical encoding, normalization on real data; precision, recall, confusion matrix; cross-validation and grid search; regularization (formal or named); ensembles; CNNs and visualizing learned features; ML applications in real fields; ML ethics: dataset/algorithmic bias, fairness, privacy, IP, explainability."
+    },
+    {
+     "id": "AI-SEP",
+     "title": "Applications and Societal Impact",
+     "status": "partial",
+     "lessons": [
+      "llm/next-token",
+      "llm/attention",
+      "llm/run-your-own",
+      "frontiers/alignment",
+      "frontiers/superintelligence",
+      "agents/business-agents",
+      "agents/guardrails-and-evals"
+     ],
+     "planned": [
+      "ai-foundations/generated-images",
+      "ai-foundations/fairness-and-explanation"
+     ],
+     "note": "Taught: How LLMs work including attention, with uses and pitfalls (confident mistakes, gamed reward models, sycophancy); applying LLMs to support and invoicing with evals, human oversight and data-leaves-the-building warnings; expert survey on AI risk; scaling laws. Missing: Image generative models (DALL-E, Stable Diffusion etc.); formulating an AI problem with data scarcity and cleaning; dataset, algorithmic and evaluation bias; fairness; explainability; privacy and use of training data; regulation and legal requirements; sustainability of AI; assessing societal implications of a specific application; foundation models' issues with big data beyond scaling laws."
+    },
+    {
+     "id": "AI-LRR",
+     "title": "Logical Representation and Reasoning",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/logic-programming",
+      "ai-foundations/knowledge-and-logic"
+     ],
+     "note": "Nothing taught. Needed: Propositional and predicate logic review; resolution, forward and backward chaining; description logics and ontologies; semantic web; non-monotonic reasoning; logic programming (Prolog); rule-based expert systems; case-based reasoning."
+    },
+    {
+     "id": "AI-Probability",
+     "title": "Probabilistic Representation and Reasoning",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "math/bayes",
+      "ai-foundations/reasoning-under-uncertainty"
+     ],
+     "note": "Nothing taught. Needed: Conditional independence; Bayesian networks and exact inference; Monte Carlo sampling; Markov networks; hidden Markov models; utility functions, maximizing expected utility; game theory."
+    },
+    {
+     "id": "AI-Planning",
+     "title": "Planning",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "ai-foundations/planning"
+     ],
+     "note": "Nothing taught. Needed: Planning operators and state representations; total- and partial-order planning; GraphPlan; hierarchical planning; PDDL; multi-agent planning; MDP-based planning; replanning. The ReAct loop and orchestrator-workers pattern in the agents track are LLM control flow, not taught as planning."
+    },
+    {
+     "id": "AI-Agents",
+     "title": "Agents and Cognitive Systems",
+     "status": "partial",
+     "lessons": [
+      "agents/what-is-an-agent",
+      "agents/tools",
+      "agents/workflows-vs-agents",
+      "agents/guardrails-and-evals",
+      "agents/business-agents"
+     ],
+     "planned": [
+      "ai-foundations/what-counts-as-intelligence",
+      "ai-foundations/planning",
+      "ai-foundations/reinforcement-learning"
+     ],
+     "note": "Taught: Software agents built from an LLM: ReAct think/act/observe architecture, tools and information gathering, workflow vs agent patterns including orchestrator-workers, human approval gates, evals, least privilege, prompt injection. Missing: Agent theory and formalisms; reactive/layered/cognitive architectures; decision-theoretic agents, MDPs, bandits; learning agents; cognitive architectures (ACT-R, SOAR); multi-agent systems in depth (teams, auctions, voting, swarms); human-agent communication; regulation of AI interacting with humans."
+    },
+    {
+     "id": "AI-NLP",
+     "title": "Natural Language Processing",
+     "status": "partial",
+     "lessons": [
+      "llm/tokens",
+      "llm/next-token",
+      "llm/attention",
+      "llm/run-your-own"
+     ],
+     "planned": [
+      "ai-foundations/language-before-llms"
+     ],
+     "note": "Taught: Character n-gram generation in a lab with temperature and top-k; BPE subword tokenization; transformers and attention; generative language models; RAG with embeddings as retrieval. Missing: Grammars and parsing (CFG, CYK); semantics and meaning representation; HMMs; smoothing and backoff; POS tagging; TF-IDF and vector space model; precision and recall for retrieval; information extraction; bag of words and text classification; RNNs; multi-modal embeddings."
+    },
+    {
+     "id": "AI-Robotics",
+     "title": "Robotics",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "specialized/robot-sense-plan-act",
+      "specialized/robot-where-am-i"
+     ],
+     "note": "Nothing taught. Needed: Everything: sensors and effectors, control architectures, coordinate frames, localization and mapping, kinematics, motion planning, manipulation, human-robot interaction, societal issues. The robots in frontiers/alignment are specification-gaming anecdotes only."
+    },
+    {
+     "id": "AI-Vision",
+     "title": "Perception and Computer Vision",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "ai-foundations/seeing",
+      "ai-foundations/generated-images"
+     ],
+     "note": "Nothing taught. Needed: Image acquisition and processing; object recognition and segmentation; motion analysis; speech recognition; other modalities; pattern recognition for perception. The playground classifies 2D dots, not sensory data."
+    }
+   ]
+  },
+  {
+   "id": "AL",
+   "title": "Algorithmic Foundations",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=25",
+   "units": [
+    {
+     "id": "AL-Foundational",
+     "title": "Foundational Data Structures and Algorithms",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "algorithms/what-is-an-algorithm",
+      "algorithms/arrays-and-lists",
+      "algorithms/stacks-and-queues",
+      "algorithms/searching",
+      "algorithms/sorting",
+      "algorithms/hash-tables",
+      "algorithms/trees-and-heaps",
+      "algorithms/graphs",
+      "algorithms/shortest-paths",
+      "data-internals/pages-and-b-trees"
+     ],
+     "note": "Nothing taught. Needed: ADTs; arrays, records, linked lists, stacks, queues, priority queues; hash tables and collisions; graphs and their representations; trees including balanced trees; sets; linear and binary search step by step; sorting algorithms; shortest paths and MST; topological sort; string matching and regex matching. databases/indexes uses a sorted index as an analogy to a phone book and names binary search but never teaches it; hash functions in security/passwords-and-hashing are used, not explained as algorithms."
+    },
+    {
+     "id": "AL-Strategies",
+     "title": "Algorithmic Strategies",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "algorithms/sorting",
+      "algorithms/divide-and-conquer",
+      "algorithms/shortest-paths",
+      "algorithms/greedy",
+      "algorithms/dynamic-programming",
+      "limits/coping-with-hard-problems",
+      "limits/compression"
+     ],
+     "note": "Nothing taught. Needed: Brute force, decrease-and-conquer, divide-and-conquer, greedy, transform-and-conquer, dynamic programming; space vs time tradeoffs as a paradigm; handling exponential growth (A*, branch-and-bound, backtracking); iteration vs recursion; approximation, randomized algorithms."
+    },
+    {
+     "id": "AL-Complexity",
+     "title": "Complexity",
+     "status": "partial",
+     "lessons": [
+      "databases/indexes"
+     ],
+     "planned": [
+      "algorithms/counting-steps",
+      "algorithms/searching",
+      "algorithms/growth-classes",
+      "limits/p-vs-np",
+      "limits/coping-with-hard-problems"
+     ],
+     "note": "Status changed from reviewer none, which followed an example in the reviewer brief. \"Empirical and relative (Order of Growth) measurements\" is a listed topic and databases/indexes measures scan against index and explains N against log N. Nothing taught. Needed: Best/average/worst case; Big-O, Omega, Theta; the foundational complexity classes with examples; input size and primitive operations; empirical study as a method; P, NP, NP-complete and reductions; time-space tradeoffs; recurrences and Master theorem; amortized analysis; Turing-machine complexity. Only near miss: databases/indexes says a scan grows with N and an index with log N and measures one case; no framework or notation is taught."
+    },
+    {
+     "id": "AL-Models",
+     "title": "Computational Models and Formal Languages",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "limits/finite-automata",
+      "limits/regex-engine",
+      "limits/grammars",
+      "limits/turing-machines",
+      "limits/lambda-calculus",
+      "limits/halting",
+      "limits/p-vs-np"
+     ],
+     "note": "Nothing taught. Needed: Finite, pushdown, linear bounded automata and Turing machines; formal languages, grammars, Chomsky hierarchy; regular expressions; decidability and the halting problem; Church-Turing thesis; loop invariants and algorithmic correctness; nondeterminism; pumping lemmas; reductions; lambda calculus."
+    },
+    {
+     "id": "AL-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "algorithms/algorithms-and-people",
+      "data-internals/anonymity",
+      "ai-foundations/fairness-and-explanation"
+     ],
+     "note": "Nothing taught. Needed: Algorithmic fairness; anonymity and differential privacy; accountability and transparency of algorithms; responsible algorithms; economic impact of inefficient algorithms; environmental cost of algorithm choice; proof-of-work vs proof-of-stake; context-aware computing. frontiers/alignment's specification gaming concerns AI objectives, not these issues."
+    }
+   ]
+  },
+  {
+   "id": "AR",
+   "title": "Architecture and Organization",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=39",
+   "units": [
+    {
+     "id": "AR-Logic",
+     "title": "Digital Logic and Digital Systems",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/gates",
+      "computer/adder",
+      "computer/clocks-and-memory"
+     ],
+     "note": "Nothing. XOR in ml/neural-networks is a learning puzzle, not digital logic. Needed: Combinational and sequential logic, FPGAs, CAD tools, register transfer notation, HDLs (Verilog, VHDL), SoC design flow, gate delays, fan-in/out, power."
+    },
+    {
+     "id": "AR-Representation",
+     "title": "Machine-Level Data Representation",
+     "status": "partial",
+     "lessons": [
+      "network/ip-and-subnets",
+      "linux/permissions",
+      "change/branch-by-abstraction"
+     ],
+     "planned": [
+      "computer/bits-and-bases",
+      "computer/negative-numbers",
+      "computer/floating-point",
+      "computer/text-and-images-as-bytes"
+     ],
+     "note": "Taught: Bits and bytes in applied settings: an IPv4 address as a 32-bit number read bit by bit in a lab, permission bits as octal digits, exit codes wrapping at 8 bits. Missing: History of architecture, signed and two's complement, fixed and floating point, number base conversion as a topic, non-numeric data (characters, UTF), records and arrays, instructions as data."
+    },
+    {
+     "id": "AR-Assembly",
+     "title": "Assembly Level Machine Organization",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/toy-cpu",
+      "computer/assembly"
+     ],
+     "note": "Nothing. Needed: von Neumann model, fetch-decode-execute, Flynn taxonomy, multicore organization, ISAs (x86, ARM, RISC-V), instruction formats, addressing modes, assembly programming, subroutine calls, I/O and interrupts, memory segments."
+    },
+    {
+     "id": "AR-Memory",
+     "title": "Memory Hierarchy",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/caches",
+      "computer/latency-numbers"
+     ],
+     "note": "Nothing on the memory hierarchy. KV, DNS and build caches are not hardware caches; checksums in the restore drill and digests are file-level integrity, not memory reliability. Needed: Locality, main memory organization, SSD and disk, latency and bandwidth, cache mapping, block size, replacement and prefetching, coherence, hardware virtual memory support, error coding, SRAM vs DRAM, AMAT."
+    },
+    {
+     "id": "AR-IO",
+     "title": "Interfacing and Communication",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "os/interrupts-and-devices"
+     ],
+     "note": "Nothing. Standard streams are a shell abstraction, not device I/O. Needed: Handshaking and buffering, programmed and interrupt-driven I/O, interrupt structures, I/O devices, external storage organization, buses, arbitration, DMA."
+    },
+    {
+     "id": "AR-Organization",
+     "title": "Functional Organization",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/toy-cpu",
+      "computer/pipelining"
+     ],
+     "note": "Nothing. Needed: Datapaths, instruction pipelining and hazards, hardwired and microprogrammed control units, instruction-level parallelism, CPI."
+    },
+    {
+     "id": "AR-Performance-Energy",
+     "title": "Performance and Energy Efficiency",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/pipelining",
+      "computer/many-small-brains",
+      "computer/energy"
+     ],
+     "note": "Nothing at architecture level. llm/run-your-own and llm/serving-vllm note that GPUs serve faster and that memory limits load, which is passing context. Needed: Performance-energy metrics, branch prediction, speculative and out-of-order execution, Tomasulo, vector and GPU enhancements, hardware lock and barrier support, VLIW, DVFS, dark silicon, quantization energy savings."
+    },
+    {
+     "id": "AR-Heterogeneity",
+     "title": "Heterogeneous Architectures",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/many-small-brains"
+     ],
+     "note": "Nothing. GPU memory is a capacity constraint in llm/serving-vllm; no GPU, TPU or NPU architecture is explained. Needed: SIMD and MIMD architectures, GPGPU, TPUs, NPUs, heterogeneous and non-volatile memory, coherence protocols, domain-specific accelerators, edge devices, chiplets and 3DIC, ML in architecture design."
+    },
+    {
+     "id": "AR-Security",
+     "title": "Secure Processor Architectures",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/speculation-leak"
+     ],
+     "note": "Nothing on hardware security. Container and mesh isolation are software, and SHA-256 and PBKDF2 are used without hardware context. Needed: Secure hardware principles, crypto acceleration, hardware virtualization support, roots of trust, PUFs, hardware RNGs, memory protection extensions, TEEs and enclaves, homomorphic encryption."
+    },
+    {
+     "id": "AR-Quantum",
+     "title": "Quantum Architectures",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/qubits"
+     ],
+     "note": "Nothing. The word quantum does not appear in the lesson digest. Needed: Qubits, superposition, entanglement, gates, no-cloning, teleportation, Shor and Grover, physical qubit implementations, error mitigation, post-quantum encryption, quantum annealing."
+    },
+    {
+     "id": "AR-SEP",
+     "title": "Sustainability Issues",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/energy",
+      "society/sustainability"
+     ],
+     "note": "Nothing on sustainability. Agile's 'sustainable development' is about pace of work, and compute appears only as a scaling-law variable. Needed: Environmental impact of implementation decisions, carbon footprint, e-waste, data center and AI training energy use, sustainable design standards."
+    }
+   ]
+  },
+  {
+   "id": "DM",
+   "title": "Data Management",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=51",
+   "units": [
+    {
+     "id": "DM-Data",
+     "title": "The Role of Data and the Data Life Cycle",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "data-internals/data-lifecycle"
+     ],
+     "note": "Nothing on the data life cycle as such. Retention appears only as tool settings (Loki, Tempo); backups and archive-before-delete are about recovery and retirement, not data stages. Needed: The five stages: creation, processing, review/reporting, retention/retrieval, destruction; retention and destruction policy."
+    },
+    {
+     "id": "DM-Core",
+     "title": "Core Database System Concepts",
+     "status": "partial",
+     "lessons": [
+      "databases/sql-basics",
+      "databases/transactions",
+      "databases/indexes",
+      "databases/replication"
+     ],
+     "planned": [
+      "data-internals/follow-a-query",
+      "data-internals/acid-and-recovery"
+     ],
+     "note": "Taught: Declarative SQL with select-project-join in a real SQLite lab; transactions and the lost update; access via indexes and plans; replicas as one distributed setup. Missing: Purpose/advantages of a DBMS, DBMS components, following a query through them, buffer management, data independence and abstraction, normalization, NoSQL and MapReduce, CRUD-only support, structured vs semi/unstructured data, stream systems."
+    },
+    {
+     "id": "DM-Modeling",
+     "title": "Data Modeling",
+     "status": "partial",
+     "lessons": [
+      "databases/sql-basics"
+     ],
+     "planned": [
+      "data-internals/modeling"
+     ],
+     "note": "Taught: The relational model at user level: tables of same-shaped rows, and a 1:n relationship expressed by a key column and exercised with joins. Missing: Data modeling as an activity, explicit 1:1 and n:m modeling, E-R/UML conceptual models, semi-structured models (JSON Schema, XML/DTD), document/key-value modeling; non-core time series, graph, materialized views, GIS."
+    },
+    {
+     "id": "DM-Relational",
+     "title": "Relational Databases",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "data-internals/modeling",
+      "data-internals/keys-and-constraints",
+      "data-internals/normalization"
+     ],
+     "note": "Status changed from reviewer partial: one sentence on primary-key storage order is not relational design. Index choice is counted under DM-Processing. Taught: Only physical design at a basic level: a table stored in primary-key order and an index as a second sorted copy. Keys appear as join links; foreign keys only in a migration incident. Missing: Entity and referential integrity, candidate keys and superkeys, relational schema design, mapping conceptual to relational schema, file and storage structures, functional dependencies, decomposition, BCNF and other normal forms, denormalization."
+    },
+    {
+     "id": "DM-Querying",
+     "title": "Query Construction",
+     "status": "partial",
+     "lessons": [
+      "databases/sql-basics",
+      "databases/indexes",
+      "databases/transactions",
+      "security/web-flaws"
+     ],
+     "planned": [
+      "data-internals/keys-and-constraints",
+      "data-internals/join-algorithms"
+     ],
+     "note": "Taught: Interactive SQL in a graded console: SELECT, WHERE, ORDER BY, GROUP BY, aggregates, inner and LEFT JOIN with NULL traps. Programmatic execution through parameterised queries. UPDATE used in the transactions lab. Missing: Relational algebra, DDL explained with integrity constraints and triggers (CREATE TABLE is only shown in passing), set operations (UNION, INTERSECT, difference, division), correlated and nested queries, iterating over results in code; non-core relational calculus, stored procedures, other query languages."
+    },
+    {
+     "id": "DM-Processing",
+     "title": "Query Processing",
+     "status": "partial",
+     "lessons": [
+      "databases/indexes"
+     ],
+     "planned": [
+      "data-internals/pages-and-b-trees",
+      "data-internals/join-algorithms"
+     ],
+     "note": "Taught: Index creation in SQL, expression indexes, reading plans (SCAN vs SEARCH, EXPLAIN ANALYZE), index selection and write cost, measured case where a low-selectivity query is slower through an index, ANALYZE statistics. Missing: Page structures, B+ tree internals, hash indices, heap and hash files, external sorting, join algorithms (nested loop, sort-merge, hash), I/O cost analysis, query transformations, selectivity estimation, index-only plans, parallel query processing, denormalization."
+    },
+    {
+     "id": "DM-Internals",
+     "title": "DBMS Internals",
+     "status": "partial",
+     "lessons": [
+      "databases/transactions",
+      "change/expand-contract-schemas",
+      "databases/replication"
+     ],
+     "planned": [
+      "data-internals/follow-a-query",
+      "data-internals/pages-and-b-trees",
+      "data-internals/acid-and-recovery"
+     ],
+     "note": "Taught: Atomicity as a promise, isolation levels (Read Committed, Repeatable Read, Serializable) through a lost-update lab replaying real PostgreSQL, row locks, lock modes and the lock queue, serialization failures and retry; WAL as the basis of replication and PITR. Missing: Buffer management, ACID as a framework (no consistency or durability treatment), serializability theory, distributed transactions, two-phase locking, deadlock handling, quorum consistency, recovery manager and its relation to the buffer manager, ARIES."
+    },
+    {
+     "id": "DM-NoSQL",
+     "title": "NoSQL Systems",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "data-internals/nosql",
+      "data-internals/sharding"
+     ],
+     "note": "Nothing on NoSQL. Replication and read-your-writes are taught only for PostgreSQL (counted under DM-Distributed); etcd and object stores are named in passing. Needed: Why NoSQL and impedance mismatch, key-value and document models, when not to use NoSQL; non-core sharding, graph databases, CAP and quorum consistency, map-reduce, S3-style case studies."
+    },
+    {
+     "id": "DM-Security",
+     "title": "Data Security and Privacy",
+     "status": "partial",
+     "lessons": [
+      "security/web-flaws",
+      "security/passwords-and-hashing",
+      "launch/business-basics",
+      "resilience/backups-that-restore",
+      "web/tls-trust"
+     ],
+     "planned": [
+      "data-internals/data-lifecycle",
+      "data-internals/anonymity"
+     ],
+     "note": "Taught: SQL injection and parameterised queries in a lab; stolen-database thinking and password storage; what personal data is and GDPR's reach, briefly; TLS for transit; ransomware and offline backups (non-core). Missing: Data security vs data privacy as distinct goals, PII protection beyond a definition, ethics of data security and privacy, encryption at rest and during processing, database auditing and forensics, data inference attacks, wider laws and regulations."
+    },
+    {
+     "id": "DM-Analytics",
+     "title": "Data Analytics",
+     "status": "partial",
+     "lessons": [
+      "ml/what-is-learning",
+      "ml/neural-networks",
+      "ml/overfitting"
+     ],
+     "planned": [
+      "math/describing-data",
+      "math/correlation-and-regression",
+      "data-internals/exploring-data",
+      "ai-foundations/classic-ml",
+      "ai-foundations/clustering",
+      "graphics/charts-that-tell-the-truth"
+     ],
+     "note": "Taught: Classification with trained models and held-back test data, in a live playground. Percentiles vs averages appear in sre/three-signals, for latency rather than data exploration. Missing: Exploratory data analysis and descriptive statistics, data science lifecycle, clustering, association, regression, data acquisition and governance, privacy in analytics, fairness and bias (one word in frontiers/superintelligence), visualization technique, entity resolution."
+    },
+    {
+     "id": "DM-Distributed",
+     "title": "Distributed Databases/Cloud Computing",
+     "status": "partial",
+     "lessons": [
+      "databases/replication",
+      "tools/cloudnative-pg",
+      "resilience/dr-strategies"
+     ],
+     "planned": [
+      "concurrency/consistency-and-partitions",
+      "concurrency/consensus",
+      "data-internals/sharding"
+     ],
+     "note": "Taught: Non-core topic of data replication and weak consistency: WAL streaming, replica lag, read-your-writes fixes, synchronous commit trade-off, operator-managed failover, replica staleness. Missing: Distributed data storage and sharding, distributed query processing, distributed transaction model, homogeneous vs heterogeneous systems, shared memory/disk/nothing, speedup and scale-up, MapReduce."
+    },
+    {
+     "id": "DM-Unstructured",
+     "title": "Semi-structured and Unstructured Databases",
+     "status": "partial",
+     "lessons": [
+      "llm/run-your-own"
+     ],
+     "planned": [
+      "data-internals/nosql",
+      "data-internals/search-and-text"
+     ],
+     "note": "Taught: Embeddings and vector storage as a RAG recipe, with a hands-on embed call and a Qdrant collection. Storing and searching documents is left to the reader. Missing: TF-IDF, Word2Vec, array types; semi-structured databases: JSON storage and encoding, Bloom filters, inverted indexes, space-filling curves, OLTP vs OLAP trade-offs, Postgres/MongoDB/Snowflake case studies."
+    },
+    {
+     "id": "DM-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "partial",
+     "lessons": [
+      "launch/business-basics",
+      "security/passwords-and-hashing",
+      "security/web-flaws"
+     ],
+     "planned": [
+      "data-internals/data-lifecycle",
+      "data-internals/anonymity"
+     ],
+     "note": "Taught: Data privacy obligations at a small-business level, including asking what personal data is needed; data security from the breach point of view. Missing: Issues of scale, privacy compliance by design as a practice, data anonymity, ownership and custodianship, intended and unintended uses of stored data, data reliability, provenance, lineage and metadata management (SLSA provenance is about software, not data)."
+    }
+   ]
+  },
+  {
+   "id": "FPL",
+   "title": "Foundations of Programming Languages",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=65",
+   "units": [
+    {
+     "id": "FPL-OOP",
+     "title": "Object-Oriented Programming",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/objects",
+      "languages/inheritance-and-dispatch"
+     ],
+     "note": "Nothing taught. Needed: Everything: classes, objects, inheritance, dynamic dispatch, encapsulation, interfaces, subtyping, collections, iterators, exception handling."
+    },
+    {
+     "id": "FPL-Functional",
+     "title": "Functional Programming",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "limits/lambda-calculus",
+      "languages/functional",
+      "languages/closures-and-laziness"
+     ],
+     "note": "Nothing taught. Needed: Everything: lambda expressions, effect-free programming, immutability, recursion, structured data by cases, higher-order functions, closures, lazy evaluation."
+    },
+    {
+     "id": "FPL-Logic",
+     "title": "Logic Programming",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/logic-programming"
+     ],
+     "note": "Nothing taught. Needed: Everything: predicate logic, Horn clauses, unification, backtracking, cuts, closed-world assumption."
+    },
+    {
+     "id": "FPL-Scripting",
+     "title": "Shell Scripting",
+     "status": "partial",
+     "lessons": [
+      "linux/pipes",
+      "linux/processes-and-signals",
+      "linux/files-and-paths",
+      "linux/permissions"
+     ],
+     "planned": [
+      "programming/shell-scripts"
+     ],
+     "note": "Taught: Pipes and redirection; everyday commands in a sandboxed shell; file abstraction and paths; processes, signals and exit codes; text processing with one-line pipelines. Missing: Writing and running scripts; variables, conditionals, loops and functions; environment variables; arrays and lists; regular expressions; error handling in scripts (set -e, pipefail); automating a workflow. trap appears once as an optional one-liner."
+    },
+    {
+     "id": "FPL-Event-Driven",
+     "title": "Event-Driven and Reactive Programming",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "concurrency/async-and-event-loops",
+      "languages/event-driven",
+      "specialized/dom-and-javascript"
+     ],
+     "note": "Nothing taught. Needed: Reactive vs procedural programming; events, listeners, dispatchers and handlers; state-transition models; reactive frameworks; MVC. Kubernetes controller loops and an onerror attribute are analogies or passing mentions, not teaching."
+    },
+    {
+     "id": "FPL-Parallel",
+     "title": "Parallel and Distributed Computing",
+     "status": "partial",
+     "lessons": [
+      "databases/transactions",
+      "databases/replication",
+      "change/expand-contract-schemas",
+      "delivery/pipelines"
+     ],
+     "planned": [
+      "concurrency/threads-and-races",
+      "concurrency/async-and-event-loops",
+      "concurrency/message-passing"
+     ],
+     "note": "Taught: Race conditions through the lost update, with locks, isolation levels and retry; transaction atomicity; lock queues; asynchronous replication lag and read-your-writes consistency. All taught in database context. Missing: Programming-language concurrency: threads, async/await, promises and futures; mutexes, monitors and channels in code; message passing and actors; shared memory; data parallelism and map/reduce; consensus; memory-consistency models; REST APIs; HPC and quantum."
+    },
+    {
+     "id": "FPL-Aspect",
+     "title": "Aspect-Oriented Programming",
+     "status": "excluded",
+     "lessons": [],
+     "planned": [],
+     "note": "Excluded: zero CS Core and KA Core hours in CS2023, and aspect-oriented programming is rare in current practice. The useful idea, cross-cutting concerns, can be a paragraph in languages/language-design. Would have been: Everything: aspects, join points, advice, point cuts, weaving."
+    },
+    {
+     "id": "FPL-Types",
+     "title": "Type Systems",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "programming/values-and-variables",
+      "languages/types",
+      "languages/type-safety"
+     ],
+     "note": "Nothing taught. Needed: Everything: types as sets of values, primitive and compound types, type safety, static vs dynamic typing, generics and polymorphism, type inference."
+    },
+    {
+     "id": "FPL-Systems",
+     "title": "Systems Execution and Memory Model",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/assembly",
+      "languages/stack-and-heap",
+      "security-foundations/memory-safety"
+     ],
+     "note": "Nothing taught. Needed: Everything: stack and heap, activation records, run-time data layout, translating control flow, manual memory management, garbage collection, memory leaks, dangling pointers, green computing. Container memory limits and vLLM paging are not language memory models."
+    },
+    {
+     "id": "FPL-Translation",
+     "title": "Language Translation and Execution",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/tiny-compiler-parse",
+      "computer/tiny-compiler-generate",
+      "languages/what-a-language-is"
+     ],
+     "note": "Nothing taught. Needed: Everything: compiled vs interpreted vs JIT, bytecode, transpilers, BNF, parse trees, the translation pipeline, virtual machines."
+    },
+    {
+     "id": "FPL-Abstraction",
+     "title": "Program Abstraction and Representation",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "programming/functions",
+      "computer/tiny-compiler-parse",
+      "limits/regex-engine",
+      "languages/what-a-language-is"
+     ],
+     "note": "Nothing taught. Needed: Everything: BNF and regular expressions, programs that process programs, syntax vs semantics, basic programming abstractions, mutability, scope, side effects. The code-vs-data idea in injection is not this."
+    },
+    {
+     "id": "FPL-Syntax",
+     "title": "Syntax Analysis",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/tiny-compiler-parse",
+      "limits/grammars"
+     ],
+     "note": "Nothing taught. Needed: Everything: grammars, scanning, parsing strategies, lookahead, Chomsky hierarchy, parser generators. LLM tokens are a different concept."
+    },
+    {
+     "id": "FPL-Semantics",
+     "title": "Compiler Semantic Analysis",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/tiny-compiler-generate",
+      "languages/tiny-interpreter"
+     ],
+     "note": "Nothing taught. Needed: Everything: abstract syntax trees, scope and binding resolution, static semantics, parameter-passing modes, attribute grammars."
+    },
+    {
+     "id": "FPL-Analysis",
+     "title": "Program Analysis and Analyzers",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "limits/halting",
+      "languages/program-analysis",
+      "craft/fuzzing-and-properties"
+     ],
+     "note": "Nothing taught. Needed: Everything: control-flow graphs, SSA, undecidability, dataflow and alias analysis, analyzer tools. Packwerk, lint and scanners appear only as named tools."
+    },
+    {
+     "id": "FPL-Code",
+     "title": "Code Generation",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "computer/tiny-compiler-generate"
+     ],
+     "note": "Nothing taught. Needed: Everything: instruction sets, calling conventions, linking, instruction selection and scheduling, register allocation, optimization, program generation through generative AI."
+    },
+    {
+     "id": "FPL-Run-Time",
+     "title": "Run-time Behavior and Systems",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/stack-and-heap",
+      "languages/garbage-collection",
+      "languages/tiny-interpreter"
+     ],
+     "note": "Nothing taught. Needed: Everything: activation records, vtables, object layout, malloc/free and garbage collection algorithms, JIT, language interoperability, endianness, sandboxing as a run-time feature. Processes and signals teach the OS view, not a language run-time."
+    },
+    {
+     "id": "FPL-Constructs",
+     "title": "Advanced Programming Constructs",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "programming/input-and-errors",
+      "limits/regex-engine",
+      "languages/closures-and-laziness",
+      "languages/language-design"
+     ],
+     "note": "Status changed from reviewer partial: SQL and PromQL are used but never taught as domain-specific languages; \"domain-specific\" appears in no lesson. Taught: One domain-specific language kind in practice: SQL as a database language, plus PromQL filtering semantics. Neither is framed as a language-design topic. Missing: Encapsulation mechanisms; lazy evaluation and streams; exceptions, continuations and monads; mixins and traits; macros and metaprogramming; regular-expression pattern matching; eval; assertions and contracts; DSLs as a concept; HPC languages."
+    },
+    {
+     "id": "FPL-Pragmatics",
+     "title": "Language Pragmatics",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/what-a-language-is",
+      "languages/tiny-interpreter",
+      "languages/language-design"
+     ],
+     "note": "Nothing taught. Needed: Everything: language evolution, paradigms by problem domain, orthogonality, evaluation order, precedence and associativity, eager vs delayed evaluation, external calls."
+    },
+    {
+     "id": "FPL-Formalism",
+     "title": "Formal Semantics",
+     "status": "excluded",
+     "lessons": [],
+     "planned": [],
+     "note": "Excluded: zero core hours, and axiomatic and denotational semantics need proof notation well beyond school algebra. languages/tiny-interpreter shows the operational idea and limits/lambda-calculus teaches lambda calculus; the rest would serve almost no learner here. Would have been: Everything: axiomatic, operational and denotational semantics, lambda calculus, induction proofs, formal type systems."
+    },
+    {
+     "id": "FPL-Methodologies",
+     "title": "Formal Development Methodologies",
+     "status": "excluded",
+     "lessons": [],
+     "planned": [],
+     "note": "Excluded: zero core hours; theorem provers and dependent types need heavy toolchains and maths beyond the school-algebra floor. The practical end is planned instead under SE-Formal (craft/contracts, craft/model-checking) and fuzzing (craft/fuzzing-and-properties). Would have been: Everything: formal specification, theorem provers, dependent types, verified software, symbolic testing, fuzzing, model checking."
+    },
+    {
+     "id": "FPL-Design",
+     "title": "Design Principles of Programming Languages",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/language-design"
+     ],
+     "note": "Nothing taught. Needed: Everything: language design principles, domain-fit design, interoperability, portability, formal description, green computing."
+    },
+    {
+     "id": "FPL-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/who-languages-are-for"
+     ],
+     "note": "Nothing taught. Needed: Everything: English-centric languages, assistive technology support, human factors, localization, neurodiversity, UTF and multi-language support. Renaming master to main and the strangler rename are passing mentions."
+    }
+   ]
+  },
+  {
+   "id": "GIT",
+   "title": "Graphics and Interactive Techniques",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=89",
+   "units": [
+    {
+     "id": "GIT-Fundamentals",
+     "title": "Fundamental Concepts",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/pixels-and-colour"
+     ],
+     "note": "Nothing taught. Needed: Uses and abuses of graphics; displays, resolution, aspect ratio, frame rate; human vision; raster and vector formats (JPG, PNG, GIF, SVG); sampling and quantization; RGB, CMYK, HSV; storing vs recomputing images; coordinate systems; animation as frames; applied interactive graphics."
+    },
+    {
+     "id": "GIT-Visualization",
+     "title": "Visualization",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/charts-that-tell-the-truth"
+     ],
+     "note": "Nothing taught. Needed: Scientific and information visualization; statistical, text, geospatial and field visualization techniques; visualization pipeline, scales and view transformations; data formats; high-dimensional handling; perception, colour theory, Gestalt; design and evaluation, accessibility, appropriate encodings, misleading visualizations. platform/observability and tools/kiali teach that an empty dashboard can mean missing data, which is about telemetry rather than visualization; lessons contain charts but do not teach them."
+    },
+    {
+     "id": "GIT-Rendering",
+     "title": "Applied Rendering and Techniques",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/transforms",
+      "graphics/rasterizing",
+      "graphics/ray-tracing"
+     ],
+     "note": "Nothing taught. Needed: Object and scene modelling; affine transformations; cameras and projection; radiometry and the rendering equation; triangle rasterization; shaders; visibility and depth buffering; texture mapping; ray tracing; anti-aliasing."
+    },
+    {
+     "id": "GIT-Modeling",
+     "title": "Geometric Modeling",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/meshes-and-shapes"
+     ],
+     "note": "Nothing taught. Needed: Geometric operations; tessellation and meshes; parametric and implicit surfaces; voxels and signed distance fields; CSG; fractals and L-systems; multi-resolution modelling; 3D reconstruction."
+    },
+    {
+     "id": "GIT-Shading",
+     "title": "Shading and Advanced Rendering",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/ray-tracing",
+      "graphics/shading"
+     ],
+     "note": "Nothing taught. Needed: Path tracing and photon mapping; motion blur and focus; shadow mapping; occlusion culling; BSDFs and microfacets; subsurface scattering; image-based and non-photorealistic rendering; real-time rendering; GPU architecture for graphics. GPUs appear in llm/serving-vllm only as memory for serving models."
+    },
+    {
+     "id": "GIT-Animation",
+     "title": "Computer Animation",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/animation"
+     ],
+     "note": "Nothing taught. Needed: Principles of animation; types of animation; keyframes and interpolation; forward and inverse kinematics; skinning and rigging; motion capture and its ethics."
+    },
+    {
+     "id": "GIT-Simulation",
+     "title": "Simulation",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/particles-and-physics"
+     ],
+     "note": "Nothing taught. Needed: Particle systems; integration methods (Euler, midpoint, leapfrog); rigid body dynamics; collision detection; cloth; particle- and grid-based fluids, smoke and fire. The site's labs simulate operations, not physics."
+    },
+    {
+     "id": "GIT-Interaction",
+     "title": "Interaction",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "languages/event-driven",
+      "graphics/input-and-feedback"
+     ],
+     "note": "Nothing taught. Needed: Event-driven programming with mouse, touch, keyboard, voice, sensors and network events; GUI elements (windows, icons, menus, pointing); accessibility; gestural, haptic, multimodal and head-worn interfaces; natural language interfaces as interaction design."
+    },
+    {
+     "id": "GIT-Image",
+     "title": "Image Processing",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "ai-foundations/seeing",
+      "graphics/image-filters"
+     ],
+     "note": "Nothing taught. Needed: Morphological operations; colour histograms and contrast enhancement; convolution, blur, sharpen, frequency filtering; noise and inpainting; compression, DCT, Nyquist, watermarks; CNN connections. 'Image' in lessons means a container image or, in security/web-flaws, an HTML img tag."
+    },
+    {
+     "id": "GIT-Physical",
+     "title": "Tangible/Physical Computing",
+     "status": "excluded",
+     "lessons": [],
+     "planned": [],
+     "note": "Excluded: this one has 6 KA Core hours, so it is a real cut. Fabrication (3D printing, CNC) and IoT hardware cannot be done browser-only. Sensors and actuators as concepts are met in simulation in specialized/robot-sense-plan-act and specialized/microcontroller. Would have been: Sensors and actuators; CAD, CAM and fabrication (3D printing, CNC); Internet of Things connectivity and wireless communication."
+    },
+    {
+     "id": "GIT-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/deepfakes-and-pictures"
+     ],
+     "note": "Nothing taught. Needed: Accessibility of immersive and physical applications; privacy of scans and health data; dangers while immersed; facial recognition ethics; misleading visualizations; deep fakes and bias in image processing; IP of images used to train and produced by generative AI; contributors to the field."
+    },
+    {
+     "id": "GIT-Immersion",
+     "title": "Immersion",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "graphics/stereo-and-presence"
+     ],
+     "note": "Nothing taught. Needed: VR, AR and MR levels; immersion vs presence; 360 video; stereoscopic display; viewer tracking; motion-to-photon latency and level of detail; distributed VR; 3D interaction; applications; motion sickness and physical safety."
+    }
+   ]
+  },
+  {
+   "id": "HCI",
+   "title": "Human-Computer Interaction",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=111",
+   "units": [
+    {
+     "id": "HCI-User",
+     "title": "Understanding the User: Individual goals and interactions with others",
+     "status": "partial",
+     "lessons": [
+      "launch/validate",
+      "launch/first-users"
+     ],
+     "planned": [
+      "hci/who-it-is-for"
+     ],
+     "note": "Taught: Needs-finding through user interviews in a lab: past behaviour over opinion, evidence of money or time spent; going to real users rather than assuming. Missing: Surveys; usability tests; formative studies as such; personas, user stories, empathy and journey maps; ethnographic and contextual enquiry; physical and cognitive characteristics of users; designing for diverse users; internationalization; universal design; collaboration, social computing, virtual worlds."
+    },
+    {
+     "id": "HCI-Accountability",
+     "title": "Accountability and Responsibility in Design",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "hci/dark-patterns"
+     ],
+     "note": "Nothing taught. Needed: Design impact on sustainability, inclusivity, safety, privacy, harm and disparate impact; ethics in design including AI's role; stakeholder impact and human factors; legal and compliance requirements in design; digital well-being; value-sensitive design; persuasive vs manipulative interfaces. Approval gates in agents/business-agents concern automation risk, not interface design."
+    },
+    {
+     "id": "HCI-Accessibility",
+     "title": "Accessibility and Inclusive Design",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "hci/accessibility",
+      "hci/inclusive-design"
+     ],
+     "note": "Nothing taught. Needed: Everything: legal obligations to people with disabilities; WCAG; assistive technologies and screen readers; inclusive design frameworks; universal design; permanent, temporary and situational disability; participatory design; auditing pages for accessibility. The word does not appear in any lesson's text."
+    },
+    {
+     "id": "HCI-Evaluation",
+     "title": "Evaluating the Design",
+     "status": "partial",
+     "lessons": [
+      "launch/validate",
+      "launch/first-users"
+     ],
+     "planned": [
+      "hci/usability-tests",
+      "hci/measuring-experience"
+     ],
+     "note": "Low confidence. Taught: Formative needs-finding by interview; judging a product by cohort retention rather than sign-ups, though neither is framed as evaluating a design. Missing: Formative vs summative distinction; usability testing; utility, efficiency, learnability, satisfaction; ethical approval and IRBs; qualitative coding; statistical tests; think-aloud; heuristic evaluation; sampling and generalization; study planning, hypotheses, within- vs between-subjects; broader impacts of a design."
+    },
+    {
+     "id": "HCI-Design",
+     "title": "System Design",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "hci/prototypes",
+      "hci/interface-principles"
+     ],
+     "note": "Status changed from reviewer partial: launch/mvp prototypes a business idea by hand, not an interface. Taught: Only a business form of low-fidelity prototyping: a hand-run MVP that tests the riskiest assumption before building, with scope cutting in a lab. Missing: Low-fidelity, throw-away and granular UI prototyping; iterative interaction design; universal design; event-driven and data-driven interaction; platform and device constraints; usability vs security and privacy; cross-platform design; participatory design and double-diamond; GUI, voice and touch techniques; error handling; visual design: colour, layout, Gestalt."
+    },
+    {
+     "id": "HCI-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "hci/inclusive-design",
+      "hci/dark-patterns"
+     ],
+     "note": "Nothing taught. Needed: Universal and user-centred design as a social matter; accountability in design; accessibility and inclusive design; participatory design; implications of a design for society, environment, security, privacy and ethics; critique of non-inclusive design; VR/AR privacy."
+    }
+   ]
+  },
+  {
+   "id": "MSF",
+   "title": "Mathematical and Statistical Foundations",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=123",
+   "units": [
+    {
+     "id": "MSF-Discrete",
+     "title": "Discrete Mathematics",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "math/logic",
+      "math/sets-and-functions",
+      "math/proof",
+      "math/counting",
+      "math/modular-arithmetic"
+     ],
+     "note": "Nothing taught. Needed: Sets, relations, functions, cardinality; recursive definitions; proof techniques including induction and contradiction; permutations, combinations, pigeonhole; modular arithmetic and GCD; logic, truth tables, normal forms, predicate logic; graph definitions and traversals; order notation. network/ip-and-subnets teaches binary addressing, and sre/three-signals multiplies label counts once, but neither teaches these as discrete maths."
+    },
+    {
+     "id": "MSF-Probability",
+     "title": "Probability",
+     "status": "partial",
+     "lessons": [
+      "llm/next-token",
+      "llm/attention",
+      "agile/flow"
+     ],
+     "planned": [
+      "math/chance",
+      "math/bayes",
+      "math/random-variables",
+      "limits/information"
+     ],
+     "note": "Taught: Applied only: a discrete probability distribution over next tokens from counts, conditioned on context; sampling and temperature in a lab; softmax turning scores into a distribution; percentile-based forecasts as an elapsed time plus a probability. Missing: Sample spaces and events; formal conditional probability; Bayes' rule; independence; random variables; named discrete distributions; continuous distributions; expectation and variance; law of large numbers and central limit theorem; joint, marginal and conditional distributions; difference between probability and statistics; randomized algorithms."
+    },
+    {
+     "id": "MSF-Statistics",
+     "title": "Statistics",
+     "status": "partial",
+     "lessons": [
+      "sre/three-signals",
+      "agile/flow",
+      "agile/teams",
+      "ml/overfitting"
+     ],
+     "planned": [
+      "math/describing-data",
+      "math/samples-and-tests",
+      "math/correlation-and-regression"
+     ],
+     "note": "Taught: Mean vs tail percentiles with worked numbers (p99, 85% service level); reading correlations as associations rather than causes, with effect sizes and sample limits; overfitting and validation by held-out data. Missing: Populations and samples defined; median, quantiles and spread (variance, standard deviation, IQR); frequency tables and histograms; point estimation; maximum likelihood; confidence intervals; multivariate estimation and regression; PCA and dimension reduction; smoothing; hypothesis testing; cross-validation; Bayesian vs frequentist views."
+    },
+    {
+     "id": "MSF-Linear",
+     "title": "Linear Algebra",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "math/vectors",
+      "math/matrices",
+      "math/what-a-matrix-does-best"
+     ],
+     "note": "Nothing taught. Needed: Vectors and vector operations with geometric meaning and angles; matrices and matrix operations; Ax=b; geometric transformations; row reduction; linear independence, span, basis; orthogonality, projection, least squares; Bezier curves; eigenvectors and eigenvalues; PCA, SVD, PageRank. llm/attention names 'query-key dot products' once and treats tokens as lists of numbers but never defines or teaches the operation."
+    },
+    {
+     "id": "MSF-Calculus",
+     "title": "Calculus",
+     "status": "partial",
+     "lessons": [
+      "ml/what-is-learning"
+     ],
+     "planned": [
+      "math/rates-of-change",
+      "math/adding-up-slices",
+      "math/many-knobs"
+     ],
+     "note": "Taught: Gradient descent for machine learning as intuition, exercised in a lab: the gradient as direction and steepness for every weight, learning rate too small or too large. Missing: Limits, sequences and series; derivatives and computation rules; integration and the fundamental theorem; parametric and polar forms; Taylor series; partial derivatives computed by hand; chain rule (backpropagation is only named); convexity, global vs local minima; constrained optimization; ODEs and Euler method; kinematics."
+    }
+   ]
+  },
+  {
+   "id": "NC",
+   "title": "Networking and Communication",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=135",
+   "units": [
+    {
+     "id": "NC-Fundamentals",
+     "title": "Fundamentals",
+     "status": "partial",
+     "lessons": [
+      "web/request-journey",
+      "network/load-balancers",
+      "network/ip-and-subnets"
+     ],
+     "planned": [
+      "network-internals/packets-and-layers"
+     ],
+     "note": "Taught: Stages of a request (DNS, TCP, TLS, HTTP) with failure at each, and the L4 vs L7 distinction. Layering is taught by practice and not named as a model. Routers appear only as prefix readers. Missing: Importance and challenges of networking, Internet organization (ISPs, autonomous systems, CDNs), circuit vs packet switching, the five-layer model, encapsulation and hourglass, network elements (switches, hubs, access points), queueing and its link to latency and congestion."
+    },
+    {
+     "id": "NC-Applications",
+     "title": "Networked Applications",
+     "status": "partial",
+     "lessons": [
+      "network/dns-deep",
+      "web/request-journey",
+      "web/status-codes-lie",
+      "network/ports-and-tcp"
+     ],
+     "planned": [
+      "network-internals/udp-and-reliability",
+      "network-internals/app-architectures"
+     ],
+     "note": "Taught: DNS in depth (resolver walk, TTL, caching, ndots, migration lab); HTTP status codes, curl behaviour and body assertions; listening sockets, ports, bind address, TCP handshake and its failure shapes. Missing: Distributed paradigms (P2P, cloud, edge, fog) and client/server stated as a paradigm, application demands (latency, bandwidth, loss tolerance), URIs, UDP, Socket API programming (no client-server program is written)."
+    },
+    {
+     "id": "NC-Reliability",
+     "title": "Reliability Support",
+     "status": "partial",
+     "lessons": [
+      "network/ports-and-tcp"
+     ],
+     "planned": [
+      "network-internals/udp-and-reliability",
+      "network-internals/flow-and-congestion"
+     ],
+     "note": "Low confidence. Taught: Only one narrow case of error control: SYN retransmission with exponential backoff, shown in a simulator and with curl timeouts. UDP is named once in passing via HTTP/3. Missing: Unreliable delivery and UDP, reliability principles (loss, duplication, ordering), error correction, data-phase retransmission, flow control (stop and wait, windows), congestion control, TCP variants (Tahoe, Reno, Vegas, Cubic)."
+    },
+    {
+     "id": "NC-Routing",
+     "title": "Routing and Forwarding",
+     "status": "partial",
+     "lessons": [
+      "network/ip-and-subnets"
+     ],
+     "planned": [
+      "network-internals/routing",
+      "network-internals/nat-and-bgp"
+     ],
+     "note": "Taught: IPv4 addressing, CIDR prefixes read bit by bit with a firewall-rule lab, private and special ranges, how a cluster slices address space. Missing: Routing paradigms and hierarchy (intra/inter-domain), forwarding tables and longest-prefix matching, NAT mechanics (named only as CGNAT space), BGP, IPv6, source routing, virtual circuits, QoS."
+    },
+    {
+     "id": "NC-SingleHop",
+     "title": "Single Hop Communication",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "network-internals/ethernet-and-switches",
+      "network-internals/sharing-the-air"
+     ],
+     "note": "Nothing. Wi-Fi appears only as flaky-network colour. Needed: Modulation, bandwidth and media, encoding and framing, MAC protocols, Ethernet and WiFi, switching, spanning tree, VLANs, LAN and data center topologies."
+    },
+    {
+     "id": "NC-Security",
+     "title": "Network Security",
+     "status": "partial",
+     "lessons": [
+      "web/tls-trust",
+      "platform/service-mesh",
+      "tools/istio",
+      "security/identity",
+      "security/cluster-access",
+      "network/ip-and-subnets"
+     ],
+     "planned": [
+      "network-internals/network-attacks"
+     ],
+     "note": "Taught: TLS certificate name and trust checks, mTLS and proving it, permissive vs strict plaintext, zero trust, NetworkPolicy isolation and testing by attempting the refused connection, a CIDR firewall rule. Missing: Threat, vulnerability and countermeasure framing, attack types (DoS, spoofing, sniffing, attacker-in-the-middle as attacks, routing attacks, traffic analysis), symmetric vs asymmetric crypto, VPNs, DMZ, secure DNS, anonymity, network intrusion detection, honeypots, BGPsec and RPKI."
+    },
+    {
+     "id": "NC-Mobility",
+     "title": "Mobility",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "network-internals/sharing-the-air",
+      "network-internals/cells-and-handover"
+     ],
+     "note": "Nothing. Needed: Cellular principles (4G, 5G), 802.11 wireless LANs, device-to-device and IoT communication, multi-hop, ad hoc and delay-tolerant networks."
+    },
+    {
+     "id": "NC-Emerging",
+     "title": "Emerging Topics",
+     "status": "partial",
+     "lessons": [
+      "network/load-balancers",
+      "tools/gateway-api",
+      "platform/service-mesh"
+     ],
+     "planned": [
+      "network-internals/app-architectures",
+      "network-internals/nat-and-bgp"
+     ],
+     "note": "Taught: Load balancing as a middlebox, in a lab: round robin, least connections, health checks, L4 vs L7 proxies, mesh proxies. Missing: AI and intent-based networking, filtering and deep packet inspection, NAT and CDN as middleboxes, SDN and data center network virtualization, quantum networking, satellite, mmWave, visible light."
+    }
+   ]
+  },
+  {
+   "id": "OS",
+   "title": "Operating Systems",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=143",
+   "units": [
+    {
+     "id": "OS-Purpose",
+     "title": "Role and Purpose of Operating Systems",
+     "status": "partial",
+     "lessons": [
+      "linux/files-and-paths",
+      "linux/processes-and-signals",
+      "linux/pipes",
+      "linux/permissions",
+      "containers/what-is-a-container"
+     ],
+     "planned": [
+      "os/what-an-os-does"
+     ],
+     "note": "Taught: OS functions as exposed in the shell: files, processes, signals, streams, permissions. The kernel shown as shared across containers, with a kernel bug affecting all of them. Missing: OS as mediator between hardware and software, universal vs specialized functions, design issues and trade-offs, boot loaders and boot security, firmware attack vectors, VM isolation exposure, Spectre/Meltdown mitigations, unencrypted-drive attacks."
+    },
+    {
+     "id": "OS-Principles",
+     "title": "Principles of Operating System",
+     "status": "partial",
+     "lessons": [
+      "linux/processes-and-signals",
+      "linux/files-and-paths",
+      "containers/what-is-a-container"
+     ],
+     "planned": [
+      "os/what-an-os-does",
+      "os/system-calls"
+     ],
+     "note": "Taught: Abstractions and resources: process and PID, file as a uniform interface, kernel-delivered signals, kernel-enforced namespaces and cgroups limits. Missing: Kernel design approaches (monolithic, layered, microkernel, unikernel), system calls and their mechanism (named once via Falco), user vs kernel mode, interrupts and service routines, mode and context switches and their cost, hardware protection of instructions and memory."
+    },
+    {
+     "id": "OS-Concurrency",
+     "title": "Concurrency",
+     "status": "partial",
+     "lessons": [
+      "databases/transactions",
+      "delivery/pipelines",
+      "change/expand-contract-schemas"
+     ],
+     "planned": [
+      "concurrency/threads-and-races",
+      "concurrency/locks",
+      "concurrency/deadlock",
+      "concurrency/producers-and-consumers"
+     ],
+     "note": "Low confidence. Taught: The race condition concept at database level: a read-modify-write lost update and its repair with a row lock; a race as a flaky test source; waiting in a lock queue. Nothing at thread or OS level. Missing: Threads (abstraction, creation, states, APIs), critical regions in shared memory, mutexes, semaphores, condition variables, deadlock conditions and mitigation, starvation, spin-locks, reentrancy, multiprocess vs multithread, hardware atomics."
+    },
+    {
+     "id": "OS-Protection",
+     "title": "Protection and Safety",
+     "status": "partial",
+     "lessons": [
+      "linux/permissions",
+      "security/passwords-and-hashing",
+      "resilience/backups-that-restore",
+      "containers/what-is-a-container"
+     ],
+     "planned": [
+      "os/system-calls",
+      "os/protection-models",
+      "security-foundations/access-control-models"
+     ],
+     "note": "Taught: File access control (owner/group/other bits, directory semantics, root, sudo, setuid, sticky bit named), authentication via password storage, backups as a mitigation against ransomware. Missing: Overview of OS security mechanisms, attacks and antagonism (including scheduling), review of real OS vulnerabilities, policy/mechanism separation, protection rings and hypervisor/ME levels, capabilities and ACLs."
+    },
+    {
+     "id": "OS-Scheduling",
+     "title": "Scheduling",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "os/cpu-scheduling"
+     ],
+     "note": "Nothing on OS scheduling. Kubernetes pod placement, load-balancer round robin and vLLM batching are different problems; cgroups CPU limits are named only. Needed: Preemptive vs non-preemptive, FCFS, SJF, priority, round robin and multilevel CPU policies, SMP scheduling and cache coherence, timers, fairness and starvation; non-core real-time and energy-aware scheduling, futexes."
+    },
+    {
+     "id": "OS-Process",
+     "title": "Process Model",
+     "status": "partial",
+     "lessons": [
+      "linux/processes-and-signals",
+      "linux/pipes",
+      "containers/what-is-a-container"
+     ],
+     "planned": [
+      "os/process-internals"
+     ],
+     "note": "Taught: Process concept and identity, signals and exit codes as process communication with a lab, pipes as message passing between programs, PID and IPC namespaces, background jobs. Missing: Threads vs processes, process states and PCB data structures, memory layout (stack, heap, segments), fork/exec and loading, shared libraries and dynamic linking, dispatching and context switching, shared-memory IPC."
+    },
+    {
+     "id": "OS-Memory",
+     "title": "Memory Management",
+     "status": "partial",
+     "lessons": [
+      "llm/serving-vllm",
+      "containers/what-is-a-container",
+      "kubernetes/restarts"
+     ],
+     "planned": [
+      "os/virtual-memory",
+      "os/page-replacement"
+     ],
+     "note": "Low confidence. Taught: Fixed-block paging vs contiguous allocation, fragmentation and on-demand allocation, eviction under pressure, taught on a GPU KV cache by a lab that explicitly borrows the OS idea. cgroup memory limits and the OOM killer. No OS memory management itself. Missing: Physical memory and address translation, MMU and TLB, logical vs physical addressing, page replacement, thrashing, memory hierarchy effects, allocators (slab, arenas, free lists, huge pages), cache coherence, memory protection and attack vectors, actual virtual memory."
+    },
+    {
+     "id": "OS-Devices",
+     "title": "Device management",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "os/interrupts-and-devices"
+     ],
+     "note": "Nothing. /dev and /dev/null appear only as examples of files. Needed: Buffering strategies, DMA, polled and memory-mapped I/O, ring buffers, storage device management (magnetic, SSD); non-core device drivers and hardware abstraction layers."
+    },
+    {
+     "id": "OS-Files",
+     "title": "File Systems API and Implementation",
+     "status": "partial",
+     "lessons": [
+      "linux/files-and-paths",
+      "linux/permissions",
+      "git/inside-git"
+     ],
+     "planned": [
+      "os/file-systems-inside"
+     ],
+     "note": "Taught: Files as a user sees them: paths, directory tree, types, permission metadata, file access control, sharing via group bits and directory rights. Git objects show one analogous content-addressed structure. Missing: File system mounting, inodes and metadata storage, allocation methods, fragmentation and compaction, free space management, directory implementation, hard and symbolic links, design trade-offs."
+    },
+    {
+     "id": "OS-Advanced-Files",
+     "title": "Advanced File systems",
+     "status": "partial",
+     "lessons": [
+      "resilience/backups-that-restore",
+      "linux/files-and-paths",
+      "containers/what-is-a-container"
+     ],
+     "planned": [
+      "os/file-systems-inside",
+      "os/journaling"
+     ],
+     "note": "Low confidence. Taught: Backups in depth (3-2-1, sync is not backup, restore drill with checksums) and path naming. /proc and mount namespaces are only named. Missing: Partitioning, mount and unmount, virtual file systems, implementation techniques, memory-mapped files, special-purpose file systems as a topic, journaling and log-structured file systems; non-core distributed and encrypted file systems."
+    },
+    {
+     "id": "OS-Virtualization",
+     "title": "Virtualization",
+     "status": "partial",
+     "lessons": [
+      "containers/what-is-a-container",
+      "kubernetes/scheduling",
+      "sre/autoscaling"
+     ],
+     "planned": [
+      "os/virtual-memory",
+      "os/virtual-machines"
+     ],
+     "note": "Taught: Containers vs VMs, namespaces and cgroups as isolation and limits, shared kernel consequences, why a Linux VM sits under Docker Desktop, the isolation boundary and its limits. Resource requests give predictable placement. Missing: Advanced paging and virtual memory, virtual devices, Popek and Goldberg, hardware virtualization support, emulation vs isolation, virtualization cost, hypervisor types, QEMU/KVM, container escapes beyond a one-line warning."
+    },
+    {
+     "id": "OS-Real-time",
+     "title": "Real-time and Embedded Systems",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "os/real-time"
+     ],
+     "note": "Nothing. Deadlines in the lessons are rollout timeouts. Needed: Real-time task scheduling, deadlines, low-latency vs soft vs hard real time, memory and disk requirements in RT systems, safety concerns, embedded systems."
+    },
+    {
+     "id": "OS-Faults",
+     "title": "Fault tolerance",
+     "status": "partial",
+     "lessons": [
+      "sre/slos",
+      "kubernetes/desired-state",
+      "kubernetes/restarts",
+      "resilience/backups-that-restore",
+      "resilience/dr-strategies"
+     ],
+     "planned": [
+      "os/journaling",
+      "os/redundancy"
+     ],
+     "note": "Low confidence. Taught: Reliable and available systems at service level: availability targets, self-healing, restart behaviour, replicas and DR. All above the OS; the OOM killer is the only OS mechanism. Missing: RAID, spatial and temporal redundancy as methods, OS mechanisms for fault tolerance, error detection and correction, memory checksums, file system consistency checks, journaling, how an OS keeps running after a fault."
+    },
+    {
+     "id": "OS-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "os/open-source-kernels"
+     ],
+     "note": "Nothing on OS society or ethics. The xz backdoor in security/supply-chain is about dependency trust, and Linux history is one line in git/what-is-git. Needed: Open source in operating systems, finding and fixing kernel vulnerabilities, Linux's history and impact, monetization and payment models, end-of-life OS risks, proprietary OS telemetry and privacy."
+    }
+   ]
+  },
+  {
+   "id": "PDC",
+   "title": "Parallel and Distributed Computing",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=155",
+   "units": [
+    {
+     "id": "PDC-Programs",
+     "title": "Programs",
+     "status": "partial",
+     "lessons": [
+      "kubernetes/desired-state",
+      "sre/autoscaling",
+      "databases/replication",
+      "databases/transactions",
+      "kubernetes/scheduling"
+     ],
+     "planned": [
+      "concurrency/threads-and-races",
+      "concurrency/memory-ordering",
+      "concurrency/logical-clocks"
+     ],
+     "note": "Taught: Platform-level distribution: places (nodes, pods), automated provisioning and elastic scaling, reactive watch loops, consistency among replicas, fault tolerance, nondeterminism through races. All operational; no parallel program is written. Missing: Declarative parallelism, happens-before and DAGs, independence and commutativity, safe publication, procedural starting of threads, dependent activation, granularity, Byzantine faults, CPU and SIMD parallelism, multicore tasks and actors, filter/map/reduce."
+    },
+    {
+     "id": "PDC-Communication",
+     "title": "Communication",
+     "status": "partial",
+     "lessons": [
+      "databases/replication",
+      "network/ports-and-tcp",
+      "linux/pipes",
+      "change/strangler-fig",
+      "change/evolving-apis"
+     ],
+     "planned": [
+      "concurrency/memory-ordering",
+      "concurrency/message-passing",
+      "concurrency/consistency-and-partitions"
+     ],
+     "note": "Taught: Replicated data stores with lag and read-your-writes; dual-write divergence; sockets and pipes as channels; timeouts and retries; two-phase rollout of an exchanged format; mTLS for media security. Missing: Shared memory and memory hierarchies, false sharing, coherence, message passing APIs (MPI), RPC, multiplexing and async-await, CSP, queuing theory, memory models, linearizability, eventual consistency theory, Paxos and Raft, CAP, Byzantine trust."
+    },
+    {
+     "id": "PDC-Coordination",
+     "title": "Coordination",
+     "status": "partial",
+     "lessons": [
+      "databases/transactions",
+      "change/expand-contract-schemas",
+      "kubernetes/restarts",
+      "kubernetes/admission",
+      "sre/autoscaling"
+     ],
+     "planned": [
+      "concurrency/locks",
+      "concurrency/deadlock",
+      "concurrency/producers-and-consumers",
+      "concurrency/logical-clocks",
+      "concurrency/consensus"
+     ],
+     "note": "Taught: Locks and waiting at row and table level, optimistic (serialization failure and retry) vs conservative (FOR UPDATE) control, lock_timeout, backoffs and retries, polling via health checks, graceful termination on signals. Missing: Barriers and joins, producer-consumer designs, atomic instructions, lock granularity, deadlock avoidance, lock-free constructions, semaphores and condition variables, futures, consensus, speculation and cancellation."
+    },
+    {
+     "id": "PDC-Evaluation",
+     "title": "Evaluation",
+     "status": "partial",
+     "lessons": [
+      "databases/transactions",
+      "delivery/pipelines",
+      "sre/slos",
+      "sre/three-signals",
+      "llm/serving-vllm",
+      "sre/autoscaling"
+     ],
+     "planned": [
+      "concurrency/deadlock",
+      "concurrency/speedup",
+      "concurrency/safety-and-liveness",
+      "craft/model-checking"
+     ],
+     "note": "Taught: Check-then-act race errors found and repaired, flaky tests as hidden races, SLIs, SLOs and SLAs, latency and throughput metrics, measured impact of batching and paging choices, behaviour under a load spike. Missing: Safety and liveness with temporal logic, Amdahl and Universal Scalability Laws, livelock, energy, linearizability, TLA and formal specifications, work/span DAG analysis, race detectors and fuzzers, writing a test that reveals a data race."
+    },
+    {
+     "id": "PDC-Algorithms",
+     "title": "Algorithms",
+     "status": "partial",
+     "lessons": [
+      "kubernetes/scheduling",
+      "sre/autoscaling",
+      "network/load-balancers",
+      "llm/serving-vllm"
+     ],
+     "planned": [
+      "concurrency/speedup",
+      "concurrency/map-reduce"
+     ],
+     "note": "Taught: The resource management domain: placement by requests, elastic scaling formula, balancing algorithms, batching, block allocation and preemption. Used through tools and simulators, not implemented. Missing: Implementing algorithms with threads, shared memory, channels or sockets, map/reduce, locks and barriers in code, survey of multicore, data parallel, cluster and cloud domains, linear algebra, graph, simulation and service domains."
+    }
+   ]
+  },
+  {
+   "id": "SDF",
+   "title": "Software Development Fundamentals",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=167",
+   "units": [
+    {
+     "id": "SDF-Fundamentals",
+     "title": "Fundamental Programming Concepts and Practices",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "programming/first-program",
+      "programming/values-and-variables",
+      "programming/decisions",
+      "programming/loops",
+      "programming/functions",
+      "programming/lists",
+      "programming/text",
+      "programming/input-and-errors",
+      "programming/recursion",
+      "programming/real-program"
+     ],
+     "note": "No programming is taught. Python, shell and JavaScript snippets appear only as copy-and-run extras. A security mindset (topic 12) is taught in the security track, but not as part of programming. Needed: All programming fundamentals: variables, types, expressions, control flow, functions, parameters, scope, file I/O, lists and dictionaries, libraries, recursion, runtime errors, debugging, code comments."
+    },
+    {
+     "id": "SDF-Data-Structures",
+     "title": "Fundamental Data Structures",
+     "status": "partial",
+     "lessons": [
+      "databases/indexes"
+     ],
+     "planned": [
+      "algorithms/arrays-and-lists",
+      "algorithms/stacks-and-queues",
+      "algorithms/hash-tables",
+      "programming/lists",
+      "programming/records-and-maps"
+     ],
+     "note": "Taught: Performance implications of a structure, measured: full scan vs sorted index, N vs log N, and the write cost of an index. Missing: Lists, stacks, queues, sets and maps with their operations; selecting and using data structures in programs; strings and string processing in a language."
+    },
+    {
+     "id": "SDF-Algorithms",
+     "title": "Algorithms",
+     "status": "partial",
+     "lessons": [
+      "databases/indexes",
+      "llm/tokens",
+      "network/load-balancers",
+      "ml/what-is-learning"
+     ],
+     "planned": [
+      "algorithms/what-is-an-algorithm",
+      "algorithms/counting-steps",
+      "algorithms/searching",
+      "algorithms/sorting",
+      "programming/recursion"
+     ],
+     "note": "Taught: Algorithm efficiency via scan vs binary-search lookup with measurements; individual applied algorithms (byte-pair encoding, round robin vs least connections, gradient descent). Missing: The concept of an algorithm as such; sorting; searching as an algorithm a learner implements or traces; tree and graph traversal; time-space analysis across algorithms."
+    },
+    {
+     "id": "SDF-Practices",
+     "title": "Software Development Practices",
+     "status": "partial",
+     "lessons": [
+      "agents/guardrails-and-evals",
+      "change/characterization-tests",
+      "web/status-codes-lie",
+      "agents/tools"
+     ],
+     "planned": [
+      "programming/debugging",
+      "programming/your-first-tests",
+      "programming/readable-code",
+      "programming/real-program",
+      "craft/refactoring"
+     ],
+     "note": "Taught: Test case design through evals, edge cases and asking what would make a test fail; describing a tool's function precisely in natural language. Missing: Writing tests for code modules; using an IDE and its debugger; programming style (comments, indentation, naming); module specifications as comments."
+    },
+    {
+     "id": "SDF-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "partial",
+     "lessons": [
+      "launch/business-basics"
+     ],
+     "planned": [
+      "programming/whose-code",
+      "society/intellectual-property"
+     ],
+     "note": "Taught: Open-source licences of code you depend on and ship: permissive vs copyleft vs AGPL. Missing: Programmers' own IP rights; plagiarism and academic integrity; responsibility and liability of programmers for their code; professional ethics and codes of conduct."
+    }
+   ]
+  },
+  {
+   "id": "SE",
+   "title": "Software Engineering",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=175",
+   "units": [
+    {
+     "id": "SE-Teamwork",
+     "title": "Teamwork",
+     "status": "partial",
+     "lessons": [
+      "git/collaborate",
+      "git/merge-rebase-squash",
+      "git/branching-strategies",
+      "agile/scrum-guide",
+      "agile/teams",
+      "agile/forecasts",
+      "agile/xp",
+      "resilience/incidents"
+     ],
+     "planned": [
+      "craft/working-together"
+     ],
+     "note": "Taught: Code review and collaboration through version control (PRs, protected branches, safe rebasing); team roles and processes via Scrum accountabilities/events and incident roles; forecasting; evidence on psychological safety and cross-functional diversity; incident status communication. Missing: Conflict resolution between people; pair programming/swarming; meeting agendas and everyday written/oral communication; why diversity and inclusion matter beyond a correlation; working with management and customers as a team; risks of distributed/hybrid/virtual teams."
+    },
+    {
+     "id": "SE-Tools",
+     "title": "Tools and Environments",
+     "status": "covered",
+     "lessons": [
+      "git/what-is-git",
+      "git/branches",
+      "git/conflicts",
+      "git/collaborate",
+      "git/branching-strategies",
+      "git/merge-rebase-squash",
+      "delivery/pipelines",
+      "delivery/release-automation",
+      "delivery/release-strategies",
+      "delivery/infrastructure-as-code",
+      "platform/gitops",
+      "containers/layers-and-cache",
+      "containers/tags-and-digests",
+      "security/supply-chain",
+      "tools/kind"
+     ],
+     "planned": [
+      "languages/program-analysis"
+     ],
+     "note": "Taught: Version control in depth; branching strategies including trunk-based and release branches; merge/rebase/squash; configuration in version control and reproducibility (IaC, GitOps, pinning); release management; CI pipelines; build caching and build-once; dependency management, lockfiles and SemVer. Missing: Static and dynamic analysis tools as a topic (lint is only named); hermetic build comparison; design and communication tools such as UML; IDE facilities (debugger, refactoring, code assistants); centralized vs distributed SCM."
+    },
+    {
+     "id": "SE-Requirements",
+     "title": "Product Requirements",
+     "status": "partial",
+     "lessons": [
+      "launch/validate",
+      "launch/mvp",
+      "launch/first-users",
+      "sre/slos",
+      "resilience/rpo-rto",
+      "resilience/business-continuity",
+      "agile/forecasts",
+      "agile/flow"
+     ],
+     "planned": [
+      "craft/requirements"
+     ],
+     "note": "Taught: Elicitation through customer interviews and evidence of past behaviour; riskiest-assumption identification; non-functional targets as SLOs and RPO/RTO set with the business; MVP as a requirements test (non-core); forecasting from history (non-core). Missing: Writing functional requirements (user stories, use cases); properties of requirements (consistency, validity, completeness, feasibility); comparing elicitation methods; separating functional from non-functional requirements; writing a requirements specification; ethical risk of a product."
+    },
+    {
+     "id": "SE-Design",
+     "title": "Software Design",
+     "status": "partial",
+     "lessons": [
+      "change/boundaries-and-teams",
+      "change/branch-by-abstraction",
+      "change/evolving-apis",
+      "change/expand-contract-schemas",
+      "agents/tools",
+      "databases/sql-basics",
+      "databases/indexes"
+     ],
+     "planned": [
+      "craft/design-principles",
+      "craft/architecture-styles",
+      "craft/system-design"
+     ],
+     "note": "Taught: Component boundaries and dependencies; monolith vs microservices as a boundary argument; abstraction as a migration tool; API evolution, contracts and expandability; anti-corruption layer; some data design via tables and indexes; least privilege and design tradeoffs (non-core). Missing: Separation of concerns, information hiding, coupling and cohesion taught as principles; design paradigms (layered, OO, event-driven); standard architectures (client-server, n-layer, pipes-and-filters, MVC, REST); programming in the large vs small; code smells; API consistency, composability and error-reporting design; preconditions, postconditions and invariants; structural/behavioral models; requirement traceability."
+    },
+    {
+     "id": "SE-Construction",
+     "title": "Software Construction",
+     "status": "partial",
+     "lessons": [
+      "security/web-flaws",
+      "sre/three-signals",
+      "change/characterization-tests",
+      "change/branch-by-abstraction",
+      "change/rewrite-or-evolve",
+      "delivery/pipelines",
+      "delivery/release-automation",
+      "launch/mvp"
+     ],
+     "planned": [
+      "programming/your-first-tests",
+      "craft/refactoring",
+      "craft/kinds-of-test",
+      "craft/contracts",
+      "craft/writing-docs"
+     ],
+     "note": "Taught: Secure coding against injection (parameters, safe sinks, sanitizers); structured logging; changing existing code with seams and characterization tests; release management and DevOps practices (non-core); risk-first work sequencing (non-core). Missing: Unit testing and TDD as practice (test-first is one bullet); interface and implementation documentation; style guides, commenting and naming; defensive coding; exception handling; code debugging; using libraries and frameworks; test doubles and dependency injection."
+    },
+    {
+     "id": "SE-Validation",
+     "title": "Software Verification and Validation",
+     "status": "partial",
+     "lessons": [
+      "delivery/pipelines",
+      "change/characterization-tests",
+      "change/prove-it-in-production",
+      "agents/guardrails-and-evals",
+      "web/status-codes-lie",
+      "git/collaborate",
+      "delivery/release-strategies",
+      "agile/xp",
+      "sre/three-signals"
+     ],
+     "planned": [
+      "programming/your-first-tests",
+      "languages/program-analysis",
+      "craft/kinds-of-test",
+      "craft/fuzzing-and-properties"
+     ],
+     "note": "Taught: Why testing matters as code evolves; test automation in CI; flaky tests; characterization and approval tests; evals as fixed test sets; asserting on the body, not the status; code review; shadow and canary comparison; latency percentiles. Missing: Verification vs validation as named concepts; test kinds (unit, integration, system, acceptance) defined and compared; testing objectives; DAMP vs DRY; test planning, test matrices and code coverage; mocking and dependency injection; opaque-box vs transparent-box testing; fuzzing and static analysis; defect tracking; benchmarking, Amdahl's law and testing concurrent code."
+    },
+    {
+     "id": "SE-Refactoring",
+     "title": "Refactoring and Code Evolution",
+     "status": "partial",
+     "lessons": [
+      "change/evolving-apis",
+      "delivery/release-automation",
+      "git/branching-strategies",
+      "change/branch-by-abstraction",
+      "change/expand-contract-schemas",
+      "change/strangler-fig",
+      "change/characterization-tests"
+     ],
+     "planned": [
+      "craft/refactoring"
+     ],
+     "note": "Status changed from reviewer covered: the unit's namesake is absent. Refactoring patterns, IDE tools and static analysis for refactoring are not taught, though Hyrum's Law, compatibility and versioning are strong. Taught: Hyrum's Law; backward compatibility between provider and consumers (tolerant readers, consumer-driven contracts, version pinning, two-phase deployment); SemVer; trunk-based development; large-scale change with coexisting old and new paths (non-core). Missing: The refactoring topic itself: standard patterns (rename, inline, outline), IDE refactoring tools, static analysis to find refactoring targets, and refactoring as a remedy for technical debt. Three of four KA topics are strong; this one is absent."
+    },
+    {
+     "id": "SE-Reliability",
+     "title": "Software Reliability",
+     "status": "partial",
+     "lessons": [
+      "sre/slos",
+      "resilience/rpo-rto",
+      "resilience/dr-strategies",
+      "resilience/incidents",
+      "sre/three-signals",
+      "platform/observability",
+      "change/rewrite-or-evolve"
+     ],
+     "planned": [
+      "craft/reliability-numbers"
+     ],
+     "note": "Taught: Choosing reliability targets per system (SLI/SLO/SLA, RPO/RTO); error budgets and burn-rate alerts; system failure behavior and DR redundancy; measurement-based reliability through telemetry, monitoring and alerting (non-core). Missing: Reliability as probability of failure or MTBF; faults vs failures; defect injection and removal cycle; comparing error-budget and error-free approaches by domain (safety-critical is absent); reliability models; fault tolerance models; dependent vs independent failure domains as a concept."
+    },
+    {
+     "id": "SE-Formal",
+     "title": "Formal Methods",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "craft/contracts",
+      "craft/model-checking"
+     ],
+     "note": "Nothing taught. Needed: Everything: formal interface specification, pre- and post-conditions, formal languages, model checkers and finders, comparison with testing and fuzzing."
+    }
+   ]
+  },
+  {
+   "id": "SEC",
+   "title": "Security",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=193",
+   "units": [
+    {
+     "id": "SEC-Foundations",
+     "title": "Foundational Security",
+     "status": "partial",
+     "lessons": [
+      "security/identity",
+      "security/cluster-access",
+      "security/passwords-and-hashing",
+      "security/web-flaws",
+      "security/supply-chain",
+      "platform/policy-and-security",
+      "platform/service-mesh",
+      "linux/permissions",
+      "agents/tools",
+      "agents/guardrails-and-evals",
+      "tools/istio"
+     ],
+     "planned": [
+      "os/protection-models",
+      "network-internals/network-attacks",
+      "security-foundations/cia-and-threat-models",
+      "security-foundations/access-control-models"
+     ],
+     "note": "Taught: Authentication vs authorization; RBAC and Unix permissions; adversarial thinking through hands-on attacks; least privilege, zero trust, layered controls; security controls at admission, scan and runtime; prompt injection and excessive agency as AI risks; web and cluster applications of a security mindset. Missing: CIA triad by name; DoS and DDoS; open design and fail-safe defaults as principles; mandatory and attribute-based access control; using AI for defense; mobile and embedded security; usable security; bias and copyright risk in ML systems; hardware security."
+    },
+    {
+     "id": "SEC-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "partial",
+     "lessons": [
+      "launch/business-basics",
+      "agents/business-agents",
+      "security/passwords-and-hashing"
+     ],
+     "planned": [
+      "security-foundations/law-and-disclosure",
+      "society/privacy-and-liberty"
+     ],
+     "note": "Taught: Basic privacy: privacy policy, personal data and GDPR's reach to small sites; where customer data goes when sent to a hosted model. Missing: Societal impact of security and privacy failures; security laws beyond GDPR scope; professional ethics and ethical hacking; security by design; privacy by design and privacy engineering; malicious AI and deepfakes; IoT impact."
+    },
+    {
+     "id": "SEC-Coding",
+     "title": "Secure Coding",
+     "status": "partial",
+     "lessons": [
+      "security/web-flaws",
+      "security/supply-chain",
+      "security/secrets-in-git",
+      "resilience/backups-that-restore",
+      "platform/policy-and-security"
+     ],
+     "planned": [
+      "languages/type-safety",
+      "security-foundations/memory-safety"
+     ],
+     "note": "Taught: SQL injection and XSS with labs and mitigations; data vs code; parameterized queries, safe sinks and sanitizers; secure use of third-party components; ransomware mitigation through offline backups; vulnerability and secret scanning. Missing: Type safety and language choice; buffer overflows, stack smashing and integer overflows; race conditions as security flaws; noninterference and information flow; offensive security and penetration testing; malware varieties; fuzzing; static and dynamic program analysis; secure compilers."
+    },
+    {
+     "id": "SEC-Crypto",
+     "title": "Cryptography",
+     "status": "partial",
+     "lessons": [
+      "security/passwords-and-hashing",
+      "security/identity",
+      "web/tls-trust",
+      "platform/service-mesh",
+      "security/supply-chain",
+      "git/inside-git",
+      "containers/tags-and-digests"
+     ],
+     "planned": [
+      "math/modular-arithmetic",
+      "security-foundations/symmetric-encryption",
+      "security-foundations/public-key",
+      "security-foundations/signatures-and-macs"
+     ],
+     "note": "Taught: Hashing, salts and slow KDFs with a lab; JWT signing and forgery; certificate chains and trust stores; applied uses in TLS, mTLS and artifact signing; use maintained libraries instead of your own. Missing: Symmetric and public-key encryption explained; mathematical preliminaries; classical ciphers; Kerckhoffs's principle by name; AES, DES, RSA and Diffie-Hellman; message authentication as a concept; cryptographic protocols; attacker capabilities such as birthday and side-channel attacks; post-quantum; blockchain."
+    },
+    {
+     "id": "SEC-Engineering",
+     "title": "Security Analysis, Design, and Engineering",
+     "status": "partial",
+     "lessons": [
+      "platform/policy-and-security",
+      "security/supply-chain",
+      "security/web-flaws",
+      "security/cluster-access",
+      "agents/tools",
+      "agents/business-agents",
+      "tools/istio"
+     ],
+     "planned": [
+      "security-foundations/cia-and-threat-models",
+      "security-foundations/governance"
+     ],
+     "note": "Taught: Designing layered controls and what each is blind to; supply chain as an attack domain; tradeoffs such as audit vs enforce and approvals vs attention; attack techniques (injection, dictionary attack, token forgery); software signing and verification; container isolation limits. Missing: Threat modeling; formal security requirements and vulnerability analysis; privacy engineering goals; quantified risk and ROI tradeoffs; physical, network and social engineering domains (phishing, spoofing); attestation; trusted boot and hardware root of trust; cyber-physical systems."
+    },
+    {
+     "id": "SEC-Forensics",
+     "title": "Digital Forensics",
+     "status": "partial",
+     "lessons": [
+      "resilience/incidents"
+     ],
+     "planned": [
+      "security-foundations/forensics"
+     ],
+     "note": "Low confidence. Taught: Incident handling process only: severity, roles, timeline and blameless postmortem, for incidents in general and not forensics-specific. Missing: Everything forensic: investigation principles and methodology; system design for forensics; OS, file system, web, network and mobile forensics; anti-forensics; rules of evidence; chain of custody; expert witness duties."
+    },
+    {
+     "id": "SEC-Governance",
+     "title": "Security Governance",
+     "status": "partial",
+     "lessons": [
+      "resilience/business-continuity",
+      "resilience/backups-that-restore",
+      "resilience/rpo-rto",
+      "resilience/dr-strategies",
+      "platform/policy-and-security",
+      "launch/business-basics"
+     ],
+     "planned": [
+      "security-foundations/governance"
+     ],
+     "note": "Taught: Identifying critical processes through business impact analysis; risk-driven recovery targets; backups, media and offline copies; technical controls that mitigate infrastructure risk. Missing: Security governance vs management vs controls; organizational, issue-specific and system-specific security policies; data collection and retention lifecycle policies; breach disclosure; risks and benefits of outsourcing to the cloud."
+    }
+   ]
+  },
+  {
+   "id": "SEP",
+   "title": "Society, Ethics, and the Profession",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=207",
+   "units": [
+    {
+     "id": "SEP-Context",
+     "title": "Social Context",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "society/social-context"
+     ],
+     "note": "Nothing taught. Needed: Social and political implications of a hyper-networked world; effects of social media and AI on well-being and safety; biometrics, facial recognition, policing and algorithmic decisions in civic life and why human oversight matters; deficits in diversity and accessibility; digital divide; growth and control of the internet; WCAG and accessibility law; context-aware computing. frontiers/superintelligence lists misinformation, authoritarian control and inequality as survey concerns in two sentences, without teaching them; agile/in-name-only treats Healthcare.gov as a delivery failure."
+    },
+    {
+     "id": "SEP-Ethical-Analysis",
+     "title": "Methods for Ethical Analysis",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "society/why-ethics"
+     ],
+     "note": "Low confidence. Nothing taught. Needed: Why ethics matters in computing and how it differs from law and norms; ethical theories (utilitarianism, duty, virtue, care, contractarian) applied to dilemmas; role of culture; stakeholder analysis; standpoint theory; checklists and rubrics; ethical debt; logical fallacies in ethical argument. The word 'ethics' appears in no lesson. Adjacent only: agile/teams and agile/in-name-only teach correlation vs cause and not misquoting sources, as reading evidence rather than ethical analysis."
+    },
+    {
+     "id": "SEP-Professional-Ethics",
+     "title": "Professional Ethics",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "society/professional-duties"
+     ],
+     "note": "Status changed from reviewer partial: the string \"ethic\" occurs in no lesson. Adjacent material on speed against quality in agile/ is not framed as professional duty. Taught: Only practice-level pieces, not framed as ethics: pressure for speed against quality and what a weak Definition of Done hides; launching without verification; blameless accountability after failures, where people can raise bad news without punishment. Missing: ACM, IEEE, AAAI codes of ethics and professional certification; fiduciary responsibility and mentoring; liability, negligence, warranty; vulnerability disclosure ethics; whether a product should be built at all; theories of technology (neutrality thesis, disability justice etc.); reporting violations; whistleblowing; harassment and discrimination; public policy role; ergonomics; keeping up to date."
+    },
+    {
+     "id": "SEP-IP",
+     "title": "Intellectual Property",
+     "status": "partial",
+     "lessons": [
+      "launch/business-basics"
+     ],
+     "planned": [
+      "society/intellectual-property"
+     ],
+     "note": "Taught: One section on open-source dependency licences: permissive vs copyleft, and AGPL's network clause, as a checklist for founders. Missing: Copyright, patents, trade secrets, trademarks and what each protects; legal foundations; intangible digital IP; choosing among MIT, GPL, Apache, Mozilla, Creative Commons; plagiarism and authorship; fair use and first sale; treaties; piracy and DRM; open-source movement's foundations; LLMs trained on others' data."
+    },
+    {
+     "id": "SEP-Privacy",
+     "title": "Privacy and Civil Liberties",
+     "status": "partial",
+     "lessons": [
+      "launch/business-basics",
+      "agents/business-agents"
+     ],
+     "planned": [
+      "data-internals/anonymity",
+      "society/privacy-and-liberty"
+     ],
+     "note": "Taught: What a privacy policy must say; GDPR Article 3's reach beyond the EU; email address as personal data; collecting only what you need; customer data leaving for a hosted model vs running locally. Missing: Privacy implications of widespread data collection and surveillance; anonymity vs pseudonymity; differential privacy and end-to-end encryption as privacy tools; civil liberties and cultural differences; philosophical basis of privacy; HIPAA and AI Act; human-subjects research (Belmont); freedom of expression; content moderation and liability."
+    },
+    {
+     "id": "SEP-Communication",
+     "title": "Communication",
+     "status": "partial",
+     "lessons": [
+      "resilience/incidents",
+      "resilience/business-continuity",
+      "git/collaborate",
+      "launch/validate",
+      "agile/scrum-guide"
+     ],
+     "planned": [
+      "craft/working-together",
+      "craft/writing-docs",
+      "society/presenting-your-work"
+     ],
+     "note": "Taught: Customer-facing incident updates, roles and scribes; who tells whom during an outage; pull request review as questions; listening in user interviews; purpose of team events. Missing: Writing technical documentation and API docs to a standard; composing formal presentations; communicating with leadership and the public beyond incidents; conflict resolution; accessible and inclusive communication; cultural and language competence; channel tradeoffs; raising ethical concerns."
+    },
+    {
+     "id": "SEP-Sustainability",
+     "title": "Sustainability",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "society/sustainability"
+     ],
+     "note": "Nothing taught. Needed: Environmental and social impact of implementation decisions; carbon footprint, e-waste, data centres, AI training energy, blockchain; sustainable design guidelines; systemic effects; pervasive computing. 'Sustainable' in agile/manifesto means team pace, not this."
+    },
+    {
+     "id": "SEP-History",
+     "title": "Computing History",
+     "status": "partial",
+     "lessons": [
+      "change/rewrite-or-evolve",
+      "agile/manifesto",
+      "agile/scrum-guide",
+      "ml/neural-networks",
+      "git/what-is-git"
+     ],
+     "planned": [
+      "os/open-source-kernels",
+      "society/history"
+     ],
+     "note": "Taught: Episodes of software and organisational history used to explain the present: Netscape's rewrite with corrections to the myth, the 2001 Snowbird meeting, Scrum's origins, the perceptron/XOR limit and backpropagation. Missing: A connected history of computing across hardware, software and people; pre-digital and early machines (Babbage, Lovelace, Turing, ENIAC, Bletchley Park); PC era and Moore's Law; the internet and web; mobile and cloud; marginalized contributors; more than one cultural perspective."
+    },
+    {
+     "id": "SEP-Economies",
+     "title": "Economies of Computing",
+     "status": "partial",
+     "lessons": [
+      "launch/pricing",
+      "agents/business-agents"
+     ],
+     "planned": [
+      "society/economies"
+     ],
+     "note": "Taught: Recurring pricing for a small product: cost-plus vs value-based, monthly vs annual billing, unit economics (CAC, churn, LTV, payback); model cost vs human attention in agents. Missing: Economic models (regulated markets, monopolies, network effects, knowledge and attention economies); freemium, adware, planned obsolescence, open-source and free software as strategies; differences in access and digital divides; skilled labour supply; automation and AI effects on jobs; ethics of attention, consent and legalese in user agreements."
+    },
+    {
+     "id": "SEP-Security",
+     "title": "Security Policies, Laws and Computer Crimes",
+     "status": "partial",
+     "lessons": [
+      "resilience/backups-that-restore",
+      "security/supply-chain",
+      "security/passwords-and-hashing",
+      "launch/business-basics"
+     ],
+     "planned": [
+      "security-foundations/malware-and-people",
+      "security-foundations/law-and-disclosure"
+     ],
+     "note": "Taught: Ransomware's behaviour and defences; real malicious-package incidents (crossenv, event-stream, xz) and responsibility across the software supply chain; user password habits; one cross-border law example (GDPR's reach). Missing: Computer crime laws, legal redress and impact on victims; social engineering, fraud, identity theft and recovery; cyber terrorism, criminal hacking, hacktivism; viruses and worms; attacks on critical infrastructure; non-technical security policy, compliance and employee monitoring; designing a company security policy."
+    },
+    {
+     "id": "SEP-DEIA",
+     "title": "Diversity, Equity, Inclusion, and Accessibility",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "hci/inclusive-design",
+      "society/who-gets-to-build"
+     ],
+     "note": "Nothing taught. Needed: Identity and computing; benefits of diverse teams in terms of identity; inclusive language and behaviours; designing for accessibility; how professionals influence DEIA; systemic marginalization; cross-cultural needs. agile/teams reports one meta-analysis of team diversity in a paragraph, focused on job-related diversity and team performance, not these issues."
+    }
+   ]
+  },
+  {
+   "id": "SF",
+   "title": "Systems Fundamentals",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=229",
+   "units": [
+    {
+     "id": "SF-Overview",
+     "title": "Overview of Computer Systems",
+     "status": "partial",
+     "lessons": [
+      "web/request-journey",
+      "databases/indexes",
+      "containers/what-is-a-container"
+     ],
+     "planned": [
+      "computer/gates",
+      "computer/adder",
+      "computer/toy-cpu",
+      "computer/pipelining",
+      "os/what-an-os-does"
+     ],
+     "note": "Low confidence. Taught: Layers with separated failure signals read through curl exit codes; scaling of performance with problem size (scan vs index, measured); application on top of a kernel. Missing: Gates, flip-flops, registers, datapath and control, logic expressions and minimization, libraries and interfaces as a topic, RPC, processor pipelining, strong vs weak scaling."
+    },
+    {
+     "id": "SF-Foundations",
+     "title": "Basic Concepts",
+     "status": "partial",
+     "lessons": [
+      "network/load-balancers",
+      "sre/autoscaling",
+      "network/ports-and-tcp"
+     ],
+     "planned": [
+      "computer/bits-and-bases",
+      "computer/gates",
+      "computer/clocks-and-memory",
+      "limits/finite-automata"
+     ],
+     "note": "Low confidence. Taught: Simple application-level parallelism at request level: many servers behind one address, and adding replicas under load. The TCP handshake is taught as a sequence but never framed as a state machine. Missing: Digital vs analog, logic gates and Boolean simplification, clocks, state and transitions, finite state machines (NFA, DFA), combinational and sequential logic, computers and protocols as state machines, sequential vs parallel programs and speed-up measurement."
+    },
+    {
+     "id": "SF-Resource",
+     "title": "Resource Management",
+     "status": "partial",
+     "lessons": [
+      "kubernetes/scheduling",
+      "kubernetes/admission",
+      "containers/what-is-a-container",
+      "network/load-balancers"
+     ],
+     "planned": [
+      "os/cpu-scheduling"
+     ],
+     "note": "Taught: CPU and memory as finite resources allocated by requests, capacity and quotas; cgroup limits; round robin and least connections compared in a lab, with their failure modes. Missing: Disk and network bandwidth as resources, FCFS, priority, fair and preemptive scheduling algorithms, developing and evaluating schedulers, advantages and disadvantages across algorithms."
+    },
+    {
+     "id": "SF-Performance",
+     "title": "System Performance",
+     "status": "partial",
+     "lessons": [
+      "containers/what-is-a-container",
+      "network/dns-deep",
+      "databases/replication",
+      "llm/serving-vllm"
+     ],
+     "planned": [
+      "computer/caches",
+      "computer/latency-numbers",
+      "craft/system-design"
+     ],
+     "note": "Taught: Rationale for isolation (namespaces, cgroups). Caches and staleness in distributed systems via DNS TTL and replica lag; vLLM's KV cache as a memory-bounded cache. Indirection is implied, not generalised. Missing: Latency numbers (speed of light, memory vs disk vs network), locality, CPU caches and coherency, processor memory hierarchy, AMAT, indirection as a concept, implementing virtual memory and VMs."
+    },
+    {
+     "id": "SF-Evaluation",
+     "title": "Performance Evaluation",
+     "status": "partial",
+     "lessons": [
+      "sre/three-signals",
+      "sre/slos",
+      "databases/indexes",
+      "llm/serving-vllm",
+      "change/prove-it-in-production"
+     ],
+     "planned": [
+      "computer/latency-numbers",
+      "concurrency/speedup"
+     ],
+     "note": "Taught: Figures of merit (percentiles, throughput, SLIs), tail latency and why averages hide it, traces and query plans as analysis tools, measured scan vs index timings, log N vs N informally, toy vs measured benchmark numbers, before/after evaluation pitfalls. Missing: CPI equation, Amdahl's Law, formal Big O, slow and fast path analysis by name, events such as stalls, cache misses and page faults, representative benchmarks and profilers, microbenchmark pitfalls as a topic."
+    },
+    {
+     "id": "SF-Reliability",
+     "title": "System Reliability",
+     "status": "partial",
+     "lessons": [
+      "databases/replication",
+      "resilience/backups-that-restore",
+      "resilience/dr-strategies",
+      "sre/slos",
+      "network/load-balancers"
+     ],
+     "planned": [
+      "concurrency/consensus",
+      "os/redundancy",
+      "craft/reliability-numbers"
+     ],
+     "note": "Taught: Replication and duplication with their limits, 3-2-1 copies, retry behaviour, health checks and failover, availability targets. WAL named as the log behind replicas, with no crash-recovery explanation. Missing: Bugs vs faults vs failures, reliability vs availability as a distinction, redundant encoding (ECC, CRC, FEC, RAID), journaling as a reliability method, detecting vs handling vs recovering, comparing error-correction methods."
+    },
+    {
+     "id": "SF-Security",
+     "title": "System Security",
+     "status": "partial",
+     "lessons": [
+      "platform/policy-and-security",
+      "security/identity",
+      "web/tls-trust",
+      "platform/service-mesh",
+      "security/supply-chain",
+      "resilience/backups-that-restore"
+     ],
+     "planned": [
+      "network-internals/network-attacks",
+      "security-foundations/signatures-and-macs",
+      "security-foundations/malware-and-people"
+     ],
+     "note": "Taught: Security architecture (zero trust, mesh, RBAC, admission, scanning, runtime detection with Falco), TLS and signatures applied, ransomware and supply-chain malware. Missing: Denial of service, eavesdropping as attacks, viruses and malware taxonomy, cryptography fundamentals (symmetric vs asymmetric), how IDS and firewalls work, antivirus systems."
+    },
+    {
+     "id": "SF-Design",
+     "title": "System Design",
+     "status": "partial",
+     "lessons": [
+      "kubernetes/desired-state",
+      "sre/autoscaling",
+      "network/load-balancers",
+      "change/boundaries-and-teams",
+      "sre/slos"
+     ],
+     "planned": [
+      "concurrency/safety-and-liveness",
+      "craft/architecture-styles",
+      "craft/system-design"
+     ],
+     "note": "Taught: Robustness and scalability as design outcomes (reconciliation loops, health checks, autoscaling, monolith vs service boundaries). Kubernetes is the one representative system whose design is explained. Missing: Liveness and safety as named criteria, security as a design criterion, producing a high-level design from requirements, designs of Apache, Spark and Linux."
+    },
+    {
+     "id": "SF-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "partial",
+     "lessons": [
+      "launch/business-basics"
+     ],
+     "planned": [
+      "society/intellectual-property"
+     ],
+     "note": "Taught: Common software licences: permissive vs copyleft, AGPL's network clause, checking what you depend on. Missing: Intellectual property rights of computer systems (patents, copyright, trade secrets), computer crimes, comparing licences in depth."
+    }
+   ]
+  },
+  {
+   "id": "SPD",
+   "title": "Specialized Platform Development",
+   "url": "https://csed.acm.org/wp-content/uploads/2024/04/3.1-Body-of-Knowledge-1.pdf#page=239",
+   "units": [
+    {
+     "id": "SPD-Common",
+     "title": "Common Aspects/Shared Concerns",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "specialized/what-a-platform-constrains",
+      "specialized/mobile-constraints"
+     ],
+     "note": "Nothing taught. Needed: Overview of development platforms and their constraints; platform-specific APIs; platform languages; three-tier web model; how web state is maintained; mobile constraints; characteristics of scripting languages; learning a platform language. Operations lessons touch uptime and memory, but never as platform programming."
+    },
+    {
+     "id": "SPD-Web",
+     "title": "Web Platforms",
+     "status": "partial",
+     "lessons": [
+      "security/web-flaws",
+      "security/identity",
+      "web/tls-trust",
+      "web/request-journey",
+      "web/status-codes-lie",
+      "sre/autoscaling",
+      "change/boundaries-and-teams",
+      "databases/sql-basics"
+     ],
+     "planned": [
+      "specialized/html-and-css",
+      "specialized/dom-and-javascript",
+      "specialized/a-small-web-app"
+     ],
+     "note": "Taught: Web security (XSS, TLS, tokens and OIDC); how a request travels; autoscaling, monolith vs microservices and relational databases (non-core). Missing: HTML, CSS, JavaScript and PHP as programming; web frameworks and Web Components; building a web app; SaaS as a model; DOM and accessibility standards; privacy on the web; serverless; NoSQL; data residency; event-driven vs REST."
+    },
+    {
+     "id": "SPD-Mobile",
+     "title": "Mobile Platforms",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "specialized/mobile-constraints"
+     ],
+     "note": "Nothing taught. Needed: Everything: mobile languages and environments, platform constraints, mobile APIs, native vs cross-platform, sensors, location and asynchronous mobile code."
+    },
+    {
+     "id": "SPD-Robot",
+     "title": "Robot Platforms",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "specialized/robot-sense-plan-act",
+      "specialized/robot-where-am-i"
+     ],
+     "note": "Nothing taught. Needed: Everything: robot platforms, sensors and actuators, ROS, kinematics, navigation, manipulation and safety. Robots appear only as reward-gaming anecdotes."
+    },
+    {
+     "id": "SPD-Embedded",
+     "title": "Embedded Platforms",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "os/real-time",
+      "specialized/microcontroller"
+     ],
+     "note": "Nothing taught. Needed: Everything: real-time systems, microcontrollers, interrupts, sensors and actuators, embedded memory management, FPGA and GPU APIs, safety analysis."
+    },
+    {
+     "id": "SPD-Game",
+     "title": "Game Platforms",
+     "status": "none",
+     "lessons": [],
+     "planned": [
+      "specialized/game-loop"
+     ],
+     "note": "Nothing taught. Needed: Everything: game platforms, rendering pipelines, shaders, graphics APIs, engines, game design, eSports."
+    },
+    {
+     "id": "SPD-Interactive",
+     "title": "Interactive Computing Platforms",
+     "status": "partial",
+     "lessons": [
+      "agents/what-is-an-agent",
+      "agents/tools",
+      "agents/workflows-vs-agents",
+      "agents/guardrails-and-evals",
+      "agents/business-agents",
+      "llm/run-your-own"
+     ],
+     "planned": [
+      "specialized/notebooks-and-data-platforms"
+     ],
+     "note": "Taught: Accessing LLMs from programs: tool use, agent loops, workflow patterns, evals; local serving and a RAG recipe. Missing: Data analysis platforms (Jupyter, Colab, R, Observable); cloud SQL and Spark; data visualization; low-latency design tools; quantum platforms; signal processing; comparing AI-written with human-written programs."
+    },
+    {
+     "id": "SPD-SEP",
+     "title": "Society, Ethics, and the Profession",
+     "status": "partial",
+     "lessons": [
+      "agents/business-agents",
+      "agents/guardrails-and-evals",
+      "launch/business-basics",
+      "frontiers/alignment",
+      "frontiers/superintelligence"
+     ],
+     "planned": [
+      "specialized/platform-responsibility"
+     ],
+     "note": "Low confidence. Taught: Accountability for AI outputs through logs, approvals and checking real state; data handling with hosted AI; open-source licensing; a survey of AI societal concerns. Missing: Mobile and web privacy and accessibility; social impact of mobile; sustainability; notifications and online harassment; advertising; game IP, access, health and safety and representation; robot fairness and public safety; AI ethics codes for prompt programmers."
+    }
+   ]
+  }
+ ],
+ "proposedTracks": [
+  {
+   "id": "algorithms",
+   "title": "Algorithms & Data Structures",
+   "tagline": "Why one way of doing a job takes a second and another takes a century.",
+   "lessons": [
+    {
+     "slug": "what-is-an-algorithm",
+     "title": "A recipe a machine cannot misread",
+     "builds_on": []
+    },
+    {
+     "slug": "counting-steps",
+     "title": "Count the steps, not the seconds",
+     "builds_on": [
+      "algorithms/what-is-an-algorithm"
+     ]
+    },
+    {
+     "slug": "arrays-and-lists",
+     "title": "Arrays, linked lists and the cost of inserting",
+     "builds_on": [
+      "algorithms/counting-steps"
+     ]
+    },
+    {
+     "slug": "stacks-and-queues",
+     "title": "Stacks, queues and who goes next",
+     "builds_on": [
+      "algorithms/arrays-and-lists"
+     ]
+    },
+    {
+     "slug": "searching",
+     "title": "Binary search, and the bug everybody writes",
+     "builds_on": [
+      "algorithms/counting-steps"
+     ]
+    },
+    {
+     "slug": "sorting",
+     "title": "Five ways to sort, and the wall at n log n",
+     "builds_on": [
+      "algorithms/searching"
+     ]
+    },
+    {
+     "slug": "divide-and-conquer",
+     "title": "Split it, solve it, stitch it back",
+     "builds_on": [
+      "algorithms/sorting"
+     ]
+    },
+    {
+     "slug": "hash-tables",
+     "title": "Hash tables and the collision",
+     "builds_on": [
+      "algorithms/arrays-and-lists"
+     ]
+    },
+    {
+     "slug": "trees-and-heaps",
+     "title": "Trees, heaps and priority queues",
+     "builds_on": [
+      "algorithms/stacks-and-queues"
+     ]
+    },
+    {
+     "slug": "graphs",
+     "title": "Graphs: the shape of nearly everything",
+     "builds_on": [
+      "algorithms/stacks-and-queues"
+     ]
+    },
+    {
+     "slug": "shortest-paths",
+     "title": "Shortest paths, and how a map app answers",
+     "builds_on": [
+      "algorithms/graphs",
+      "algorithms/trees-and-heaps"
+     ]
+    },
+    {
+     "slug": "greedy",
+     "title": "Greedy choices, and when they lie",
+     "builds_on": [
+      "algorithms/shortest-paths"
+     ]
+    },
+    {
+     "slug": "dynamic-programming",
+     "title": "Stop solving the same problem twice",
+     "builds_on": [
+      "algorithms/divide-and-conquer"
+     ]
+    },
+    {
+     "slug": "growth-classes",
+     "title": "From constant to exponential: best, worst and average",
+     "builds_on": [
+      "algorithms/dynamic-programming",
+      "algorithms/sorting"
+     ]
+    },
+    {
+     "slug": "algorithms-and-people",
+     "title": "When an algorithm decides about a person",
+     "builds_on": [
+      "algorithms/what-is-an-algorithm"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "programming",
+   "title": "Programming from Zero",
+   "tagline": "Your first line of code to your first real program, in the browser, with nothing to install.",
+   "lessons": [
+    {
+     "slug": "first-program",
+     "title": "Tell a computer what to do",
+     "builds_on": []
+    },
+    {
+     "slug": "values-and-variables",
+     "title": "Values, names and types",
+     "builds_on": [
+      "programming/first-program"
+     ]
+    },
+    {
+     "slug": "decisions",
+     "title": "If, and the else you forgot",
+     "builds_on": [
+      "programming/values-and-variables"
+     ]
+    },
+    {
+     "slug": "loops",
+     "title": "Doing it again, and knowing when to stop",
+     "builds_on": [
+      "programming/decisions"
+     ]
+    },
+    {
+     "slug": "functions",
+     "title": "Functions: name a job, reuse it",
+     "builds_on": [
+      "programming/loops"
+     ]
+    },
+    {
+     "slug": "lists",
+     "title": "Lists of things",
+     "builds_on": [
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "records-and-maps",
+     "title": "Records, maps and sets",
+     "builds_on": [
+      "programming/lists"
+     ]
+    },
+    {
+     "slug": "text",
+     "title": "Text is harder than it looks",
+     "builds_on": [
+      "programming/lists"
+     ]
+    },
+    {
+     "slug": "input-and-errors",
+     "title": "Bad input and things going wrong",
+     "builds_on": [
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "debugging",
+     "title": "Read the error, then use the debugger",
+     "builds_on": [
+      "programming/input-and-errors"
+     ]
+    },
+    {
+     "slug": "your-first-tests",
+     "title": "Write the test that could fail",
+     "builds_on": [
+      "programming/debugging"
+     ]
+    },
+    {
+     "slug": "readable-code",
+     "title": "Code your future self can read",
+     "builds_on": [
+      "programming/your-first-tests"
+     ]
+    },
+    {
+     "slug": "recursion",
+     "title": "A function that calls itself",
+     "builds_on": [
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "real-program",
+     "title": "Build a whole small program",
+     "builds_on": [
+      "programming/your-first-tests",
+      "programming/records-and-maps"
+     ]
+    },
+    {
+     "slug": "shell-scripts",
+     "title": "From one-liners to a shell script",
+     "builds_on": [
+      "programming/functions",
+      "linux/pipes"
+     ]
+    },
+    {
+     "slug": "whose-code",
+     "title": "Copying, credit, and code an AI wrote",
+     "builds_on": [
+      "programming/first-program"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "computer",
+   "title": "How a Machine Computes",
+   "tagline": "From a single bit to a working CPU and a tiny compiler, every layer simulated in your browser.",
+   "lessons": [
+    {
+     "slug": "bits-and-bases",
+     "title": "Everything is bits",
+     "builds_on": []
+    },
+    {
+     "slug": "negative-numbers",
+     "title": "Negative numbers and the overflow that wraps",
+     "builds_on": [
+      "computer/bits-and-bases"
+     ]
+    },
+    {
+     "slug": "floating-point",
+     "title": "Why 0.1 + 0.2 is not 0.3",
+     "builds_on": [
+      "computer/bits-and-bases"
+     ]
+    },
+    {
+     "slug": "text-and-images-as-bytes",
+     "title": "Text, Unicode and pictures as bytes",
+     "builds_on": [
+      "computer/bits-and-bases"
+     ]
+    },
+    {
+     "slug": "gates",
+     "title": "One gate to build them all",
+     "builds_on": [
+      "computer/bits-and-bases"
+     ]
+    },
+    {
+     "slug": "adder",
+     "title": "Build an adder from gates",
+     "builds_on": [
+      "computer/gates",
+      "computer/negative-numbers"
+     ]
+    },
+    {
+     "slug": "clocks-and-memory",
+     "title": "Flip-flops, registers and the clock",
+     "builds_on": [
+      "computer/adder"
+     ]
+    },
+    {
+     "slug": "toy-cpu",
+     "title": "Fetch, decode, execute",
+     "builds_on": [
+      "computer/clocks-and-memory"
+     ]
+    },
+    {
+     "slug": "assembly",
+     "title": "Assembly: jumps, calls and the stack",
+     "builds_on": [
+      "computer/toy-cpu"
+     ]
+    },
+    {
+     "slug": "pipelining",
+     "title": "Pipelines, hazards and the branch it guessed",
+     "builds_on": [
+      "computer/toy-cpu"
+     ]
+    },
+    {
+     "slug": "caches",
+     "title": "The same loop, fifty times slower",
+     "builds_on": [
+      "computer/toy-cpu"
+     ]
+    },
+    {
+     "slug": "latency-numbers",
+     "title": "Memory, disk, network: a sense of scale",
+     "builds_on": [
+      "computer/caches"
+     ]
+    },
+    {
+     "slug": "tiny-compiler-parse",
+     "title": "A tiny compiler, part one: text to tree",
+     "builds_on": [
+      "computer/assembly"
+     ]
+    },
+    {
+     "slug": "tiny-compiler-generate",
+     "title": "A tiny compiler, part two: tree to machine code",
+     "builds_on": [
+      "computer/tiny-compiler-parse"
+     ]
+    },
+    {
+     "slug": "speculation-leak",
+     "title": "The secret the cache gave away",
+     "builds_on": [
+      "computer/pipelining",
+      "computer/caches"
+     ]
+    },
+    {
+     "slug": "many-small-brains",
+     "title": "Multicore, SIMD and why GPUs exist",
+     "builds_on": [
+      "computer/pipelining"
+     ]
+    },
+    {
+     "slug": "energy",
+     "title": "What a computation costs in joules",
+     "builds_on": [
+      "computer/many-small-brains"
+     ]
+    },
+    {
+     "slug": "qubits",
+     "title": "A qubit in your browser",
+     "builds_on": [
+      "computer/gates"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "math",
+   "title": "Maths for Computing",
+   "tagline": "Logic, proof, chance, statistics, vectors and rates of change, starting from school algebra and always in code.",
+   "lessons": [
+    {
+     "slug": "logic",
+     "title": "And, or, not, and the trap in implies",
+     "builds_on": []
+    },
+    {
+     "slug": "sets-and-functions",
+     "title": "Sets, relations and functions",
+     "builds_on": [
+      "math/logic"
+     ]
+    },
+    {
+     "slug": "proof",
+     "title": "How you know it is true for every number",
+     "builds_on": [
+      "math/logic"
+     ]
+    },
+    {
+     "slug": "counting",
+     "title": "Counting without counting",
+     "builds_on": [
+      "math/sets-and-functions"
+     ]
+    },
+    {
+     "slug": "modular-arithmetic",
+     "title": "Clock arithmetic",
+     "builds_on": [
+      "math/counting"
+     ]
+    },
+    {
+     "slug": "chance",
+     "title": "Sample spaces, events and independence",
+     "builds_on": [
+      "math/counting"
+     ]
+    },
+    {
+     "slug": "bayes",
+     "title": "Bayes, and the test that is 99% accurate",
+     "builds_on": [
+      "math/chance"
+     ]
+    },
+    {
+     "slug": "random-variables",
+     "title": "Expected value and the shape of chance",
+     "builds_on": [
+      "math/chance"
+     ]
+    },
+    {
+     "slug": "describing-data",
+     "title": "Mean, median, spread, and the average that lies",
+     "builds_on": [
+      "math/random-variables"
+     ]
+    },
+    {
+     "slug": "samples-and-tests",
+     "title": "Samples, confidence and the A/B test",
+     "builds_on": [
+      "math/describing-data"
+     ]
+    },
+    {
+     "slug": "correlation-and-regression",
+     "title": "Correlation, regression and the line through the noise",
+     "builds_on": [
+      "math/describing-data"
+     ]
+    },
+    {
+     "slug": "vectors",
+     "title": "Vectors: arrows and lists of numbers",
+     "builds_on": []
+    },
+    {
+     "slug": "matrices",
+     "title": "Matrices move things",
+     "builds_on": [
+      "math/vectors"
+     ]
+    },
+    {
+     "slug": "what-a-matrix-does-best",
+     "title": "Eigenvectors and SVD on a table of ratings",
+     "builds_on": [
+      "math/matrices"
+     ]
+    },
+    {
+     "slug": "rates-of-change",
+     "title": "A derivative is a slope you can compute",
+     "builds_on": []
+    },
+    {
+     "slug": "adding-up-slices",
+     "title": "An integral is a lot of thin slices",
+     "builds_on": [
+      "math/rates-of-change"
+     ]
+    },
+    {
+     "slug": "many-knobs",
+     "title": "Gradients and the chain rule behind backprop",
+     "builds_on": [
+      "math/rates-of-change",
+      "ml/what-is-learning"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "limits",
+   "title": "Limits of Computing",
+   "tagline": "What no program can ever do, what none can do quickly, and what a bit of information really is.",
+   "lessons": [
+    {
+     "slug": "finite-automata",
+     "title": "Machines that only remember a state",
+     "builds_on": [
+      "math/sets-and-functions"
+     ]
+    },
+    {
+     "slug": "regex-engine",
+     "title": "Build a regex engine, and meet what it cannot match",
+     "builds_on": [
+      "limits/finite-automata"
+     ]
+    },
+    {
+     "slug": "grammars",
+     "title": "Grammars and the stack that parses them",
+     "builds_on": [
+      "limits/regex-engine"
+     ]
+    },
+    {
+     "slug": "turing-machines",
+     "title": "The simplest machine that can do anything",
+     "builds_on": [
+      "limits/grammars"
+     ]
+    },
+    {
+     "slug": "lambda-calculus",
+     "title": "Computing with nothing but functions",
+     "builds_on": [
+      "limits/turing-machines"
+     ]
+    },
+    {
+     "slug": "halting",
+     "title": "The program no one can write",
+     "builds_on": [
+      "limits/turing-machines"
+     ]
+    },
+    {
+     "slug": "p-vs-np",
+     "title": "Easy to check, hard to find",
+     "builds_on": [
+      "algorithms/growth-classes",
+      "limits/turing-machines"
+     ]
+    },
+    {
+     "slug": "coping-with-hard-problems",
+     "title": "Reductions, and what you do instead of giving up",
+     "builds_on": [
+      "limits/p-vs-np"
+     ]
+    },
+    {
+     "slug": "information",
+     "title": "How many bits is a surprise?",
+     "builds_on": [
+      "math/chance"
+     ]
+    },
+    {
+     "slug": "compression",
+     "title": "Huffman, and the file no one can shrink",
+     "builds_on": [
+      "limits/information",
+      "algorithms/greedy"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "concurrency",
+   "title": "Concurrency & Agreement",
+   "tagline": "Two things at once on one machine, then many machines trying to agree.",
+   "lessons": [
+    {
+     "slug": "threads-and-races",
+     "title": "Two threads, one counter, the wrong answer",
+     "builds_on": [
+      "databases/transactions"
+     ]
+    },
+    {
+     "slug": "locks",
+     "title": "Locks, and what they cost",
+     "builds_on": [
+      "concurrency/threads-and-races"
+     ]
+    },
+    {
+     "slug": "deadlock",
+     "title": "Deadlock: everyone polite, nobody moving",
+     "builds_on": [
+      "concurrency/locks"
+     ]
+    },
+    {
+     "slug": "producers-and-consumers",
+     "title": "Semaphores, condition variables and the bounded queue",
+     "builds_on": [
+      "concurrency/locks"
+     ]
+    },
+    {
+     "slug": "memory-ordering",
+     "title": "Your CPU reordered that",
+     "builds_on": [
+      "concurrency/locks",
+      "computer/caches"
+     ]
+    },
+    {
+     "slug": "async-and-event-loops",
+     "title": "One thread, many waits: the event loop",
+     "builds_on": [
+      "concurrency/threads-and-races"
+     ]
+    },
+    {
+     "slug": "message-passing",
+     "title": "Share nothing: channels and RPC",
+     "builds_on": [
+      "concurrency/threads-and-races"
+     ]
+    },
+    {
+     "slug": "speedup",
+     "title": "Amdahl and the core that did not help",
+     "builds_on": [
+      "concurrency/threads-and-races"
+     ]
+    },
+    {
+     "slug": "map-reduce",
+     "title": "Divide the work across machines",
+     "builds_on": [
+      "concurrency/speedup"
+     ]
+    },
+    {
+     "slug": "logical-clocks",
+     "title": "No clock agrees, so count events instead",
+     "builds_on": [
+      "concurrency/message-passing"
+     ]
+    },
+    {
+     "slug": "consistency-and-partitions",
+     "title": "Linearizable, eventual, and the network that split",
+     "builds_on": [
+      "concurrency/logical-clocks",
+      "databases/replication"
+     ]
+    },
+    {
+     "slug": "consensus",
+     "title": "Getting five machines to agree on one thing",
+     "builds_on": [
+      "concurrency/consistency-and-partitions"
+     ]
+    },
+    {
+     "slug": "safety-and-liveness",
+     "title": "Nothing bad, and something good, eventually",
+     "builds_on": [
+      "concurrency/deadlock"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "languages",
+   "title": "Programming Languages & Paradigms",
+   "tagline": "Why languages differ, what each idea buys you, and what happens underneath when your code runs.",
+   "lessons": [
+    {
+     "slug": "what-a-language-is",
+     "title": "Syntax, meaning, compiled and interpreted",
+     "builds_on": [
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "types",
+     "title": "What a type system actually promises",
+     "builds_on": [
+      "languages/what-a-language-is"
+     ]
+    },
+    {
+     "slug": "type-safety",
+     "title": "The bug the compiler caught, and the one it did not",
+     "builds_on": [
+      "languages/types"
+     ]
+    },
+    {
+     "slug": "objects",
+     "title": "Objects: data that carries its behaviour",
+     "builds_on": [
+      "programming/records-and-maps"
+     ]
+    },
+    {
+     "slug": "inheritance-and-dispatch",
+     "title": "Inheritance, interfaces and which method runs",
+     "builds_on": [
+      "languages/objects"
+     ]
+    },
+    {
+     "slug": "functional",
+     "title": "Functions as values: map, filter and immutability",
+     "builds_on": [
+      "programming/lists"
+     ]
+    },
+    {
+     "slug": "closures-and-laziness",
+     "title": "Closures, laziness and infinite lists",
+     "builds_on": [
+      "languages/functional"
+     ]
+    },
+    {
+     "slug": "logic-programming",
+     "title": "Say what is true, let it find the answer",
+     "builds_on": [
+      "math/logic"
+     ]
+    },
+    {
+     "slug": "event-driven",
+     "title": "Events and handlers",
+     "builds_on": [
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "stack-and-heap",
+     "title": "Stack, heap and where your variables live",
+     "builds_on": [
+      "computer/assembly",
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "garbage-collection",
+     "title": "Who frees the memory",
+     "builds_on": [
+      "languages/stack-and-heap"
+     ]
+    },
+    {
+     "slug": "tiny-interpreter",
+     "title": "Write an interpreter: scope, binding and calls",
+     "builds_on": [
+      "computer/tiny-compiler-parse"
+     ]
+    },
+    {
+     "slug": "program-analysis",
+     "title": "What a linter can know, and what it never can",
+     "builds_on": [
+      "limits/halting",
+      "languages/tiny-interpreter"
+     ]
+    },
+    {
+     "slug": "language-design",
+     "title": "Exceptions, macros and domain-specific languages",
+     "builds_on": [
+      "languages/tiny-interpreter"
+     ]
+    },
+    {
+     "slug": "who-languages-are-for",
+     "title": "Who a language welcomes and who it shuts out",
+     "builds_on": [
+      "languages/what-a-language-is"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "os",
+   "title": "Inside the Operating System",
+   "tagline": "What the kernel is doing behind the shell you already know.",
+   "lessons": [
+    {
+     "slug": "what-an-os-does",
+     "title": "Referee, illusionist and librarian",
+     "builds_on": [
+      "linux/processes-and-signals"
+     ]
+    },
+    {
+     "slug": "system-calls",
+     "title": "The door between your program and the kernel",
+     "builds_on": [
+      "os/what-an-os-does",
+      "computer/toy-cpu"
+     ]
+    },
+    {
+     "slug": "process-internals",
+     "title": "fork, exec and the life of a process",
+     "builds_on": [
+      "os/system-calls"
+     ]
+    },
+    {
+     "slug": "cpu-scheduling",
+     "title": "Who runs next: FCFS, round robin and starvation",
+     "builds_on": [
+      "os/process-internals"
+     ]
+    },
+    {
+     "slug": "virtual-memory",
+     "title": "Every process thinks it owns the machine",
+     "builds_on": [
+      "os/process-internals",
+      "computer/caches"
+     ]
+    },
+    {
+     "slug": "page-replacement",
+     "title": "Which page goes, and when the machine thrashes",
+     "builds_on": [
+      "os/virtual-memory"
+     ]
+    },
+    {
+     "slug": "interrupts-and-devices",
+     "title": "Interrupts, DMA and buffers",
+     "builds_on": [
+      "os/system-calls"
+     ]
+    },
+    {
+     "slug": "file-systems-inside",
+     "title": "Inodes, blocks and what rm really does",
+     "builds_on": [
+      "os/system-calls",
+      "linux/files-and-paths"
+     ]
+    },
+    {
+     "slug": "journaling",
+     "title": "Pull the plug mid-write",
+     "builds_on": [
+      "os/file-systems-inside"
+     ]
+    },
+    {
+     "slug": "redundancy",
+     "title": "RAID, checksums and the bit that flipped",
+     "builds_on": [
+      "os/journaling"
+     ]
+    },
+    {
+     "slug": "protection-models",
+     "title": "Rings, capabilities and least privilege",
+     "builds_on": [
+      "os/system-calls",
+      "linux/permissions"
+     ]
+    },
+    {
+     "slug": "virtual-machines",
+     "title": "How one machine pretends to be several",
+     "builds_on": [
+      "os/virtual-memory",
+      "containers/what-is-a-container"
+     ]
+    },
+    {
+     "slug": "real-time",
+     "title": "The deadline that must not be missed",
+     "builds_on": [
+      "os/cpu-scheduling"
+     ]
+    },
+    {
+     "slug": "open-source-kernels",
+     "title": "Linux: who builds it, who pays and who patches it",
+     "builds_on": [
+      "os/what-an-os-does"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "network-internals",
+   "title": "Networks from the Wire Up",
+   "tagline": "Beneath the sockets: how packets cross the world, share the air and get attacked.",
+   "lessons": [
+    {
+     "slug": "packets-and-layers",
+     "title": "Packets, layers and who runs the internet",
+     "builds_on": [
+      "network/ports-and-tcp"
+     ]
+    },
+    {
+     "slug": "udp-and-reliability",
+     "title": "Building reliable delivery on an unreliable wire",
+     "builds_on": [
+      "network-internals/packets-and-layers"
+     ]
+    },
+    {
+     "slug": "flow-and-congestion",
+     "title": "Flow control, congestion and the slow start",
+     "builds_on": [
+      "network-internals/udp-and-reliability"
+     ]
+    },
+    {
+     "slug": "app-architectures",
+     "title": "Client-server, peer-to-peer, CDNs and the edge",
+     "builds_on": [
+      "network-internals/packets-and-layers"
+     ]
+    },
+    {
+     "slug": "routing",
+     "title": "Longest prefix wins: how routers choose",
+     "builds_on": [
+      "network/ip-and-subnets",
+      "algorithms/shortest-paths"
+     ]
+    },
+    {
+     "slug": "nat-and-bgp",
+     "title": "NAT, BGP and the internet of networks",
+     "builds_on": [
+      "network-internals/routing"
+     ]
+    },
+    {
+     "slug": "ethernet-and-switches",
+     "title": "Frames, MAC addresses and switches",
+     "builds_on": [
+      "network-internals/packets-and-layers"
+     ]
+    },
+    {
+     "slug": "sharing-the-air",
+     "title": "Wi-Fi and the collision you cannot hear",
+     "builds_on": [
+      "network-internals/ethernet-and-switches"
+     ]
+    },
+    {
+     "slug": "cells-and-handover",
+     "title": "Cell towers and staying connected on the move",
+     "builds_on": [
+      "network-internals/sharing-the-air"
+     ]
+    },
+    {
+     "slug": "network-attacks",
+     "title": "Spoofing, sniffing, machine-in-the-middle and DoS",
+     "builds_on": [
+      "network-internals/packets-and-layers",
+      "web/tls-trust"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "data-internals",
+   "title": "Inside the Database",
+   "tagline": "How to model data, what the engine does with your query, and life beyond one server.",
+   "lessons": [
+    {
+     "slug": "modeling",
+     "title": "Boxes and lines before tables",
+     "builds_on": [
+      "databases/sql-basics"
+     ]
+    },
+    {
+     "slug": "keys-and-constraints",
+     "title": "Keys and constraints: rules the database enforces",
+     "builds_on": [
+      "data-internals/modeling"
+     ]
+    },
+    {
+     "slug": "normalization",
+     "title": "One fact in one place, and when to break that",
+     "builds_on": [
+      "data-internals/keys-and-constraints"
+     ]
+    },
+    {
+     "slug": "follow-a-query",
+     "title": "Follow one query through the engine",
+     "builds_on": [
+      "databases/indexes"
+     ]
+    },
+    {
+     "slug": "pages-and-b-trees",
+     "title": "Pages, B-trees and the buffer pool",
+     "builds_on": [
+      "data-internals/follow-a-query",
+      "algorithms/trees-and-heaps"
+     ]
+    },
+    {
+     "slug": "join-algorithms",
+     "title": "How a join really runs, and how the planner picks",
+     "builds_on": [
+      "data-internals/pages-and-b-trees"
+     ]
+    },
+    {
+     "slug": "acid-and-recovery",
+     "title": "ACID, and surviving a crash mid-commit",
+     "builds_on": [
+      "databases/transactions",
+      "data-internals/follow-a-query"
+     ]
+    },
+    {
+     "slug": "nosql",
+     "title": "Key-value, documents and when not to",
+     "builds_on": [
+      "data-internals/normalization"
+     ]
+    },
+    {
+     "slug": "sharding",
+     "title": "Splitting one database across machines",
+     "builds_on": [
+      "data-internals/nosql",
+      "databases/replication"
+     ]
+    },
+    {
+     "slug": "search-and-text",
+     "title": "JSON, inverted indexes and Bloom filters",
+     "builds_on": [
+      "data-internals/nosql",
+      "algorithms/hash-tables"
+     ]
+    },
+    {
+     "slug": "data-lifecycle",
+     "title": "From creation to deletion, on purpose",
+     "builds_on": [
+      "databases/sql-basics"
+     ]
+    },
+    {
+     "slug": "exploring-data",
+     "title": "Look at the data before you trust the model",
+     "builds_on": [
+      "math/describing-data"
+     ]
+    },
+    {
+     "slug": "anonymity",
+     "title": "Anonymised data that was not, and differential privacy",
+     "builds_on": [
+      "data-internals/data-lifecycle",
+      "math/chance"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "craft",
+   "title": "Software Craft",
+   "tagline": "The everyday engineering between a program that runs and a system people can rely on.",
+   "lessons": [
+    {
+     "slug": "requirements",
+     "title": "Writing down what it must do",
+     "builds_on": [
+      "launch/validate"
+     ]
+    },
+    {
+     "slug": "design-principles",
+     "title": "Coupling, cohesion and hiding information",
+     "builds_on": [
+      "programming/real-program"
+     ]
+    },
+    {
+     "slug": "architecture-styles",
+     "title": "Layers, events and pipelines: choosing a shape",
+     "builds_on": [
+      "craft/design-principles"
+     ]
+    },
+    {
+     "slug": "refactoring",
+     "title": "Refactoring: change the shape, not the behaviour",
+     "builds_on": [
+      "programming/your-first-tests",
+      "change/characterization-tests"
+     ]
+    },
+    {
+     "slug": "kinds-of-test",
+     "title": "Unit, integration, system and the test pyramid",
+     "builds_on": [
+      "programming/your-first-tests"
+     ]
+    },
+    {
+     "slug": "fuzzing-and-properties",
+     "title": "Let the machine write the test cases",
+     "builds_on": [
+      "craft/kinds-of-test"
+     ]
+    },
+    {
+     "slug": "reliability-numbers",
+     "title": "Faults, failures and mean time between them",
+     "builds_on": [
+      "math/random-variables",
+      "sre/slos"
+     ]
+    },
+    {
+     "slug": "contracts",
+     "title": "Preconditions, postconditions and invariants",
+     "builds_on": [
+      "craft/kinds-of-test",
+      "math/logic"
+     ]
+    },
+    {
+     "slug": "model-checking",
+     "title": "Check every interleaving, not just the lucky one",
+     "builds_on": [
+      "craft/contracts",
+      "concurrency/locks"
+     ]
+    },
+    {
+     "slug": "working-together",
+     "title": "Disagreement, pairing and meetings that decide",
+     "builds_on": [
+      "git/collaborate"
+     ]
+    },
+    {
+     "slug": "writing-docs",
+     "title": "Documentation someone will actually use",
+     "builds_on": [
+      "craft/design-principles"
+     ]
+    },
+    {
+     "slug": "system-design",
+     "title": "From requirements to a high-level design",
+     "builds_on": [
+      "craft/architecture-styles",
+      "craft/requirements"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "security-foundations",
+   "title": "Security Foundations",
+   "tagline": "The principles and the cryptography underneath the practical Security track.",
+   "lessons": [
+    {
+     "slug": "cia-and-threat-models",
+     "title": "Confidentiality, integrity, availability, and who is attacking",
+     "builds_on": [
+      "security/web-flaws"
+     ]
+    },
+    {
+     "slug": "symmetric-encryption",
+     "title": "From Caesar to AES",
+     "builds_on": [
+      "math/modular-arithmetic",
+      "computer/bits-and-bases"
+     ]
+    },
+    {
+     "slug": "public-key",
+     "title": "Agreeing on a secret in front of everyone",
+     "builds_on": [
+      "security-foundations/symmetric-encryption"
+     ]
+    },
+    {
+     "slug": "signatures-and-macs",
+     "title": "Proving who wrote it and that nobody changed it",
+     "builds_on": [
+      "security-foundations/public-key",
+      "security/passwords-and-hashing"
+     ]
+    },
+    {
+     "slug": "memory-safety",
+     "title": "Overflow a buffer, in a toy machine",
+     "builds_on": [
+      "computer/assembly"
+     ]
+    },
+    {
+     "slug": "access-control-models",
+     "title": "Who decides: DAC, MAC, roles and attributes",
+     "builds_on": [
+      "security/cluster-access"
+     ]
+    },
+    {
+     "slug": "malware-and-people",
+     "title": "Viruses, worms and the email that fooled you",
+     "builds_on": [
+      "security-foundations/cia-and-threat-models"
+     ]
+    },
+    {
+     "slug": "forensics",
+     "title": "Reconstruct what happened from what was left behind",
+     "builds_on": [
+      "security-foundations/malware-and-people",
+      "resilience/incidents"
+     ]
+    },
+    {
+     "slug": "governance",
+     "title": "Policies, controls and who answers for risk",
+     "builds_on": [
+      "security-foundations/cia-and-threat-models"
+     ]
+    },
+    {
+     "slug": "law-and-disclosure",
+     "title": "Computer crime, disclosure and doing it responsibly",
+     "builds_on": [
+      "security-foundations/malware-and-people"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ai-foundations",
+   "title": "AI Beyond Neural Nets",
+   "tagline": "Search, logic, uncertainty and planning, plus the classic learning methods the LLM track skips.",
+   "lessons": [
+    {
+     "slug": "what-counts-as-intelligence",
+     "title": "The Turing test and kinds of agent",
+     "builds_on": []
+    },
+    {
+     "slug": "search-as-thinking",
+     "title": "State spaces, heuristics and A*",
+     "builds_on": [
+      "algorithms/graphs"
+     ]
+    },
+    {
+     "slug": "adversarial-search",
+     "title": "Minimax: planning against someone who hits back",
+     "builds_on": [
+      "ai-foundations/search-as-thinking"
+     ]
+    },
+    {
+     "slug": "knowledge-and-logic",
+     "title": "Writing down what a machine knows",
+     "builds_on": [
+      "math/logic"
+     ]
+    },
+    {
+     "slug": "reasoning-under-uncertainty",
+     "title": "Bayes nets and hidden Markov models",
+     "builds_on": [
+      "math/bayes"
+     ]
+    },
+    {
+     "slug": "planning",
+     "title": "From goal to a sequence of actions",
+     "builds_on": [
+      "ai-foundations/search-as-thinking"
+     ]
+    },
+    {
+     "slug": "classic-ml",
+     "title": "Trees, nearest neighbours and honest metrics",
+     "builds_on": [
+      "ml/overfitting",
+      "math/correlation-and-regression"
+     ]
+    },
+    {
+     "slug": "clustering",
+     "title": "Finding groups nobody labelled",
+     "builds_on": [
+      "ai-foundations/classic-ml"
+     ]
+    },
+    {
+     "slug": "reinforcement-learning",
+     "title": "Learning from reward, and rewards that get gamed",
+     "builds_on": [
+      "math/random-variables",
+      "ml/what-is-learning"
+     ]
+    },
+    {
+     "slug": "language-before-llms",
+     "title": "Grammars, tags and how NLP worked before transformers",
+     "builds_on": [
+      "limits/grammars",
+      "llm/next-token"
+     ]
+    },
+    {
+     "slug": "seeing",
+     "title": "Convolutions: how a machine starts to see",
+     "builds_on": [
+      "math/matrices"
+     ]
+    },
+    {
+     "slug": "generated-images",
+     "title": "Diffusion, generated pictures and how to read them",
+     "builds_on": [
+      "ai-foundations/seeing"
+     ]
+    },
+    {
+     "slug": "fairness-and-explanation",
+     "title": "Biased data, fair outcomes and explaining a decision",
+     "builds_on": [
+      "ai-foundations/classic-ml",
+      "algorithms/algorithms-and-people"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "graphics",
+   "title": "Graphics & Visualization",
+   "tagline": "Pixels, cameras, light and motion, drawn in the browser, plus the charts that tell the truth or do not.",
+   "lessons": [
+    {
+     "slug": "pixels-and-colour",
+     "title": "Pixels, colour and the eye that reads them",
+     "builds_on": [
+      "computer/text-and-images-as-bytes"
+     ]
+    },
+    {
+     "slug": "transforms",
+     "title": "Move, rotate, project: 3D with matrices",
+     "builds_on": [
+      "math/matrices"
+     ]
+    },
+    {
+     "slug": "rasterizing",
+     "title": "From triangle to pixels",
+     "builds_on": [
+      "graphics/transforms",
+      "graphics/pixels-and-colour"
+     ]
+    },
+    {
+     "slug": "ray-tracing",
+     "title": "Follow the light backwards",
+     "builds_on": [
+      "graphics/transforms"
+     ]
+    },
+    {
+     "slug": "shading",
+     "title": "Light, materials and shadows",
+     "builds_on": [
+      "graphics/ray-tracing"
+     ]
+    },
+    {
+     "slug": "meshes-and-shapes",
+     "title": "Meshes, curves and shapes defined by maths",
+     "builds_on": [
+      "graphics/transforms"
+     ]
+    },
+    {
+     "slug": "animation",
+     "title": "Keyframes, easing and skeletons",
+     "builds_on": [
+      "graphics/transforms"
+     ]
+    },
+    {
+     "slug": "particles-and-physics",
+     "title": "Particles, integration and the collision",
+     "builds_on": [
+      "math/rates-of-change",
+      "graphics/animation"
+     ]
+    },
+    {
+     "slug": "image-filters",
+     "title": "Blur and sharpen: filters on real pixels",
+     "builds_on": [
+      "graphics/pixels-and-colour"
+     ]
+    },
+    {
+     "slug": "charts-that-tell-the-truth",
+     "title": "Charts that tell the truth, and charts that do not",
+     "builds_on": [
+      "math/describing-data"
+     ]
+    },
+    {
+     "slug": "input-and-feedback",
+     "title": "Input, feedback and the interface loop",
+     "builds_on": [
+      "languages/event-driven"
+     ]
+    },
+    {
+     "slug": "stereo-and-presence",
+     "title": "Two eyes, one screen, and motion sickness",
+     "builds_on": [
+      "graphics/transforms"
+     ]
+    },
+    {
+     "slug": "deepfakes-and-pictures",
+     "title": "Pictures that lie and scans that leak",
+     "builds_on": [
+      "graphics/pixels-and-colour"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "hci",
+   "title": "Designing for People",
+   "tagline": "Who is using it, what they can do, and how to find out if it works for them.",
+   "lessons": [
+    {
+     "slug": "who-it-is-for",
+     "title": "Personas, journeys and what people really do",
+     "builds_on": [
+      "launch/validate"
+     ]
+    },
+    {
+     "slug": "prototypes",
+     "title": "Paper first: cheap prototypes and iteration",
+     "builds_on": [
+      "hci/who-it-is-for"
+     ]
+    },
+    {
+     "slug": "interface-principles",
+     "title": "Patterns, constraints and the usability trade-off",
+     "builds_on": [
+      "hci/prototypes"
+     ]
+    },
+    {
+     "slug": "usability-tests",
+     "title": "Watch five people use it",
+     "builds_on": [
+      "hci/prototypes"
+     ]
+    },
+    {
+     "slug": "measuring-experience",
+     "title": "Numbers, themes and the ethics of asking",
+     "builds_on": [
+      "hci/usability-tests",
+      "math/samples-and-tests"
+     ]
+    },
+    {
+     "slug": "accessibility",
+     "title": "Use this page with a screen reader",
+     "builds_on": []
+    },
+    {
+     "slug": "inclusive-design",
+     "title": "Designing for people who are not you",
+     "builds_on": [
+      "hci/accessibility"
+     ]
+    },
+    {
+     "slug": "dark-patterns",
+     "title": "Dark patterns and who answers for a design",
+     "builds_on": [
+      "hci/who-it-is-for"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "specialized",
+   "title": "Building for Specific Platforms",
+   "tagline": "The same ideas under very different constraints: the web page, the phone, the game, the chip, the robot and the notebook.",
+   "lessons": [
+    {
+     "slug": "what-a-platform-constrains",
+     "title": "What every platform takes away from you",
+     "builds_on": [
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "html-and-css",
+     "title": "A web page from nothing: HTML and CSS",
+     "builds_on": []
+    },
+    {
+     "slug": "dom-and-javascript",
+     "title": "Make the page respond: the DOM",
+     "builds_on": [
+      "specialized/html-and-css",
+      "programming/functions"
+     ]
+    },
+    {
+     "slug": "a-small-web-app",
+     "title": "A small web app, and what frameworks are for",
+     "builds_on": [
+      "specialized/dom-and-javascript",
+      "web/request-journey"
+     ]
+    },
+    {
+     "slug": "mobile-constraints",
+     "title": "Batteries, flaky networks and small screens",
+     "builds_on": [
+      "specialized/what-a-platform-constrains"
+     ]
+    },
+    {
+     "slug": "game-loop",
+     "title": "The game loop, in sixteen milliseconds",
+     "builds_on": [
+      "programming/loops",
+      "languages/event-driven"
+     ]
+    },
+    {
+     "slug": "microcontroller",
+     "title": "A simulated microcontroller",
+     "builds_on": [
+      "computer/toy-cpu"
+     ]
+    },
+    {
+     "slug": "robot-sense-plan-act",
+     "title": "A robot in a canvas: sense, plan, act",
+     "builds_on": [
+      "programming/loops"
+     ]
+    },
+    {
+     "slug": "robot-where-am-i",
+     "title": "Noisy sensors: where is the robot?",
+     "builds_on": [
+      "specialized/robot-sense-plan-act",
+      "math/bayes"
+     ]
+    },
+    {
+     "slug": "notebooks-and-data-platforms",
+     "title": "Notebooks and data platforms",
+     "builds_on": [
+      "math/describing-data"
+     ]
+    },
+    {
+     "slug": "platform-responsibility",
+     "title": "Tracking, notifications and whose attention it is",
+     "builds_on": [
+      "specialized/mobile-constraints"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "society",
+   "title": "Computing & Society",
+   "tagline": "What computing does to people, what it owes them, and how to reason about it.",
+   "lessons": [
+    {
+     "slug": "why-ethics",
+     "title": "Thinking it through: ethics in computing",
+     "builds_on": []
+    },
+    {
+     "slug": "professional-duties",
+     "title": "Codes, liability and saying no",
+     "builds_on": [
+      "society/why-ethics"
+     ]
+    },
+    {
+     "slug": "social-context",
+     "title": "Networks, platforms and the digital divide",
+     "builds_on": [
+      "society/why-ethics"
+     ]
+    },
+    {
+     "slug": "intellectual-property",
+     "title": "Copyright, patents, trade secrets and licences",
+     "builds_on": [
+      "launch/business-basics"
+     ]
+    },
+    {
+     "slug": "privacy-and-liberty",
+     "title": "Privacy, surveillance and civil liberties",
+     "builds_on": [
+      "society/why-ethics"
+     ]
+    },
+    {
+     "slug": "sustainability",
+     "title": "The carbon and e-waste behind your code",
+     "builds_on": [
+      "society/why-ethics"
+     ]
+    },
+    {
+     "slug": "history",
+     "title": "A short history of computing and who made it",
+     "builds_on": []
+    },
+    {
+     "slug": "economies",
+     "title": "Network effects, monopolies and the attention economy",
+     "builds_on": [
+      "launch/pricing"
+     ]
+    },
+    {
+     "slug": "who-gets-to-build",
+     "title": "Diversity, equity and who gets to build",
+     "builds_on": [
+      "society/why-ethics"
+     ]
+    },
+    {
+     "slug": "presenting-your-work",
+     "title": "Explaining technical work to people who decide",
+     "builds_on": []
+    }
+   ]
+  }
+ ]
+}

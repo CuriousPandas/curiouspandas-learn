@@ -1,0 +1,301 @@
+---
+import '../styles/widgets.css';
+import { CODE_MISSIONS } from '../lib/cs/missions.ts';
+interface Props {
+  code?: string;
+  /** A key in CODE_MISSIONS (src/lib/cs/missions.ts). Its starter wins over `code`. */
+  mission?: string;
+  /** Measure this function at growing sizes instead of only running the program. */
+  grow?: string;
+  /** How `grow` is called: `list` passes list(range(n)), `n` passes n. */
+  growArg?: 'list' | 'n';
+  sizes?: string;
+  rows?: number;
+}
+const { code = '', mission, grow, growArg = 'list', sizes = '100,1000,10000', rows } = Astro.props;
+// Sized and filled from what it will really show: a mission's starter replaces
+// `code`. Filling it here too means the program is on the page without scripts.
+const shown = (mission && CODE_MISSIONS[mission]?.starter) || code;
+const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1));
+---
+<div class="widget card codelab" data-codelab data-mission={mission} data-grow={grow} data-grow-arg={growArg} data-sizes={sizes}>
+  <div class="widget-head">
+    <strong>Code lab</strong>
+    <span class="pill info">Python, run by this page: nothing leaves your device</span>
+    <span class="spacer"></span>
+    <span class="pill" data-steps>0 steps</span>
+  </div>
+  <div class="cl-grid">
+    <div class="cl-main">
+      <label class="cl-editor" data-edit>
+        <span class="eyebrow">Your program <span class="muted cl-keys">Tab indents. To leave the editor by keyboard, press Esc, then Tab.</span></span>
+        <textarea data-src rows={lineCount} spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off">{shown}</textarea>
+      </label>
+      <ol class="cl-listing" data-listing aria-label="Program, with the line about to run highlighted" hidden></ol>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-run>Run</button>
+        <button class="btn small" type="button" data-step>Step</button>
+        <button class="btn small" type="button" data-edit-btn hidden>Back to editing</button>
+        {grow && <button class="btn small" type="button" data-measure>Measure growth</button>}
+        <button class="btn small" type="button" data-reset>Reset code</button>
+      </div>
+      <p class="cl-status" data-status role="status">Not run yet.</p>
+      <div class="cl-panels">
+        <section>
+          <h4>Output</h4>
+          <pre class="cl-out" data-out tabindex="0" role="log" aria-label="Program output"></pre>
+        </section>
+        <section>
+          <h4>Variables <span class="muted">and the call stack, newest call last</span></h4>
+          <div class="cl-vars" data-vars><p class="muted">Press Step to watch these change.</p></div>
+        </section>
+      </div>
+      {grow && (
+        <section class="cl-grow" data-growth hidden>
+          <h4>How <code>{grow}</code>'s work grows</h4>
+          <table>
+            <thead><tr><th scope="col">Input size</th><th scope="col">Steps</th><th scope="col">Compared with the previous size</th></tr></thead>
+            <tbody data-growth-rows></tbody>
+          </table>
+          <p class="cl-shape" data-shape></p>
+        </section>
+      )}
+    </div>
+    {mission && <div data-mission-panel></div>}
+  </div>
+</div>
+
+<script>
+  import { PyProgram } from '../lib/py/vm.ts';
+  import { summarise, measureGrowth, classify, type RunResult } from '../lib/py/lab.ts';
+  import { CODE_MISSIONS, type CodeState } from '../lib/cs/missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-codelab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const src = q<HTMLTextAreaElement>('[data-src]'), out = q('[data-out]'), status = q('[data-status]');
+    const vars = q('[data-vars]'), steps = q('[data-steps]'), listing = q('[data-listing]'), editLabel = q('[data-edit]');
+    const runBtn = q<HTMLButtonElement>('[data-run]'), stepBtn = q<HTMLButtonElement>('[data-step]'), editBtn = q<HTMLButtonElement>('[data-edit-btn]');
+
+    const mission = root.dataset.mission ? CODE_MISSIONS[root.dataset.mission] : undefined;
+    if (root.dataset.mission && !mission) throw new Error(`CodeLab: no mission called ${root.dataset.mission}`);
+    if (mission?.starter !== undefined) src.value = mission.starter;
+    const original = src.value;
+    const state: CodeState = mission ? mission.setup() : { runs: [], growth: [] };
+    const refresh = mission ? mountMission(q('[data-mission-panel]'), mission, () => state, () => {}) : () => {};
+
+    let prog: PyProgram | null = null, stepping = false, timer = 0, stale = false;
+
+    const setStatus = (text: string, kind = '') => { status.textContent = text; status.className = `cl-status ${kind}`; };
+
+    function showVars(p: PyProgram) {
+      const frames = p.view();
+      vars.replaceChildren(...frames.map((f, i) => {
+        const rows = f.vars.map((v) => el('tr', {}, el('th', { scope: 'row' }, v.name), el('td', {}, el('code', {}, v.value)), el('td', { class: 'muted' }, v.type)));
+        return el('div', { class: `cl-frame${i === frames.length - 1 ? ' top' : ''}` },
+          el('div', { class: 'cl-fname' }, f.name === '<module>' ? 'the whole program' : `${f.name}()`),
+          rows.length ? el('table', {}, el('tbody', {}, ...rows)) : el('p', { class: 'muted' }, 'nothing yet'));
+      }));
+      if (!frames.length) vars.replaceChildren(el('p', { class: 'muted' }, 'Nothing has been assigned.'));
+    }
+
+    function showListing(p: PyProgram) {
+      const lines = src.value.replace(/\r\n/g, '\n').split('\n'), at = p.finished ? 0 : p.nextLine;
+      listing.replaceChildren(...lines.map((l, i) => el('li', i + 1 === at ? { class: 'at', 'aria-current': 'step' } : {}, el('code', {}, l || ' '))));
+      listing.querySelector('.at')?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function report(r: RunResult) {
+      steps.textContent = `${fmt(r.ops)} step${r.ops === 1 ? '' : 's'}`;
+      out.textContent = r.stdout;
+      stale = false;
+      const depth = r.depth > 1 ? `, ${r.depth} calls deep at most` : '';
+      if (r.status === 'done') setStatus(`Finished in ${fmt(r.ops)} step${r.ops === 1 ? '' : 's'}${depth}.`, 'ok');
+      else if (r.status === 'budget') setStatus(`Stopped at ${fmt(r.ops)} steps, the limit for this page. Either this is slow, or it would never finish, and from out here those two look the same.`, 'warn');
+      else if (r.status === 'output') setStatus('Stopped: it printed more than this page will hold.', 'warn');
+      else if (r.error?.type === 'SandboxLimit') setStatus(`Not your bug: ${r.error.message}.`, 'warn');
+      else if (r.error) {
+        const trail = r.error.stack.length > 1 ? ` Called from: ${r.error.stack.slice(0, -1).map((f) => `${f.fn === '<module>' ? 'the program' : f.fn} (line ${f.line})`).join(', then ')}.` : '';
+        setStatus(`${r.error.type} on line ${r.error.line}: ${r.error.message}.${trail}`, 'bad');
+      }
+    }
+
+    function finish(p: PyProgram) {
+      const r = summarise(p, src.value);
+      report(r);
+      showVars(p);
+      runBtn.textContent = 'Run';
+      stepBtn.disabled = false;
+      state.runs.push(r);
+      refresh();
+      prog = stepping ? p : null;
+      if (stepping) showListing(p);
+    }
+
+    function setEditing(on: boolean) {
+      editLabel.hidden = !on;
+      listing.hidden = on;
+      editBtn.hidden = on;
+      stepping = !on;
+    }
+
+    function run() {
+      if (timer) { clearTimeout(timer); timer = 0; runBtn.textContent = 'Run'; stepBtn.disabled = false; setStatus(`You stopped it at ${fmt(prog?.ops ?? 0)} steps.`, 'warn'); prog = null; return; }
+      setEditing(true);
+      const p = new PyProgram(src.value);
+      prog = p;
+      out.textContent = '';
+      runBtn.textContent = 'Stop';
+      stepBtn.disabled = true;
+      setStatus('Running…');
+      // In slices so a runaway loop leaves the page responsive and Stop clickable.
+      const slice = () => {
+        timer = 0;
+        p.run(150_000);
+        steps.textContent = `${fmt(p.ops)} steps`;
+        if (p.finished) { finish(p); return; }
+        timer = window.setTimeout(slice, 0);
+      };
+      if (p.finished) finish(p); else timer = window.setTimeout(slice, 0);
+    }
+
+    function step() {
+      if (!stepping || !prog || prog.finished) {
+        prog = new PyProgram(src.value);
+        setEditing(false);
+        out.textContent = '';
+        if (prog.finished) { finish(prog); return; }
+        showListing(prog);
+        showVars(prog);
+        setStatus('Highlighted: the line about to run. Press Step to run it.');
+        steps.textContent = '0 steps';
+        return;
+      }
+      prog.stepLine();
+      out.textContent = prog.stdout;
+      steps.textContent = `${fmt(prog.ops)} steps`;
+      if (prog.finished) { finish(prog); return; }
+      showListing(prog);
+      showVars(prog);
+      setStatus(`About to run line ${prog.nextLine}.`);
+    }
+
+    runBtn.addEventListener('click', run);
+    stepBtn.addEventListener('click', step);
+    editBtn.addEventListener('click', () => { setEditing(true); prog = null; setStatus('Back to editing. Run or Step starts from the top.'); src.focus(); });
+    q('[data-reset]').addEventListener('click', () => {
+      if (timer) { clearTimeout(timer); timer = 0; runBtn.textContent = 'Run'; stepBtn.disabled = false; }
+      src.value = original;
+      setEditing(true);
+      prog = null;
+      out.textContent = '';
+      steps.textContent = '0 steps';
+      vars.replaceChildren(el('p', { class: 'muted' }, 'Press Step to watch these change.'));
+      setStatus('Code reset. Not run yet.');
+    });
+
+    // Output from before an edit must not read as output from the code on screen.
+    src.addEventListener('input', () => {
+      if (stale || status.textContent === 'Not run yet.') return;
+      stale = true;
+      setStatus('You changed the code since this ran: what is shown below is from the old version.', 'warn');
+    });
+
+    src.addEventListener('keydown', (e) => {
+      // execCommand is deprecated and still the only way to change a textarea
+      // that keeps Ctrl+Z working. setRangeText is the fallback, and it loses undo.
+      const legacy = document as unknown as { execCommand?: (cmd: string, ui: boolean, value: string) => boolean };
+      const insert = (t: string) => { if (!legacy.execCommand?.('insertText', false, t)) src.setRangeText(t, src.selectionStart, src.selectionEnd, 'end'); src.dispatchEvent(new Event('input')); };
+      if (e.key === 'Escape') { src.dataset.escaped = '1'; return; }
+      if (e.key === 'Tab') {
+        // A focus trap is a WCAG failure and a Tab that leaves the box is useless
+        // for Python. Esc then Tab is the usual way out of a code editor.
+        if (src.dataset.escaped) { delete src.dataset.escaped; return; }
+        e.preventDefault();
+        if (e.shiftKey) {
+          const start = src.value.lastIndexOf('\n', src.selectionStart - 1) + 1;
+          const m = /^ {1,4}/.exec(src.value.slice(start));
+          if (m) { const at = src.selectionStart; src.setRangeText('', start, start + m[0].length, 'preserve'); src.selectionStart = src.selectionEnd = Math.max(start, at - m[0].length); src.dispatchEvent(new Event('input')); }
+        } else insert('    ');
+        return;
+      }
+      delete src.dataset.escaped;
+      if (e.key === 'Enter') {
+        const start = src.value.lastIndexOf('\n', src.selectionStart - 1) + 1;
+        const line = src.value.slice(start, src.selectionStart);
+        const indent = /^ */.exec(line)![0] + (/:\s*(#.*)?$/.test(line) ? '    ' : '');
+        if (indent) { e.preventDefault(); insert(`\n${indent}`); }
+      }
+    });
+
+    const measure = root.querySelector<HTMLButtonElement>('[data-measure]');
+    if (measure) {
+      const fn = root.dataset.grow!, sizes = root.dataset.sizes!.split(',').map(Number);
+      const args = (n: number) => (root.dataset.growArg === 'n' ? [n] : [Array.from({ length: n }, (_, i) => i)]);
+      measure.addEventListener('click', () => {
+        const check = new PyProgram(src.value);
+        check.run();
+        const checked = summarise(check, src.value);
+        report(checked);
+        // Measuring ran the code on screen, so it counts as a run: without this a
+        // mission's "still gives the right answers" judged whichever older
+        // version was last run, not the one just measured.
+        state.runs.push(checked);
+        if (check.status !== 'done') { refresh(); return; }
+        if (!check.globals.vars.has(fn)) { setStatus(`There is no function called ${fn} to measure.`, 'bad'); return; }
+        const points = measureGrowth(src.value, fn, sizes, args);
+        const shape = classify(points);
+        q('[data-growth]').hidden = false;
+        q('[data-growth-rows]').replaceChildren(...points.map((p, i) => {
+          const prev = points[i - 1];
+          const ratio = p.ops === null ? 'over this page\'s limit' : prev?.ops ? `${(p.n / prev.n).toFixed(0)}x the input, ${(p.ops / prev.ops).toFixed(1)}x the work` : 'first size';
+          return el('tr', {}, el('td', {}, fmt(p.n)), el('td', {}, p.ops === null ? 'did not finish' : fmt(p.ops)), el('td', {}, ratio));
+        }));
+        q('[data-shape]').textContent = shape === 'unknown' ? 'Not enough sizes finished to name a shape.' : `Shape over these sizes: ${shape}.`;
+        state.growth.push({ src: src.value, fn, points, shape });
+        refresh();
+      });
+    }
+  }
+</script>
+
+<style is:global>
+  .codelab .cl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 980px) { .codelab .cl-grid:has([data-mission-panel]) { grid-template-columns: minmax(0, 1fr) 290px; } }
+  .codelab .cl-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .codelab .cl-editor { display: flex; flex-direction: column; gap: 4px; }
+  .codelab .cl-editor[hidden] { display: none; }
+  .codelab .cl-keys { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .codelab textarea { width: 100%; box-sizing: border-box; background: var(--term-bg); color: var(--term-ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 13.5px/1.55 var(--mono); resize: vertical; tab-size: 4; overflow: auto; white-space: pre; }
+  .codelab .cl-listing { margin: 0; padding: 10px 12px 10px 42px; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; font: 13.5px/1.55 var(--mono); overflow: auto; max-height: 420px; }
+  .codelab .cl-listing[hidden] { display: none; }
+  .codelab .cl-listing li { white-space: pre; padding-left: 4px; }
+  .codelab .cl-listing li::marker { color: var(--term-dim); }
+  .codelab .cl-listing li code, .codelab .cl-frame td code { background: none; color: inherit; padding: 0; font: inherit; border: 0; border-radius: 0; box-shadow: none; }
+  .codelab .cl-listing li.at { background: color-mix(in srgb, var(--term-ok) 22%, transparent); border-left: 3px solid var(--term-ok); margin-left: -3px; }
+  .codelab .cl-status { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .codelab .cl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .codelab .cl-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .codelab .cl-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .codelab .cl-panels { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+  .codelab .cl-panels section, .codelab .cl-grow { min-width: 0; }
+  .codelab h4 { margin: 0 0 6px; font-size: 0.92rem; }
+  .codelab h4 .muted { font-weight: 400; }
+  .codelab .cl-out { margin: 0; min-height: 3.2em; max-height: 260px; overflow: auto; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; padding: 10px 12px; font: 13px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* Empty output and no output yet must not both read as a black box. */
+  .codelab .cl-out:empty::before { content: 'Nothing printed.'; color: var(--term-dim); }
+  .codelab .cl-vars { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; }
+  .codelab .cl-vars p { margin: 0; font-size: 0.88rem; }
+  .codelab .cl-frame { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0; overflow-x: auto; }
+  .codelab .cl-frame.top { border-color: var(--bamboo); }
+  .codelab .cl-fname { font: 600 0.82rem var(--mono); margin-bottom: 2px; }
+  .codelab .cl-frame table { width: 100%; border-collapse: collapse; font: 0.82rem/1.5 var(--mono); }
+  .codelab .cl-frame th { text-align: left; font-weight: 600; padding-right: 10px; white-space: nowrap; vertical-align: top; }
+  .codelab .cl-frame td { overflow-wrap: anywhere; vertical-align: top; width: 100%; }
+  .codelab .cl-frame td:last-child { width: auto; padding-left: 8px; font-size: 0.74rem; white-space: nowrap; }
+  .codelab .cl-grow table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .codelab .cl-grow th, .codelab .cl-grow td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
+  .codelab .cl-shape { margin: 8px 0 0; font-weight: 600; }
+</style>

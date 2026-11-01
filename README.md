@@ -36,6 +36,14 @@ TypeScript, running in the learner's own browser tab.
   yet", or "command not found"), never silently ignored. Typed text
   is never evaluated as JavaScript, never sent anywhere, and only ever reaches
   the page as text nodes, never as HTML.
+- **Typed Python never reaches JavaScript.** The code labs run a Python subset
+  through an interpreter written for this site (`src/lib/py/`): text is parsed to
+  a tree, compiled to bytecode, and run by a small VM over its own values. A
+  program can only reach what that VM implements, so there is no `eval`, no path
+  to the page, and no files or network. Every program has a step budget, so an
+  endless loop stops and says so. Features it lacks, such as `import`, are refused
+  by name rather than ignored. `tests/py-parity.test.ts` runs its programs through
+  real Python and compares output and errors.
 - **One exception, deliberately: SQL.** On the two database consoles, typed
   SQL is executed - by SQLite compiled to WebAssembly (`sql.js`, bundled and
   served from this site), against a small in-memory database, inside a Web
@@ -64,7 +72,7 @@ How each claim is held in place, so it cannot quietly stop being true:
 
 | Claim | Pinned by |
 |---|---|
-| Nothing typed is run as code; no network calls; no cookies | `tests/sandbox.test.ts` fails on `eval`, `new Function`, `fetch`, XHR, WebSockets, beacons or `document.cookie` anywhere in `src/` |
+| Nothing typed reaches JavaScript as code; no network calls; no cookies | `tests/sandbox.test.ts` fails on `eval`, `new Function`, `fetch`, XHR, WebSockets, beacons or `document.cookie` anywhere in `src/` |
 | HTML is only built from the site's own strings | the same test keeps a hand-reviewed list of the files that use `innerHTML`; a new one fails until reviewed |
 | No request ever leaves for another host | `scripts/check-site.mjs` fails any page that requests a third-party URL |
 
@@ -76,6 +84,9 @@ inline scripts, and has not been added yet.
 
 | Claim | Pinned by |
 |---|---|
+| The code labs behave like Python | `tests/py-parity.test.ts` runs about 140 programs through real Python and the sandbox, and compares stdout and the final error |
+| The step counter charges for hidden work | `tests/py.test.ts`: `in` on a list costs a scan, on a set it does not; a function over budget measures as unfinished, never as cheap |
+| `/coverage/` matches the curriculum | `tests/cs-coverage.test.ts`: all 162 CS2023 units listed, every lesson named exists, every gap has a plan or a stated reason |
 | Playground hashes are real git hashes | `tests/git-parity.test.ts` replays sessions through the git binary: commits, trees, merges, conflict files |
 | The cluster sim fails the way real clusters fail | `tests/kube.test.ts`: two exit-137 crashes with opposite fixes, quota refusals visible only as events, stalled rollouts that keep serving |
 | Every mission can be finished, and the wrong fix does not pass | `tests/missions.test.ts` plays each mission from its own hints |
