@@ -1,0 +1,115 @@
+---
+title: Loki and the log line that never arrived
+summary: Loki can refuse a log line with a 400, and the collector then drops it for good while the app goes on logging normally. Learn what Loki indexes, then push a late line and find where the rejection is counted.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+builds_on: [platform/observability, sre/three-signals]
+sources:
+  - title: Loki docs - Labels, and default labels such as service_name (v3.6.x, fetched 2026-10-31)
+    url: https://grafana.com/docs/loki/v3.6.x/get-started/labels/
+  - title: Loki docs - Cardinality (v3.6.x)
+    url: https://grafana.com/docs/loki/v3.6.x/get-started/labels/cardinality/
+  - title: Loki docs - Enforce rate limits and push request validation (v3.6.x)
+    url: https://grafana.com/docs/loki/v3.6.x/operations/request-validation-rate-limits/
+  - title: Loki docs - Troubleshoot log ingestion (v3.6.x)
+    url: https://grafana.com/docs/loki/v3.6.x/operations/troubleshooting/troubleshoot-ingest/
+  - title: Loki docs - Log queries, parser expressions and the _extracted suffix (v3.6.x)
+    url: https://grafana.com/docs/loki/v3.6.x/query/log_queries/
+  - title: Grafana Alloy docs - loki.write (v1.19)
+    url: https://grafana.com/docs/alloy/v1.19/reference/components/loki/loki.write/
+  - title: TemplateMechanics/tilt - Loki HelmRelease (chart 7.3.0, Loki 3.6.12)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/loki/base/helm-release-loki.yaml
+  - title: TemplateMechanics/tilt - Alloy HelmRelease (labels and the control-plane toleration)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/loki/base/helm-release-alloy.yaml
+---
+
+Your app writes a line. `kubectl logs` shows it. Loki never stores it, because the line arrived too late and Loki answered `400 Bad Request`. The collector doesn't retry a 400, so the line is gone, and the only record that it ever existed is a counter on a page nobody opens. The app is healthy and Loki is healthy. The log search just comes back short.
+
+## What it's for
+
+Loki stores logs, and keeps them cheap by indexing almost nothing. Each line belongs to a **stream**: one unique set of **labels**, such as `namespace`, `pod` and `container`. Loki indexes the labels, not the text. A query first picks streams by label, then scans the lines inside them, which is why `{namespace="hello"} |= "timeout"` is the normal shape of a search.
+
+That design puts a price on labels. Loki's docs warn that high **cardinality** (many distinct label values, or many labels multiplied together) makes it build a huge index and flush thousands of tiny chunks, and that performance suffers badly. Loki has a default limit of 15 index labels. Values with a huge range, such as user ids, belong in the log line or in **structured metadata**, not in labels. It's the same lesson as metric labels in [Logs, metrics and traces](/learn/sre/three-signals/), with logs as the bill.
+
+On the tilt platform, the `observability` profile installs Loki 3.6.12 (chart 7.3.0, pinned exactly) as a single binary on a 10Gi volume, keeping 7 days. **Alloy** runs on every node as a DaemonSet, reads pod logs through the Kubernetes API and pushes them to Loki. It sets the labels `namespace`, `pod`, `container`, `node_name`, `app` and `job`. Loki also adds a `service_name` label of its own, copied from the first label it finds in a configurable list (`app` is third), or `unknown_service` if it finds none.
+
+<Callout kind="real">
+Two quiet gaps are already written into tilt's Alloy config. Without a control-plane toleration, the DaemonSet skipped the control-plane node, and every pod on it was missing from Loki. The comment says "Nothing reports an error; the logs simply are not there." And there's no `stream` label (stdout or stderr), so a query that filters on `stream` matches nothing rather than failing. The platform's start-up check queries `/loki/api/v1/labels` and fails the `loki` resource if the `namespace` label is missing, because healthy pods don't prove that anything is being ingested.
+</Callout>
+
+## How it quietly goes wrong
+
+Loki's docs open the topic plainly: "Loki will reject requests if they exceed a usage threshold (rate limit error) or if they are invalid (validation error)." Each rejection has a reason, and the docs give each one its own properties table. Two of them catch people with healthy apps:
+
+- **`too_far_behind`.** Loki has accepted out-of-order lines since 2.4, but only within a window. By default, a line more than 1 hour older than the newest line already in its stream (half of `max_chunk_age`, which defaults to 2 hours) is refused. Late delivery, clock skew, or several hosts writing to one stream can all push lines outside it.
+- **`greater_than_max_sample_age`.** Lines older than `reject_old_samples_max_age` are refused. The chart's default is 168 hours, the same 7 days as tilt's retention.
+
+For both, Loki's tables say **Retryable: No** and **Sample discarded: Yes**, with HTTP status 400. On the other side of the connection, Alloy's `loki.write` docs say: "Other HTTP 4xx status code responses are never considered recoverable errors." A 429 (rate limited) is retried, 10 times by default, before that batch is dropped too. Either way Alloy carries on with the next batch, and the app never finds out.
+
+Where it shows up:
+
+- On Loki: `loki_discarded_samples_total` and `loki_discarded_bytes_total`, with a `reason` label. The docs recommend alerts or dashboards on both.
+- On Alloy: `loki_write_dropped_entries_total`, entries dropped after all retries.
+
+On tilt, Prometheus scrapes Loki, but no dashboard panel or alert reads either metric. We searched the whole repo for `discarded_samples` and `dropped_entries`, and found nothing.
+
+<Callout kind="trap">
+`kubectl logs` shows what the app said. Loki shows what it accepted. Between the two sits a 400 that nobody retries. Before you trust an empty log search, check `loki_discarded_samples_total` by reason. One more catch (our inference from how labelled counters behave, not the docs' words): on a Loki that has never rejected anything, that series may not exist at all. So an alert on `> 0` can't tell "nothing rejected" from "Loki isn't being scraped". Check that the Loki target is up as well.
+</Callout>
+
+## Try it
+
+<CardSort mission="tool-loki" />
+
+## Do it for real
+
+<DoItForReal id="tool-loki-real" profile="observability">
+
+The first commands borrow tilt's own ingestion check: a throwaway pod with curl inside the cluster. The two pushes follow the test request in Loki's ingestion troubleshooting guide, with the second line's timestamp moved two hours back.
+
+```bash
+PROFILE=observability ./scripts/platform.sh up   # stays running; use a second terminal for the rest
+
+kubectl -n logging run loki-ingest-check --restart=Never --image=curlimages/curl:8.11.1 --command -- sleep 300
+kubectl -n logging wait --for=condition=ready pod/loki-ingest-check --timeout=120s
+L=http://loki.logging.svc.cluster.local:3100
+
+# The labels Loki has seen: expect namespace, pod, container, app, job, service_name
+kubectl -n logging exec loki-ingest-check -- curl -sS $L/loki/api/v1/labels; echo
+
+# One line stamped now, then one stamped two hours earlier, into the same test stream
+NOW=$(date +%s)
+kubectl -n logging exec loki-ingest-check -- curl -sS -w ' HTTP %{http_code}\n' -H "Content-Type: application/json" -XPOST $L/loki/api/v1/push --data-raw '{"streams":[{"stream":{"job":"test"},"values":[["'"${NOW}"'000000000","on time"]]}]}'
+kubectl -n logging exec loki-ingest-check -- curl -sS -w ' HTTP %{http_code}\n' -H "Content-Type: application/json" -XPOST $L/loki/api/v1/push --data-raw '{"streams":[{"stream":{"job":"test"},"values":[["'"$((NOW-7200))"'000000000","two hours late"]]}]}'
+
+# Where the refusal was counted
+kubectl -n logging exec loki-ingest-check -- curl -sS $L/metrics | grep loki_discarded_samples_total
+kubectl -n logging delete pod loki-ingest-check
+```
+
+The first push should answer `HTTP 204` with no body. The second should answer `HTTP 400` with an *entry too far behind* message, and the counter should now carry `reason="too_far_behind"`. Curl saw that 400 because you sent the request yourself. When Alloy gets one, it drops the batch, and the 400 is never shown to anyone.
+
+The same number is in Prometheus at https://prometheus.localhost (admin / admin), with the query from Loki's troubleshooting guide:
+
+```text
+sum by (reason) (rate(loki_discarded_samples_total[5m]))
+```
+
+</DoItForReal>
+
+<Quiz
+  id="tool-loki-1"
+  q="Alloy pushes a batch and Loki answers 400 with reason too_far_behind. What happens to those log lines?"
+  options={["Alloy keeps the batch and retries until Loki accepts it", "They are dropped: Alloy never retries a 4xx other than 429, and Loki counts them in loki_discarded_samples_total", "Loki stores them in a separate late-arrivals stream"]}
+  answer={1}
+  explain="too_far_behind is marked not retryable, sample discarded. Alloy treats every 4xx except 429 as unrecoverable, so the lines exist only in the app's own output and in a counter."
+/>
+
+<Quiz
+  id="tool-loki-2"
+  q="You want to find every log line for one customer, out of fifty thousand. Where should the customer id go?"
+  options={["A Loki label, so the index can find it", "A new stream per customer, named after the id", "In the log line or in structured metadata, then filter on it in the query"]}
+  answer={2}
+  explain="Every distinct label value makes a new stream, and Loki's docs warn that high cardinality bloats the index and floods storage with tiny chunks. Per-customer detail belongs in the line or in structured metadata."
+/>

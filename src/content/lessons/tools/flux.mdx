@@ -1,0 +1,109 @@
+---
+title: A suspended Flux release still says Ready
+summary: Suspending a HelmRelease or Kustomization stops Flux applying changes, and also stops it updating the status, which keeps whatever the last reconcile wrote - often Ready. Suspend one on tilt, change it, and find the two numbers that give it away.
+minutes: 13
+xp: 35
+tiers: [browser, machine]
+builds_on: [platform/gitops]
+sources:
+  - title: Flux docs - Get started with Flux (Suspend updates), v2.10
+    url: https://fluxcd.io/flux/get-started/
+  - title: Flux docs - HelmReleases (Suspend, Suspending and resuming, Observed Generation), v2.10
+    url: https://fluxcd.io/flux/components/helm/helmreleases/
+  - title: Flux docs - Kustomizations (Suspend, Observed Generation), v2.10
+    url: https://fluxcd.io/flux/components/kustomize/kustomizations/
+  - title: Flux docs - GitRepositories (Suspending and resuming), v2.10
+    url: https://fluxcd.io/flux/components/source/gitrepositories/
+  - title: Flux CLI - flux suspend, flux resume, flux get helmreleases, v2.10
+    url: https://fluxcd.io/flux/cmd/flux_suspend/
+  - title: Kubernetes API conventions - metadata.generation and observedGeneration
+    url: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md
+  - title: Helm docs - helm get values, version 4.3.1
+    url: https://helm.sh/docs/helm/helm_get_values/
+  - title: TemplateMechanics/tilt - tilt/gitops.tilt and helm/flagger/base/helm-release.yaml
+    url: https://github.com/TemplateMechanics/tilt/blob/main/tilt/gitops.tilt
+---
+
+Flux has an off switch for each object it reconciles, and it's meant to be used: pause the automation, fix something by hand, resume. The catch is that the switch pauses the *reporting* too. A suspended release goes on showing the status of the last thing it did, and if that was a success, it keeps saying so while every new change waits.
+
+## What it's for
+
+[Git as the source of truth](/learn/platform/gitops/) showed what Flux does: controllers that keep pulling a desired state and applying it, Kustomizations for plain manifests and HelmReleases for charts, every `interval`. Every change becomes a commit, and the cluster keeps getting put back to match.
+
+Sometimes you need it to stop. Mid-incident you want to scale something by hand without Flux reverting you, or you want a release left alone while you debug it. Flux's getting-started guide describes exactly that: "Suspending updates to a kustomization allows you to directly edit objects applied from a kustomization, without your changes being reverted by the state in Git." One command does it, `flux suspend`, and `flux resume` undoes it.
+
+On tilt there's no GitRepository: Tilt applies the HelmRelease objects from your checkout, and Flux's helm-controller turns each into a Helm release. Tilt pins Flux to v2.9.5 with `FLUX_VERSION` in `tilt/lib.tilt`, and that pin has to include your CLI, because a Flux CLI won't install another release's controllers: v2.10.0 refuses `--version=v2.9.5`, and v2.9.5 refuses v2.10.0. So use a v2.9.5 CLI here. The docs quoted below are the current ones, v2.10. The commands used here, `flux suspend`, `flux resume` and `flux get helmreleases`, are the same in the v2.9.5 CLI.
+
+## How it quietly goes wrong
+
+What suspension stops, in the docs' own words (v2.10):
+
+- **HelmRelease:** "the controller will stop reconciling the HelmRelease, and changes to the resource or the Helm chart will not result in a new Helm release."
+- **Kustomization:** "When a Kustomization is suspended, new Source revisions are not applied to the cluster and drift detection/correction is paused."
+
+Nothing reconciles, so nothing rewrites the status either. The GitRepository docs say it outright for one case: if a suspended repository's stored artifact disappears, "this will not be reflected in the GitRepository's Status until it is resumed." The HelmRelease docs don't spell it out, but the same reasoning applies, and it's what you'll check below: a suspended HelmRelease's `Ready` condition describes the last release the controller made, not the spec you're looking at. Anything that reads only `Ready`, whether a dashboard, a script or a person glancing at it, sees a healthy release.
+
+Two things do give it away:
+
+- **The SUSPENDED column** in `flux get`. It's the one place in that output that says no one is acting on this.
+- **Two numbers.** For a custom resource, Kubernetes increments `metadata.generation` on every change except to its metadata or status, so in practice on every spec change. Flux records `status.observedGeneration`, the latest generation that ended in a ready state, or stalled on an error it can't recover from without a person. The Kubernetes API conventions describe the field as the generation "most recently observed by the component responsible for acting upon changes". When the two differ, the status is describing an older spec.
+
+Suspensions also outlive the incident. Flux's docs warn that writing `suspend: false` in git rules out "hot patching" a suspension with kubectl, because git would put it back. Turned round: if your git copy says nothing about `suspend`, a suspension someone set with `flux suspend` stays until someone runs `flux resume`. (That's our reading of the note: applying the file again doesn't clear a field the file never mentions.)
+
+<Callout kind="trap">
+Suspend pauses the work and freezes the report. A suspended HelmRelease keeps the `Ready` condition its last reconcile wrote, so it can read healthy for weeks while every commit since is ignored. Never read `Ready` alone: check SUSPENDED in `flux get`, or compare `metadata.generation` with `status.observedGeneration`.
+</Callout>
+
+The same shape exists one level down. The Kustomization docs describe an annotation or label, `kustomize.toolkit.fluxcd.io/reconcile: disabled`, that pauses reconciliation of a single object. Flux keeps reconciling everything around it, so the Kustomization can look busy and healthy while that one object is left as it is.
+
+## Try it
+
+<CardSort mission="tool-flux" />
+
+## Do it for real
+
+<DoItForReal id="tool-flux-real" profile="gitops">
+
+This uses Flagger's HelmRelease, which the `gitops` profile installs, because a small change to it is harmless. First the healthy picture, then suspend it:
+
+```bash
+flux get helmreleases -A
+flux suspend helmrelease flagger -n istio-system
+```
+
+In your checkout, open `helm/flagger/base/helm-release.yaml` and change the memory *request* from `32Mi` to `48Mi`. Apply it the way Tilt does (use the `docker-desktop` overlay if that's your cluster). If Tilt's `flagger` resource watches that directory, as tilt PR #16 makes it, saving the file has already applied it, and applying it again changes nothing:
+
+```bash
+kubectl apply -k ./helm/flagger/overlays/kind
+flux get helmreleases -n istio-system
+kubectl -n istio-system get helmrelease flagger -o jsonpath='{.metadata.generation} {.status.observedGeneration}{"\n"}'
+helm get values flagger -n istio-system | grep -A2 requests
+```
+
+What to expect: SUSPENDED is True, the status still describes the last release, the generation is ahead of the observed generation, and Helm still has `32Mi`. The spec changed and nothing acted on it. Now resume and check again:
+
+```bash
+flux resume helmrelease flagger -n istio-system
+kubectl -n istio-system get helmrelease flagger -o jsonpath='{.metadata.generation} {.status.observedGeneration}{"\n"}'
+helm get values flagger -n istio-system | grep -A2 requests
+```
+
+The numbers match and Helm has `48Mi`. Put the file back (`git checkout` it) and apply it again.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-flux-1"
+  q="A HelmRelease is suspended. Someone changes its values. What does helm-controller do?"
+  options={["Upgrades the release at the next interval", "Nothing: no new Helm release until it is resumed, and the old status stays", "Sets Ready to False so people notice"]}
+  answer={1}
+  explain="Flux's docs: while suspended, changes to the resource or the chart will not result in a new Helm release. Nothing rewrites the status either, so Ready still describes the last release."
+/>
+
+<Quiz
+  id="tool-flux-2"
+  q="Which check tells you whether Flux has acted on the HelmRelease spec you are looking at?"
+  options={["metadata.generation equals status.observedGeneration", "The Ready condition is True", "The release's pods are Running"]}
+  answer={0}
+  explain="generation moves with every spec change; observedGeneration is the latest one Flux reconciled to a ready or stalled state. Ready and Running can both be left over from an older spec."
+/>

@@ -1,0 +1,115 @@
+---
+title: Gateway API and the route that attached to nothing
+summary: kubectl apply says configured, yet a route whose parentRef names a Gateway nobody owns carries no traffic and gets no error, because no controller writes status for it. Learn what Gateway API is for, then read the status that proves a route is attached.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+builds_on: [network/load-balancers, kubernetes/desired-state]
+sources:
+  - title: Gateway API docs - Troubleshooting and Status (current docs, fetched 2026-10-31)
+    url: https://gateway-api.sigs.k8s.io/docs/concepts/troubleshooting/
+  - title: Gateway API docs - API overview, attaching routes to Gateways (current docs)
+    url: https://gateway-api.sigs.k8s.io/docs/concepts/api-overview/
+  - title: Gateway API docs - HTTPRoute (current docs)
+    url: https://gateway-api.sigs.k8s.io/reference/api-types/httproute/
+  - title: Gateway API v1.3.0 source - apis/v1/shared_types.go (RouteStatus, route conditions)
+    url: https://github.com/kubernetes-sigs/gateway-api/blob/v1.3.0/apis/v1/shared_types.go
+  - title: Gateway API v1.3.0 source - apis/v1/httproute_types.go (404 and 500 rules)
+    url: https://github.com/kubernetes-sigs/gateway-api/blob/v1.3.0/apis/v1/httproute_types.go
+  - title: TemplateMechanics/tilt - the shared Gateway (helm/istio/gateway/base/gateway.yaml)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/istio/gateway/base/gateway.yaml
+  - title: TemplateMechanics/tilt - Gateway API install and route check (tilt/core.tilt)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/tilt/core.tilt
+  - title: TemplateMechanics/tilt lab 02 - Route a hostname
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/02-route-a-hostname
+---
+
+Misspell one word in an HTTPRoute, the name of the Gateway it should attach to, and `kubectl apply` still prints `configured`. The API server checked that the object is well formed. It has no idea whether a Gateway by that name exists. That answer is written later, by a controller, in the route's status. For this typo, the Gateway API docs say, nothing will be written at all.
+
+## What it's for
+
+The [load balancers lesson](/learn/network/load-balancers/) showed why routing by hostname or path is a layer 7 job. Gateway API is the Kubernetes standard for describing those rules. Its objects are not built into Kubernetes: "Gateway API resources are in the gateway.networking.k8s.io API group as Custom Resource Definitions (CRDs)", so a cluster has them only if someone installs them.
+
+The API splits the job three ways, by who owns each part:
+
+- A **GatewayClass** names the implementation: the controller that will turn these objects into a working proxy. "Each GatewayClass will be handled by a single controller".
+- A **Gateway** is a set of listeners: a port, a protocol, a hostname, the TLS certificate, and which routes may attach. The cluster operator owns it.
+- An **HTTPRoute** holds the hostnames, path matches and backend Services. The application team owns it, and it lives next to the app.
+
+Attaching takes agreement from both sides. The route names the Gateway in its `parentRefs`, and at least one listener on that Gateway has to accept it, by namespace and by hostname. Then, as in [desired state](/learn/kubernetes/desired-state/), a controller works to make it true and reports back in the object's `status`.
+
+On the tilt platform, Tilt installs the Gateway API v1.3.0 standard-channel CRDs, and Istio is the implementation, through the `istio` GatewayClass. One shared Gateway, `localhost-gateway` in `istio-system`, has two listeners. The HTTPS listener on 443 serves `*.localhost` with the platform's certificate and accepts routes from every namespace. The plain HTTP listener on 80 accepts routes only from `istio-system`, and the only route there is a 301 redirect to HTTPS. A comment in tilt's `gateway.yaml` records why: an app's exact hostname is more specific than the redirect's wildcard, so with routes allowed from every namespace the app would win on port 80 and keep serving plain HTTP while the redirect sat beside it doing nothing.
+
+## How it quietly goes wrong
+
+The Gateway API docs give one rule above all others: "always check the status.conditions of the object first". They also warn that "most kubectl get commands cannot summarize them correctly", so `kubectl get httproute` shows a name and an age and tells you nothing about attachment.
+
+A route's status has one entry per parent in `status.parents`, each with conditions:
+
+- **Accepted**: the route is attached to that Gateway. When it's False, the reason says why, such as `NotAllowedByListeners` (no listener lets this namespace attach) or `NoMatchingListenerHostname`.
+- **ResolvedRefs**: every backend it points to exists and may be used. When it's False, the reason says why, such as `BackendNotFound` or `RefNotPermitted`.
+
+The trap is what happens when the parent itself is wrong. To let several implementations share a cluster, each one may only write status on objects it can trace back to a GatewayClass it owns. A route whose `parentRefs` name a Gateway that doesn't exist (a typo, or the wrong namespace) can't be traced to anyone. In the docs' words, "a Route with an invalid parentRef will have no status to indicate that". The v1.3.0 API that tilt installs says the same in the field's own documentation: parent references that cannot be resolved "will not be added to this list", and "An empty list means the route has not been attached to any Gateway."
+
+So the route sits there, valid as far as the API server cares, routing nothing. A request for its hostname reaches the Gateway and matches no attached rule. The spec says that "a HTTP 404 status code MUST be returned", which looks like an app problem rather than a routing one.
+
+Accepted being True isn't the whole answer either. A route can attach and still name a Service that doesn't exist. Then ResolvedRefs is False, and the spec says "500 status codes MUST be returned for requests that would have otherwise been routed to an invalid backend." A check that reads only Accepted passes that route.
+
+<Callout kind="trap">
+An empty `status.parents` isn't *no problems reported*. It means no controller looked. `kubectl apply` checks the object's shape; only the controller that owns the parent reports attachment, and a parent nobody owns gets no report. For every route, expect one entry per parent, with **Accepted** and **ResolvedRefs** both True. Then check that each condition's `observedGeneration` matches the route's `metadata.generation`. The docs describe that as a staleness check: if they differ, the status is out of date.
+</Callout>
+
+Tilt's own `hello-world` resource does this, rather than trusting the apply. After applying the example it reads both Accepted and ResolvedRefs from `status.parents`, retries for up to 30 seconds while the controller writes them, and fails with an error unless both say True. Until tilt PR #12 (October 2026) it read Accepted alone. A misspelt Gateway name failed that check, but going by the spec a misspelt Service name passed it, because Accepted stays True while ResolvedRefs goes False.
+
+## Try it
+
+<CardSort mission="tool-gateway-api" />
+
+## Do it for real
+
+<DoItForReal id="tool-gateway-api-real" lab="02-route-a-hostname" profile="minimal">
+
+Read the chain from GatewayClass to route on the running platform. The jsonpath and describe commands are the ones Tilt runs in its `hello-world` check.
+
+```bash
+kubectl get gatewayclass istio
+kubectl -n istio-system get gateway localhost-gateway     # PROGRAMMED should be True
+kubectl -n hello get httproute hello                      # a name and an age: no conditions
+kubectl -n hello get httproute hello -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}'
+kubectl -n hello describe httproute hello                 # Accepted and ResolvedRefs, per parent
+```
+
+Now make the typo. In `examples/hello-world/httproute.yaml`, change the parentRef's `name: localhost-gateway` to `name: localhost-gatway` and apply it, as lab 02 does:
+
+```bash
+kubectl apply -k examples/hello-world                     # "configured": the API server is satisfied
+kubectl -n hello get httproute hello -o jsonpath='{.metadata.generation} {.status.parents}'
+curl -s -o /dev/null -w '%{http_code}\n' https://hello.localhost/
+```
+
+The docs say a parent nobody owns gets no status entry, so expect no entry for `localhost-gatway`. If an entry for the old `localhost-gateway` is still there, compare its `observedGeneration` with the generation printed first: if they differ, it's stale. The request should come back 404. Tilt watches this file too, so its `hello-world` resource should turn red with its own error. That's the check doing its job.
+
+Undo it the way lab 02 does:
+
+```bash
+git checkout -- examples/hello-world/httproute.yaml
+kubectl apply -k examples/hello-world
+```
+
+</DoItForReal>
+
+<Quiz
+  id="tool-gateway-api-1"
+  q="You apply an HTTPRoute whose parentRef names a Gateway that doesn't exist. kubectl prints configured. What does the route's status.parents show?"
+  options={["One entry with Accepted set to False and a reason", "An error from the API server on the next apply", "Nothing: no controller owns that parent, so none may write status for it, and the list stays empty"]}
+  answer={2}
+  explain="Implementations may only update status on objects they can trace to their own GatewayClass. The docs: a Route with an invalid parentRef will have no status to indicate that. An empty list means not attached, not fine."
+/>
+
+<Quiz
+  id="tool-gateway-api-2"
+  q="A route shows Accepted True on its only parent, but every request to it gets a 500. Which condition do you read next?"
+  options={["ResolvedRefs: a backend it names may not exist, and the spec requires a 500 for requests routed to an invalid backend", "Programmed on the GatewayClass", "None: Accepted True means the route is working"]}
+  answer={0}
+  explain="Accepted says the route attached. ResolvedRefs says its backends exist and may be used. A route can attach and still point at a Service that isn't there, and the spec turns that into 500s rather than a status error you'd see from kubectl get."
+/>

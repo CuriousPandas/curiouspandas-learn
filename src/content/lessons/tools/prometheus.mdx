@@ -1,0 +1,133 @@
+---
+title: Prometheus and the alert that can't fire on nothing
+summary: An alert on up == 0 stays silent when its target disappears, because an expression that returns nothing fires nothing. Learn what Prometheus is for, then write the alert that notices absence.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+builds_on: [platform/observability, sre/slos]
+sources:
+  - title: Prometheus docs - Overview (3.15, fetched 2026-10-31)
+    url: https://prometheus.io/docs/introduction/overview/
+  - title: Prometheus docs - Jobs and instances (the up series)
+    url: https://prometheus.io/docs/concepts/jobs_instances/
+  - title: Prometheus docs - Alerting rules (3.15)
+    url: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+  - title: Prometheus docs - Operators (comparisons filter by default) (3.15)
+    url: https://prometheus.io/docs/prometheus/latest/querying/operators/
+  - title: Prometheus docs - Querying basics, staleness (3.15)
+    url: https://prometheus.io/docs/prometheus/latest/querying/basics/
+  - title: Prometheus docs - Functions, absent() (3.15)
+    url: https://prometheus.io/docs/prometheus/latest/querying/functions/
+  - title: Prometheus docs - Instrumentation, avoid missing metrics
+    url: https://prometheus.io/docs/practices/instrumentation/
+  - title: TemplateMechanics/tilt - Prometheus HelmRelease (kube-prometheus-stack 90.0.0)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/prometheus/helm-release.yaml
+  - title: TemplateMechanics/tilt lab 08 - The dashboard that lies
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/08-empty-dashboard
+---
+
+An alert on `up == 0` looks as if it covers *the target is down*. It covers one way of being down. When a target disappears altogether, there is no `up` series left to be 0, the expression returns nothing, and an alert built on nothing never fires. The alerts page stays green for exactly the outage you wrote it for.
+
+## What it's for
+
+In its own docs' words, "Prometheus collects and stores its metrics as time series data": numbers with a timestamp and a set of labels. It pulls them, fetching each target's metrics over HTTP on a fixed interval, and you ask questions of them in PromQL. An alerting rule is just a PromQL expression that Prometheus evaluates on a schedule.
+
+You've met the wiring already. [The dashboard that lies](/learn/platform/observability/) showed how a ServiceMonitor turns into a scrape target, and why `/targets` is the first page to open when a panel is empty. [SLOs and the error budget](/learn/sre/slos/) showed which alerts are worth waking someone for. This lesson is about what an alert expression cannot see.
+
+For every target it scrapes, Prometheus also records a series about the scrape itself. `up` is "1 if the instance is healthy, i.e. reachable, or 0 if the scrape failed."
+
+It is not a ledger. The overview is blunt: "If you need 100% accuracy, such as for per-request billing, Prometheus is not a good choice". It is built to keep answering during failures, not to keep every sample.
+
+On the tilt platform, the `observability` profile installs the kube-prometheus-stack chart, pinned at 90.0.0, as a Flux HelmRelease in the `monitoring` namespace. That brings Prometheus, the Prometheus Operator and Grafana. Prometheus keeps seven days of data, picks up every ServiceMonitor and PodMonitor in every namespace, and answers at prometheus.localhost.
+
+## How it quietly goes wrong
+
+The alerting docs define when an alert exists: "Whenever the alert expression results in one or more vector elements at a given point in time, the alert counts as active for these elements' label sets." An alert is a query that returns rows, and each row is an alert. No rows, no alert. Nothing distinguishes *no rows because all is well* from *no rows because there was nothing to look at*.
+
+Here is the obvious rule:
+
+```yaml
+- alert: HelloDown
+  expr: up{job="hello"} == 0
+  for: 5m
+```
+
+Comparison operators in PromQL don't return true or false. "By default they filter": `up == 0` keeps the series whose value is 0 and drops the rest. So the rule behaves like this:
+
+| What hello is doing | `up{job="hello"}` | `up{job="hello"} == 0` | The alert |
+|---|---|---|---|
+| Scraped fine | 1 | nothing | silent, correctly |
+| Target exists, scrape fails | 0 | one series | pending, then firing |
+| No target at all | nothing | nothing | silent, wrongly |
+
+The third row is common. It's what lab 08's broken ServiceMonitor produces, and also what you get when a Service's labels change, when the namespace is deleted, or when a config change stops selecting the target. The staleness docs say what happens to the old data: "If a target is removed, the previously retrieved time series will be marked as stale soon after removal." From then on `up{job="hello"}` returns nothing, and so does every expression built on it.
+
+<Callout kind="trap">
+`up == 0` catches a target that is there and failing. It can't catch a target that isn't there, because there is nothing left to compare with 0, and Prometheus treats an empty result as *no alert*, not as an error. Pair every *is it down?* alert with an *is it there at all?* alert. The docs name the tool for it: `absent()` is "useful for alerting on when no time series exist for a given metric name and label combination."
+</Callout>
+
+The absence check looks like this:
+
+```text
+absent(up{job="hello"})
+```
+
+It returns nothing while any `up` series for `job="hello"` exists, and a single series with the value 1 (labelled `job="hello"`) when none does. Name the labels you expect. A bare `absent(up)` returns nothing as long as *anything* in the cluster is being scraped.
+
+The same blind spot catches application metrics. The instrumentation guide warns that "Time series that are not present until something happens are difficult to deal with", and advises exporting a 0 for any series you know will exist. An error-rate alert on a counter that only appears after the first error has nothing to evaluate until then.
+
+## Try it
+
+<CardSort mission="tool-prometheus" />
+
+## Do it for real
+
+<DoItForReal id="tool-prometheus-real" lab="08-empty-dashboard" profile="observability">
+
+Lab 08's ServiceMonitor gives Prometheus a target for the hello app, and its break script takes the target away without any error. Use it to watch an alert expression go quiet.
+
+```bash
+PROFILE=observability ./scripts/platform.sh up   # stays running; use a second terminal for the rest
+kubectl apply -f labs/08-empty-dashboard/servicemonitor.yaml
+./scripts/platform.sh lab 08                     # 4/4: hello has a healthy, fresh target
+```
+
+Open https://prometheus.localhost (login admin / admin) and run each of these in the query box:
+
+```text
+up{job="hello"}
+up{job="hello"} == 0
+absent(up{job="hello"})
+```
+
+You should see 1, then nothing, then nothing. Now take the target away:
+
+```bash
+./labs/08-empty-dashboard/break.sh
+```
+
+Prometheus reloads its configuration on a timer, so give it a minute or two, then run all three again. Keep going until the first one returns nothing. The second still returns nothing: that's the alert that never fires. The third now returns `{job="hello"}` with the value 1: that's the one that notices. (Prometheus's docs say a removed target's series go stale soon after removal; lab 08's README warns old data can seem to linger. Either way, wait for the first query to come back empty.)
+
+Put it back and check:
+
+```bash
+./labs/08-empty-dashboard/fix.sh && ./scripts/platform.sh lab 08
+```
+
+</DoItForReal>
+
+<Quiz
+  id="tool-prometheus-1"
+  q="An alert rule says up{job='api'} == 0. Someone deletes the api Service, so Prometheus no longer has a target for it. What does the alert do?"
+  options={["It fires, because up is now 0", "It fires after the 5-minute lookback runs out", "Nothing: there is no up series for that job any more, so the expression returns no elements and nothing fires"]}
+  answer={2}
+  explain="up is only written for targets Prometheus is scraping. With no target there is no series to compare with 0, the comparison filters everything out, and an alert needs at least one element to be active."
+/>
+
+<Quiz
+  id="tool-prometheus-2"
+  q="Which expression returns a result when Prometheus has no target at all for job hello?"
+  options={["absent(up{job='hello'})", "up{job='hello'} == 0", "absent(up)"]}
+  answer={0}
+  explain="absent() returns a single series with the value 1 when its argument matches nothing. up == 0 needs a series to exist. absent(up) without a label matcher is satisfied by any other target in the cluster, so it stays empty."
+/>

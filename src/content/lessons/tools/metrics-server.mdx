@@ -1,0 +1,101 @@
+---
+title: metrics-server and the autoscaler that reads unknown
+summary: kubectl top can show a pod's CPU while the autoscaler on it reads unknown and never acts, because utilisation is measured against a CPU request the pod doesn't have. Learn what metrics-server is for, and what it isn't.
+minutes: 12
+xp: 35
+tiers: [browser, machine]
+builds_on: [sre/autoscaling, kubernetes/scheduling]
+sources:
+  - title: kubernetes-sigs/metrics-server - README (master, fetched 2026-10-31; chart 3.14.0 ships v0.9.0)
+    url: https://github.com/kubernetes-sigs/metrics-server
+  - title: Kubernetes docs - Resource metrics pipeline (v1.37)
+    url: https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/
+  - title: Kubernetes docs - Horizontal Pod Autoscaling (v1.37)
+    url: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/
+  - title: Kubernetes docs - HorizontalPodAutoscaler walkthrough (v1.37)
+    url: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/
+  - title: TemplateMechanics/tilt - metrics-server HelmRelease and kind overlay
+    url: https://github.com/TemplateMechanics/tilt/tree/main/helm/metrics-server
+  - title: TemplateMechanics/tilt - observability profile (metrics-server install check)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/tilt/observability.tilt
+  - title: TemplateMechanics/tilt lab 05 - Scale it
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/05-scale-it
+---
+
+`kubectl top pods` shows a pod using 40 millicores. The HorizontalPodAutoscaler on the same pod shows `<unknown>` for CPU and never scales it. Both read the same numbers from metrics-server. The difference is that `top` shows usage, while the autoscaler needs usage *as a share of the CPU request*, and this pod didn't ask for any.
+
+## What it's for
+
+metrics-server is the small add-on behind the live CPU and memory figures in Kubernetes. It collects them from each node's kubelet and serves them through the Kubernetes API as the **Metrics API**, which the Horizontal and Vertical Pod Autoscalers read and `kubectl top` prints. The Kubernetes docs call it "a reference implementation of the Metrics API". Its README advertises collecting metrics every 15 seconds.
+
+It is deliberately narrow, and its README says so in a caution box: "Metrics Server is meant only for autoscaling purposes." It shouldn't feed a monitoring system. Under *don't use Metrics Server when you need* it lists "An accurate source of resource usage metrics". For history, dashboards and alerts you want Prometheus. metrics-server is the speedometer the autoscaler reads, not the logbook.
+
+[Scaling before it hurts](/learn/sre/autoscaling/) covered what the HPA does with these numbers, and why `<unknown>` there usually means no Metrics API at all. This lesson is about the case where the Metrics API works fine and the HPA still can't use it.
+
+On the tilt platform, the `observability` profile installs metrics-server chart 3.14.0 (metrics-server v0.9.0) as a Flux HelmRelease in `kube-system`, with one replica. The README lists a requirement that kind doesn't meet out of the box: the kubelet's certificate must be signed by the cluster's certificate authority, or certificate checks must be turned off with `--kubelet-insecure-tls`. tilt's kind and Docker Desktop overlays pass that flag. Its install step then refuses to trust the pod's status alone: "Ready pods are not evidence the Metrics API works." It keeps running `kubectl top nodes` and fails the resource if that never answers.
+
+## How it quietly goes wrong
+
+Utilisation is a ratio. The HPA docs say the controller calculates "the utilization value as a percentage of the equivalent resource request" on each container, and then add the catch:
+
+> if some of the Pod's containers do not have the relevant resource request set, CPU utilization for the Pod will not be defined and the autoscaler will not take any action for that metric.
+
+Nothing is refused when you create it. The Deployment applies, the HPA applies, `kubectl top` shows real numbers, because metrics-server measures usage whether or not anything was requested. The HPA just has nothing to divide by. It shows `<unknown>` and leaves the replica count wherever it was, under any load. Note *some of the Pod's containers*: one container without a request is enough, such as a sidecar added by something else.
+
+<Callout kind="trap">
+`kubectl top` working proves the Metrics API is answering. It doesn't prove an autoscaler can use it. A CPU-utilisation HPA needs a CPU request on every container in the pod. Without one, the HPA is installed, `kubectl get hpa` shows nothing worse than `<unknown>`, and it is inert. Read the TARGETS column after you create any HPA: a percentage means it can see, and `<unknown>` means it can't.
+</Callout>
+
+The hello app in [lab 05](https://github.com/TemplateMechanics/tilt/tree/main/labs/05-scale-it) is the healthy version. It requests 10m of CPU, which is why a small load trips its 50% target.
+
+## Try it
+
+<CardSort mission="tool-metrics-server" />
+
+## Do it for real
+
+<DoItForReal id="tool-metrics-server-real" lab="05-scale-it" profile="observability">
+
+First check that the Metrics API answers, as lab 05 does, and look at hello, whose pods request CPU:
+
+```bash
+PROFILE=observability ./scripts/platform.sh up   # stays running; use a second terminal for the rest
+kubectl top nodes
+kubectl top pods -n hello
+```
+
+Now make the trap. The image is the one from the Kubernetes HPA walkthrough, but here the Deployment is created with no resource requests at all:
+
+```bash
+kubectl create namespace hpa-trap
+kubectl -n hpa-trap create deployment php-apache --image=registry.k8s.io/hpa-example
+kubectl -n hpa-trap autoscale deployment php-apache --cpu=50% --min=1 --max=3
+```
+
+Give metrics-server a minute to collect the new pod, then compare what it measures with what the autoscaler can use:
+
+```bash
+kubectl -n hpa-trap top pods                   # real numbers: usage needs no request
+kubectl -n hpa-trap get hpa php-apache         # TARGETS shows unknown against 50%
+kubectl -n hpa-trap describe hpa php-apache    # its events say why
+```
+
+On an older kubectl (the v1.32 reference, for example), the autoscale flag is `--cpu-percent=50` instead of `--cpu=50%`. Clean up with `kubectl delete namespace hpa-trap`.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-metrics-server-1"
+  q="kubectl top pods shows a pod at 40m CPU. The HPA on its Deployment shows unknown against a 50% CPU target and has never scaled. What is most likely missing?"
+  options={["metrics-server", "A higher maxReplicas", "A CPU request on one or more of the pod's containers"]}
+  answer={2}
+  explain="kubectl top working means metrics-server and the Metrics API are fine. Utilisation is usage divided by the request, so without a request on every container it is undefined and the HPA takes no action."
+/>
+
+<Quiz
+  id="tool-metrics-server-2"
+  q="A team wants a month of per-pod CPU history for capacity planning. Should they read it from metrics-server?"
+  options={["No: metrics-server is meant only for autoscaling; use a monitoring system such as Prometheus", "Yes: it collects every 15 seconds, so it has the detail", "Yes, as long as they poll kubectl top often enough"]}
+  answer={0}
+  explain="Its README says it is meant only for autoscaling, not as a source for monitoring, and not an accurate source of resource usage metrics. It serves the latest figures for autoscalers; history is a monitoring system's job."
+/>

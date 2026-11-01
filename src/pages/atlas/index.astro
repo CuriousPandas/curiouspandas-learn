@@ -2,10 +2,12 @@
 import Base from '../../layouts/Base.astro';
 import { TOOLS } from '../../data/tools.ts';
 import snapshot from '../../data/cncf-snapshot.json';
-import { curriculum } from '../../lib/curriculum.ts';
+import { curriculum, toolPaths } from '../../lib/curriculum.ts';
 
 // Link only to lessons that exist today; the rest would be 404s.
 const readyHrefs = new Set((await curriculum()).flatMap((t) => t.lessons.filter((l) => l.entry).map((l) => l.href)));
+// Only paths that passed the checker get a link.
+const paths = new Map((await toolPaths()).map((p) => [p.tool.id, p]));
 
 type Snap = { landscapeName: string | null; maturity: string | null; homepage: string | null };
 const snap = snapshot.tools as Record<string, Snap>;
@@ -57,7 +59,9 @@ const counts = Object.fromEntries(order.map((m) => [m, tools.filter((t) => t.st.
             {t.tilt
               ? <code title="Set enabled: true for this key in tilt-config.json">{t.tilt}</code>
               : <span class="pill ok">always on · {t.profile} profile</span>}
-            {t.lesson && readyHrefs.has(t.lesson) && <a href={t.lesson}>lesson →</a>}
+            {paths.has(t.id)
+              ? <a href={paths.get(t.id)!.href} data-path={t.id}>learning path ({paths.get(t.id)!.steps.length} lessons) →</a>
+              : t.lesson && readyHrefs.has(t.lesson) && <a href={t.lesson}>lesson →</a>}
           </footer>
         </article>
       ))}

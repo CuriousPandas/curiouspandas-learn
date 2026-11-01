@@ -197,6 +197,32 @@ export const TRACKS: Track[] = [
     ],
   },
   {
+    // One lesson per Tool Atlas tool: what it is for, how it quietly goes wrong,
+    // and running it for real on tilt. Each closes that tool's learning path
+    // (src/data/tools.ts). Titles here are the tool names until each is written.
+    id: 'tools', title: 'One Tool at a Time', tagline: 'The tools the tilt platform runs, one by one: what each is for, and how each quietly goes wrong.', icon: 'wrench', hue: 195,
+    lessons: [
+      { slug: 'kubernetes', title: 'A Kubernetes Service that selects nobody', status: 'ready' },
+      { slug: 'kind', title: 'kind and the Kubernetes version nobody chose', status: 'ready' },
+      { slug: 'tilt', title: 'Tilt stays green and never re-runs', status: 'ready' },
+      { slug: 'helm', title: 'Helm upgraded the chart, not its CRDs', status: 'ready' },
+      { slug: 'flux', title: 'A suspended Flux release still says Ready', status: 'ready' },
+      { slug: 'gateway-api', title: 'Gateway API and the route that attached to nothing', status: 'ready' },
+      { slug: 'istio', title: 'Istio and the mesh that still accepts plaintext', status: 'ready' },
+      { slug: 'cert-manager', title: "cert-manager and the issuer it couldn't find", status: 'ready' },
+      { slug: 'prometheus', title: "Prometheus and the alert that can't fire on nothing", status: 'ready' },
+      { slug: 'grafana', title: "Grafana and the data source that can't answer", status: 'ready' },
+      { slug: 'loki', title: 'Loki and the log line that never arrived', status: 'ready' },
+      { slug: 'tempo', title: 'Tempo and the request nobody sampled', status: 'ready' },
+      { slug: 'kiali', title: 'Kiali and the graph that only shows what was measured', status: 'ready' },
+      { slug: 'metrics-server', title: 'metrics-server and the autoscaler that reads unknown', status: 'ready' },
+      { slug: 'crossplane', title: 'Crossplane and the patch that silently did nothing', status: 'ready' },
+      { slug: 'flagger', title: 'Flagger skipped the analysis and said Succeeded', status: 'ready' },
+      { slug: 'external-secrets', title: 'External Secrets and the value that stopped updating', status: 'ready' },
+      { slug: 'cloudnative-pg', title: "CloudNativePG and the Ready replica that's behind", status: 'ready' },
+    ],
+  },
+  {
     // Flow and forecasts come first because the Flow Lab is the measuring
     // instrument the other lessons point at.
     id: 'agile', title: 'Agile, Scrum & Flow', tagline: 'What the guides actually say, what the evidence actually shows - and how to tell a team working from one performing.', icon: 'crew', hue: 60,

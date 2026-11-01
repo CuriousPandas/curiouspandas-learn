@@ -1,0 +1,106 @@
+---
+title: Tilt stays green and never re-runs
+summary: A Tilt local_resource without deps runs once at tilt up and never again. Edit the files it applies and nothing reaches the cluster, while the dashboard stays green. Find which resources watch what, and make one re-run.
+minutes: 13
+xp: 35
+tiers: [browser, machine]
+builds_on: [kubernetes/desired-state, platform/bring-it-home]
+sources:
+  - title: Tilt docs - Local Resource (Tilt v0.37)
+    url: https://docs.tilt.dev/local_resource.html
+  - title: Tilt docs - Tiltfile API reference, local_resource (Tilt v0.37)
+    url: https://docs.tilt.dev/api.html
+  - title: Tilt docs - CLI reference, tilt trigger (Tilt v0.37)
+    url: https://docs.tilt.dev/cli/tilt_trigger.html
+  - title: Tilt docs - CLI reference, tilt logs (Tilt v0.37)
+    url: https://docs.tilt.dev/cli/tilt_logs.html
+  - title: TemplateMechanics/tilt - Tiltfile and tilt/core.tilt
+    url: https://github.com/TemplateMechanics/tilt/blob/main/tilt/core.tilt
+  - title: TemplateMechanics/tilt PR #12 - deps for the minimal and observability resources
+    url: https://github.com/TemplateMechanics/tilt/pull/12
+  - title: TemplateMechanics/tilt PR #16 - deps for the gitops-tier resources
+    url: https://github.com/TemplateMechanics/tilt/pull/16
+---
+
+You edit a manifest, save, and look at the Tilt dashboard. Everything is green. The change never reached the cluster, and it won't until someone forces that resource to run or restarts Tilt, because the resource that applies that file was never told to watch it.
+
+## What it's for
+
+**Tilt** runs the inner loop of working on a cluster: it watches your files and, when one changes, rebuilds and redeploys whatever depends on it, then shows every resource's state and logs in one dashboard (`http://localhost:10350`). You describe the work in a `Tiltfile`, written in Starlark, a dialect of Python.
+
+On the tilt platform, Tilt *is* the orchestrator. `./scripts/platform.sh up` from [Run the real platform](/learn/platform/bring-it-home/) creates the kind cluster and then runs `tilt up`. The root `Tiltfile` is a short table of contents that includes one file per profile tier (`tilt/core.tilt` for `minimal`, and so on). Most of what those files define is not an image build. It's a **local_resource**: a command run on your machine, usually `kubectl apply -k` on a directory, followed by checks that it worked.
+
+Tilt also watches `tilt-config.json` with `watch_file`, which is why turning an app on in that file makes Tilt reload by itself.
+
+## How it quietly goes wrong
+
+A local resource re-runs only when one of its **deps** changes. Tilt's docs say it directly: "By default, a local resource without deps runs only once: on tilt up (and any time you change its definition in your Tiltfile)." The API reference describes `deps` as the files Tilt watches, and it "will run the cmd when they change".
+
+So the command, and the files that command applies, are two separate things. Tilt knows the first. It knows the second only if you list them in `deps`. A resource that runs `kubectl apply -k ./helm/something` with no `deps` applied that directory once, went green, and stays green whatever you do to the directory afterwards.
+
+The platform hit this more than once and wrote each one down. In `tilt/core.tilt`, the gateway resource has `deps`, with the reason beside it: edits to "the gateway, the certificate SANs or the HTTPS redirect never reached the cluster while Tilt stayed green." It was found when the live HTTPS redirect differed from the repo. `tilt/observability.tilt` has the same story for ServiceMonitor fixes that only reached clusters started after them. The same comments flag a second, smaller trap: relative `deps` paths resolve against the included file, not the repo root, so the platform builds them from `ROOT`.
+
+Finding every case took longer than fixing the first. When we first read the platform, `helm-repositories`, `cert-manager` and `istio` in the `minimal` tier and `kiali` and `metrics-server` in `observability` still applied directories that nothing watched: no `deps`, and the Tiltfile didn't load those directories itself. An edit under `helm/cert-manager/` reached the cluster only if you forced that resource to run or restarted Tilt. Tilt PR #12 (October 2026) gave them `deps`. A later pass over every profile found three more in the `gitops` tier, `flagger`, `external-secrets` and `cloudnative-pg`, and tilt PR #16 adds theirs. Some resources, such as `prometheus`, have no `deps` and are covered another way: the Tiltfile loads their directories with `kustomize()`, and the API reference says a directory passed to `kustomize()` is watched.
+
+<Callout kind="trap">
+Green on a Tilt local_resource means *the last run succeeded*, not *the cluster matches your files*. Without `deps`, the last run was at `tilt up`. Check what a resource watches before trusting it with an edit, and when it watches nothing, force it with `tilt trigger RESOURCE`, which the docs say will force a full rebuild.
+</Callout>
+
+## Try it
+
+<CardSort mission="tool-tilt" />
+
+## Do it for real
+
+<DoItForReal id="tool-tilt-real" profile="minimal">
+
+With the platform up (`./scripts/platform.sh up`) and the Tilt dashboard open at `http://localhost:10350`. The `hello-world` resource lists `examples/hello-world` in its `deps`, so start there. (If you started Tilt with a non-default `TILT_PORT`, add `--port` with that number to these two `tilt` commands.)
+
+```bash
+tilt logs hello-world
+# edit examples/hello-world/deployment.yaml: change the PODINFO_UI_MESSAGE value, then save
+tilt logs -f hello-world
+```
+
+The edit makes `hello-world` run again by itself, and `https://hello.localhost` shows your new message. Then put it back: `./scripts/platform.sh hello` and the browser check look for the original text, so they fail until you do. Saving it makes `hello-world` re-run again.
+
+For the other half, rather than hunt for a platform resource that still watches nothing, make one. This needs only Tilt, in a scratch directory, on its own port so it stays clear of the platform's Tilt:
+
+```bash
+d=$(mktemp -d) && cd "$d" && mkdir watched unwatched
+echo one > watched/value && echo one > unwatched/value
+cat > Tiltfile <<'EOF'
+local_resource('with-deps', cmd='cat watched/value', deps=['watched'])
+local_resource('no-deps', cmd='cat unwatched/value')
+EOF
+tilt up --port 10360 --stream > tilt.log 2>&1 &
+sleep 10
+echo two > watched/value && echo two > unwatched/value
+sleep 5
+tilt logs with-deps --port 10360    # ran again by itself: one, then two
+tilt logs no-deps --port 10360      # ran once: one, and nothing since
+tilt trigger no-deps --port 10360
+sleep 3
+tilt logs no-deps --port 10360      # now one, then two
+kill %1; wait; cd .. && rm -rf "$d"
+```
+
+Both resources stay green throughout. Only the logs tell them apart, and they say why each run happened: `File Changed` for `with-deps`, `CLI Trigger` for the run you forced.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-tilt-1"
+  q="A local_resource runs kubectl apply -k ./helm/app and has no deps. You edit a file in helm/app and save. What does Tilt do?"
+  options={["Nothing: without deps it ran once at tilt up and does not watch that directory", "Re-runs the command, because the command mentions helm/app", "Marks the resource red until you re-run it"]}
+  answer={0}
+  explain="Tilt watches the paths in deps, not paths that happen to appear inside the command. The resource stays green from its last run. Add deps, or use tilt trigger."
+/>
+
+<Quiz
+  id="tool-tilt-2"
+  q="Which of these proves an edit reached the cluster?"
+  options={["The resource is green in the Tilt dashboard", "You saved the file", "The resource's log shows a new run after your edit, and the live object or page shows the change"]}
+  answer={2}
+  explain="Green is the state of the last run, which may be from tilt up. A new run in tilt logs, plus the change visible in the running system, is the evidence."
+/>

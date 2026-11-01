@@ -43,7 +43,9 @@ if (answer < 0 || answer >= options.length) throw new Error(`Quiz ${id}: answer 
   .q-head { display: flex; justify-content: space-between; align-items: center; }
   .q { font-weight: 650; margin: 8px 0 12px; }
   .opts { display: grid; gap: 8px; }
-  .opt { text-align: left; font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); cursor: pointer; }
+  /* min-width and wrapping: an option quoting a long token (a traceparent
+     header) pushed past a 375 px screen in CI's wider Linux fonts. */
+  .opt { min-width: 0; overflow-wrap: anywhere; text-align: left; font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); cursor: pointer; }
   .opt:hover:not([disabled]) { border-color: var(--sky); }
   .opt.right { background: var(--bamboo-soft); border-color: var(--bamboo); font-weight: 650; }
   .opt.right::before { content: "✓ "; color: var(--bamboo); }

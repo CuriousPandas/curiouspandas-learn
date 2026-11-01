@@ -1,0 +1,81 @@
+---
+title: A Kubernetes Service that selects nobody
+summary: A Service whose selector matches no pods is a valid object. It gets an IP and a DNS name, reports no error, and sends traffic nowhere. Learn where the match is written down, and check it on a real cluster.
+minutes: 13
+xp: 35
+tiers: [browser, machine]
+builds_on: [kubernetes/desired-state, kubernetes/rollouts]
+sources:
+  - title: Kubernetes docs - Debug Services (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/
+  - title: Kubernetes docs - Service (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/services-networking/service/
+  - title: Kubernetes docs - EndpointSlices (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/
+  - title: Kubernetes docs - kubectl expose (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_expose/
+  - title: TemplateMechanics/tilt lab 01 - Deploy a service
+    url: https://github.com/TemplateMechanics/tilt/tree/main/labs/01-deploy-a-service
+---
+
+A Service with a typo in its selector is a perfectly valid object. The API server stores it, it gets a cluster IP and a DNS name, and `kubectl get svc` lists it like any other. It just sends traffic to nobody, and nothing in Kubernetes treats that as an error.
+
+## What it's for
+
+The Kubernetes trail showed you the loops. A Deployment keeps pods alive ([desired state](/learn/kubernetes/desired-state/)), the scheduler places them ([scheduling](/learn/kubernetes/scheduling/)), the kubelet restarts them ([restarts](/learn/kubernetes/restarts/)), admission can refuse them ([admission](/learn/kubernetes/admission/)), and a rollout replaces them only as new ones become Ready ([rollouts](/learn/kubernetes/rollouts/)). Every replacement pod has a new name and a new IP. Something has to give clients an address that stays put.
+
+That's a **Service**. You don't list the pods it serves. You give it a **label selector**, and in the Kubernetes docs' words the controller for that Service "continuously scans for Pods that match its selector", then updates the Service's **EndpointSlices**: the list of pod addresses traffic can actually reach. It's desired state again. The selector is the want; the EndpointSlice is what was found.
+
+Each endpoint in a slice also carries conditions. The docs say the *serving* condition, for a pod, maps to the pod's Ready condition. That's how a pod failing its readiness probe stops getting traffic without being restarted.
+
+## How it quietly goes wrong
+
+Selectors match labels exactly. Put `app.kubernetes.io/name: helo` on the Service and `hello` on the pods, and the match is simply empty. That isn't invalid. The docs describe Services with no selector at all, whose endpoints you manage yourself, so a Service that selects nothing is a state Kubernetes is built to allow. The API server has no reason to refuse it, and no controller reports it.
+
+What you see is a Service that exists, a cluster IP, a DNS name that resolves, and requests that fail. The Debug Services guide checks things in that order: does the Service exist, does it work by DNS name, and only then, does it have any EndpointSlices. Its explanation of that last step is the whole mechanism: "Inside the Kubernetes system is a control loop which evaluates the selector of every Service and saves the results into one or more EndpointSlice objects." If the `ENDPOINTS` column shows `<none>`, the guide says to check that the Service's selector really matches the pods' labels, and names the usual cause: "A common mistake is to have a typo or other error".
+
+On the tilt platform, lab 01 shows what an empty list looks like from outside. Scale `hello` to zero and the gateway answers 503, because the backend has no endpoints. A selector typo would empty the same list while every pod stayed Running. (That variant is constructed: the box below uses a second Service, so the real app keeps working.)
+
+<Callout kind="trap">
+A Service that selects no pods is valid, gets an IP and a DNS name, and reports no error. *The Service exists* and *the name resolves* prove nothing about whether a pod will answer. The proof is its EndpointSlices: `kubectl get endpointslices -l kubernetes.io/service-name=NAME`. Empty means the selector matched nothing; addresses that aren't serving mean pods that aren't Ready.
+</Callout>
+
+## Try it
+
+<CardSort mission="tool-kubernetes" />
+
+## Do it for real
+
+<DoItForReal id="tool-kubernetes-real" profile="minimal" lab="01-deploy-a-service">
+
+With the platform up on the default `minimal` profile (`./scripts/platform.sh up`). The `hello` Service selects pods labelled `app.kubernetes.io/name: hello`. Make a second Service with a one-letter typo in its selector and compare the two. The second one is extra, so `https://hello.localhost` keeps working throughout.
+
+```bash
+kubectl -n hello get pods -l app.kubernetes.io/name=hello
+kubectl -n hello get endpointslices -l kubernetes.io/service-name=hello
+kubectl -n hello expose deployment hello --name=hello-typo --port=80 --target-port=9898 --selector=app.kubernetes.io/name=helo
+kubectl -n hello get svc hello-typo
+kubectl -n hello get endpointslices -l kubernetes.io/service-name=hello-typo
+kubectl -n hello delete svc hello-typo
+./scripts/platform.sh lab 01
+```
+
+The first EndpointSlice lists the hello pod's IP. `hello-typo` gets a cluster IP of its own, and its EndpointSlice lists no addresses (or there's no slice at all), though the pod it was meant for is Running. Then lab 01 has you break the real chain one link at a time and watch *where* each break shows up.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-kubernetes-1"
+  q="A Service exists, has a cluster IP, and its DNS name resolves from inside a pod. Requests to it fail. What do you check next?"
+  options={["Restart the cluster DNS", "Read the kube-proxy logs on every node", "Its EndpointSlices: whether its selector matched any Ready pods"]}
+  answer={2}
+  explain="The Debug Services guide checks DNS before EndpointSlices for exactly this reason. A name that resolves only proves the Service exists. The EndpointSlices show whether anything is behind it."
+/>
+
+<Quiz
+  id="tool-kubernetes-2"
+  q="kubectl apply accepted a Service whose selector matches no pods. Why wasn't it refused?"
+  options={["Selecting nothing is a valid state; a controller computes the match afterwards, and an empty result is not an error", "Admission was turned off in that namespace", "Selectors are only checked when the first request arrives"]}
+  answer={0}
+  explain="Kubernetes even supports Services with no selector at all. The EndpointSlice controller keeps evaluating the selector and records what it finds, including nothing."
+/>

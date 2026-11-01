@@ -1,0 +1,122 @@
+---
+title: Crossplane and the patch that silently did nothing
+summary: In a Crossplane Composition, a patch whose source field doesn't exist is skipped by default. The composite still reports Synced and Ready, and the resource it built keeps the template's value.
+minutes: 15
+xp: 35
+tiers: [browser, machine]
+builds_on: [delivery/infrastructure-as-code, kubernetes/desired-state]
+sources:
+  - title: Crossplane docs - Function patch and transform, patch policies (v1.20; same text in v2.4)
+    url: https://docs.crossplane.io/v1.20/guides/function-patch-and-transform/
+  - title: Crossplane docs - Compositions, Resources mode deprecated (v1.20)
+    url: https://docs.crossplane.io/v1.20/concepts/compositions/
+  - title: Crossplane docs - Composite resources (v1.20)
+    url: https://docs.crossplane.io/v1.20/concepts/composite-resources/
+  - title: Crossplane docs - Managed resources, conditions and deletionPolicy (v1.20)
+    url: https://docs.crossplane.io/v1.20/concepts/managed-resources/
+  - title: Crossplane source v1.15.0 - PatchPolicy (fromFieldPath defaults to Optional)
+    url: https://github.com/crossplane/crossplane/blob/v1.15.0/apis/apiextensions/v1/composition_patches.go
+  - title: TemplateMechanics/tilt - Crossplane HelmRelease (chart 1.15.0)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/crossplane/helm-release.yaml
+  - title: TemplateMechanics/tilt - DevApplication XRD and Composition
+    url: https://github.com/TemplateMechanics/tilt/tree/main/helm/crossplane/compositions
+  - title: TemplateMechanics/tilt - Crossplane integration notes
+    url: https://github.com/TemplateMechanics/tilt/blob/main/docs/CROSSPLANE-INTEGRATION.md
+---
+
+A platform team misspells one field path in a Composition. Every application built from it still comes up. Every composite reports SYNCED `True` and READY `True`. And every one of them is quietly using the template's default instead of the value its owner asked for. By default, Crossplane treats a patch whose source field doesn't exist as nothing to do, not as an error.
+
+## What it's for
+
+[Plan, apply, drift](/learn/delivery/infrastructure-as-code/) wrote infrastructure down as code. Crossplane runs that code as a Kubernetes [controller that keeps checking](/learn/kubernetes/desired-state/). It also lets a platform team define its own API, so a developer can ask for *an application* or *a database* and never see the dozen resources behind it.
+
+The pieces:
+
+- A **CompositeResourceDefinition** (XRD) defines the new API: its kind and the fields it accepts.
+- A **Composition** says what to build for one request: a list of resource templates, plus **patches** that copy values from the request into those templates.
+- **Providers** do the building, by talking to a cloud API, Helm or the Kubernetes API.
+- A **composite resource** (XR) is one request. A **claim** is the namespaced handle a developer creates for it.
+
+On tilt, the `gitops` profile installs Crossplane chart 1.15.0 as a Flux HelmRelease in `crossplane-system`, with two providers, provider-helm v0.15.0 and provider-kubernetes v0.13.0. One XRD, `xdevapplications.devplatform.systechs.io`, offers a claim kind called **DevApplication**. Its Composition, `devapplication`, builds four things for each app: a Namespace, a Flux HelmRelease, a Gateway API HTTPRoute and a ServiceMonitor. Each is wrapped in a provider-kubernetes `Object`. The DevApplications in `apps/` (harbor, jenkins, langfuse, qdrant, localstack) are switched on by `crossplane_apps` keys in `tilt-config.json`, and all of them are off by default.
+
+That Composition uses the older **Resources** mode, with patches written into the Composition itself. The v1.20 docs are blunt: "The Resources mode is deprecated, and you shouldn't use it." Current Crossplane (v2.4) does the same job with a function, function-patch-and-transform. The patch rules below are the same in both.
+
+## How it quietly goes wrong
+
+A patch like this copies a field from the request into a template:
+
+```yaml
+- type: FromCompositeFieldPath
+  fromFieldPath: spec.monitoring.metricsPath
+  toFieldPath: spec.forProvider.manifest.spec.endpoints[0].path
+```
+
+What if `spec.monitoring.metricsPath` isn't there? Each patch has a policy, and in Crossplane 1.15.0 the API's own comment says: "The default is 'Optional', which means the patch will be a no-op if the specified fromFieldPath does not exist." The current docs say the same: "With fromFieldPath: Optional Crossplane ignores a patch if the fromFieldPath doesn't exist."
+
+That default is useful. It's how a template supplies a default value: leave the field out, and the base value stays. But Crossplane can't tell *left out* from *misspelled*. Write `spec.monitoring.metricPath` in that patch and no request will ever have that field. The patch never runs, and every ServiceMonitor keeps the template's `/metrics`, whatever the app asked for. Nothing fails. SYNCED reports that the reconcile worked, and READY that the composed resources are ready. The docs define the managed-resource reason `ReconcileSuccess` like this: it "indicates the Provider created and is monitoring the managed resource." *Created* isn't the same as *with the values you meant*.
+
+<Callout kind="trap">
+A patch whose `fromFieldPath` doesn't exist is skipped by default, with no error and no event to say it was. A misspelled path, or a field the request didn't set, leaves the template's value in place, while the composite reports SYNCED `True` and READY `True`. On any patch that must take effect, set `policy.fromFieldPath: Required`. The docs: "With fromFieldPath: Required the composite resource produces an error if the fromFieldPath doesn't exist."
+</Callout>
+
+There's a second way an API can accept a setting and ignore it: a field in the XRD that no patch reads at all. Tilt's Composition has comments warning against exactly this. Without the `dataplaneMode` patch, one says, the field would exist and change nothing. Reading the repo's XRD and Composition (we read the files; we didn't run this on a cluster), seven DevApplication fields have no patch reading them. They are `ingress.enabled`, `ingress.alternativeDomains`, `monitoring.enabled`, `monitoring.metrics`, `monitoring.logs`, `monitoring.traces` and `monitoring.metricsPort`. Nothing in the Composition leaves a resource out based on a field. So `ingress.enabled: false` is accepted, and the app gets an HTTPRoute anyway. Since tilt PR #12 (October 2026) the XRD says so itself: each of those fields' descriptions now begins "Not read by the Composition: setting it changes nothing." That warns anyone reading the schema, but the API server still accepts the field. The check below lets you see this for yourself.
+
+Removing a resource has a default worth knowing too. A managed resource's `deletionPolicy` is `Delete` by default. `Orphan` means: "Leave the external resource when deleting the managed resource." That's useful for a database you want to outlive its claim. It's also how a cloud bill outlives the project that ran it up.
+
+## Try it
+
+<CardSort mission="tool-crossplane" />
+
+## Do it for real
+
+<DoItForReal id="tool-crossplane-real" profile="gitops">
+
+Bring up the `gitops` profile, then check that the machinery is healthy:
+
+```bash
+PROFILE=gitops ./scripts/platform.sh up      # stays running; use a second terminal
+kubectl get providers.pkg.crossplane.io      # provider-helm, provider-kubernetes: HEALTHY True
+kubectl get xrd                              # xdevapplications.devplatform.systechs.io: ESTABLISHED, OFFERED True
+kubectl get composition                      # devapplication
+```
+
+Now compare what the API accepts with what the Composition reads. First, every field a patch copies from the request:
+
+```bash
+kubectl get composition devapplication -o yaml | grep -o 'fromFieldPath: spec[^ ]*' | sort -u
+```
+
+Then the fields a DevApplication is allowed to set, for two of its sections:
+
+```bash
+kubectl explain devapplication.spec.ingress
+kubectl explain devapplication.spec.monitoring
+```
+
+Any field in the second list that isn't in the first is accepted and ignored. You can set it, and the Composition never reads it. Of the six `monitoring` fields, only `metricsPath` is read.
+
+To see a composite's own status, enable one entry under `crossplane_apps` in `tilt-config.json` (qdrant asks for a 10 GiB volume and up to 2 GiB of memory). Then:
+
+```bash
+kubectl get devapplication -A                # the claims, SYNCED and READY
+kubectl get composite                        # the composite resources behind them
+kubectl get objects.kubernetes.crossplane.io # the composed Objects: Namespace, HelmRelease, HTTPRoute, ServiceMonitor
+```
+
+</DoItForReal>
+
+<Quiz
+  id="tool-crossplane-1"
+  q="A Composition patch reads fromFieldPath spec.size and sets no policy. A request arrives without spec.size. What does Crossplane do with that patch?"
+  options={["Skips it, so the template's base value stays", "Fails the composite resource with an error", "Writes an empty value into the target field"]}
+  answer={0}
+  explain="The default policy is Optional: a missing source field makes the patch a no-op. That's how templates supply defaults, and also why a misspelled path fails silently. Set policy fromFieldPath Required to make it an error."
+/>
+
+<Quiz
+  id="tool-crossplane-2"
+  q="Every composite built from a Composition shows SYNCED True and READY True. Does that prove every patch was applied?"
+  options={["Yes: Synced means every field was copied across", "No: a skipped Optional patch isn't an error, so it changes neither Synced nor Ready", "Yes, once the providers also report Healthy"]}
+  answer={1}
+  explain="Synced says the reconcile worked and Ready says the composed resources are ready. A patch skipped under the Optional default affects neither. Check the composed resources' actual values, or make the patches that matter Required."
+/>

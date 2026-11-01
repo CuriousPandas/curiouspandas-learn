@@ -1,0 +1,109 @@
+---
+title: Helm upgraded the chart, not its CRDs
+summary: A helm upgrade can succeed, bump the revision and run the new controller while the CRDs in the chart's crds/ directory stay exactly as first installed. Find which releases on tilt opt in to replacing them, and how to check the ones that don't.
+minutes: 14
+xp: 35
+tiers: [browser, machine]
+builds_on: [kubernetes/desired-state, platform/gitops]
+sources:
+  - title: Helm docs - Charts (Custom Resource Definitions, Limitations on CRDs), version 4.3.1
+    url: https://helm.sh/docs/topics/charts/
+  - title: Helm docs - Best practices, Custom Resource Definitions, version 4.3.1
+    url: https://helm.sh/docs/chart_best_practices/custom_resource_definitions/
+  - title: Helm docs - helm upgrade, version 4.3.1
+    url: https://helm.sh/docs/helm/helm_upgrade/
+  - title: Helm docs - helm get manifest, version 4.3.1
+    url: https://helm.sh/docs/helm/helm_get_manifest/
+  - title: Helm docs - helm show crds, version 4.3.1
+    url: https://helm.sh/docs/helm/helm_show_crds/
+  - title: Flux docs - HelmReleases (release name, storage namespace, lifecycle of CRDs), v2.10
+    url: https://fluxcd.io/flux/components/helm/helmreleases/
+  - title: Kubernetes docs - Extend the Kubernetes API with CustomResourceDefinitions (field pruning)
+    url: https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/
+  - title: Flagger chart README, v1.45.0 - Installing the Chart
+    url: https://github.com/fluxcd/flagger/blob/v1.45.0/charts/flagger/README.md
+  - title: kube-prometheus-stack README - Upgrading Chart (main branch, October 2026)
+    url: https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/README.md
+  - title: TemplateMechanics/tilt - helm/flagger/base/helm-release.yaml
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/flagger/base/helm-release.yaml
+---
+
+Most of what Helm installs, Helm can change later. One kind of object it deliberately won't touch again: the CustomResourceDefinitions a chart keeps in its `crds/` directory. The upgrade reports success, the revision number goes up, the operator's new version starts, and the API it serves is still the one you installed first.
+
+## What it's for
+
+A real application is rarely one manifest. It's a Deployment, a Service, some RBAC, a ConfigMap, perhaps a dozen objects that have to agree with each other. A **chart** packages them as templates, with a `values.yaml` of defaults. Installing a chart makes a **release**. `helm upgrade` moves that release to a new chart version or new values, which you pass with `--values` or `--set` (the right-most one wins when two set the same key). Each upgrade is a new revision you can inspect or roll back to.
+
+It's the idea from [Desired state and self-healing](/learn/kubernetes/desired-state/), packaged and versioned: you say which chart and which values, Helm works out the objects.
+
+On tilt you rarely type `helm` yourself. As [Git as the source of truth](/learn/platform/gitops/) showed, Flux's helm-controller runs Helm for every HelmRelease. What it makes are ordinary Helm releases: by default the release is named after the HelmRelease and its records are stored in the HelmRelease's namespace, so `helm list` and `helm get` can read them.
+
+Operators such as Flagger, cert-manager and the Prometheus operator also bring new kinds of object. A **CRD** is how the API server learns a new kind, such as Flagger's `Canary`, and it carries that kind's schema: which fields a Canary may have.
+
+## How it quietly goes wrong
+
+Helm handles CRDs differently from everything else in a chart. The files in `crds/` are not templated, and they are installed before the rest of the chart. The Helm docs explain why it's cautious: "Unlike most objects in Kubernetes, CRDs are installed globally." Then they list the limitations (docs version 4.3.1):
+
+- **Never reinstalled.** "If Helm determines that the CRDs in the crds/ directory are already present (regardless of version), Helm will not attempt to install or upgrade."
+- **Not on upgrade.** "CRDs are never installed on upgrade or rollback. Helm will only create CRDs on installation operations."
+- **Never deleted**, because "Deleting a CRD automatically deletes all of the CRD's contents across all namespaces in the cluster."
+
+The best-practices page is blunt: "There is no support at this time for upgrading or deleting CRDs using Helm." It calls this a deliberate choice, made "due to the danger for unintentional data loss". (The Charts page carries a notice that it has not yet been fully updated for Helm 4. We found no change to these rules in the Helm 4 changelog.)
+
+So picture an operator whose chart version 1.3 adds a new field to its custom resource (a constructed example; the behaviour around it is documented). You upgrade from 1.2. The 1.3 controller runs. The CRD still has the 1.2 schema, which doesn't know the field. Kubernetes' documented behaviour for a field the schema doesn't define: "the unknown field is pruned (removed) before being persisted." `kubectl` checks for unknown fields first and rejects the object, which is at least loud. A client that doesn't check gets the field dropped without a word, and the option you set is simply not there when the controller reads it.
+
+Chart authors know. Flagger's own chart README installs its CRDs with a separate `kubectl apply` before `helm install`. The kube-prometheus-stack README says: "With Helm v3, CRDs created by this chart are not updated by default and should be manually updated."
+
+Something other than `helm upgrade` has to own them. Either apply the CRDs yourself as part of every upgrade, or use a tool that is allowed to. Flux's HelmRelease has a CRD policy for install and for upgrade: `Skip`, `Create` or `CreateReplace`. The default is `Create`: "Create CRDs if they do not exist, but do not upgrade or delete them." That is Helm's behaviour again. Only `CreateReplace` will "update (replace) existing ones".
+
+<Callout kind="trap">
+A green `helm upgrade` tells you the release moved. It says nothing about the CRDs in `crds/`: Helm installs those once, then leaves them alone whatever version the chart now carries. A Flux HelmRelease with no `upgrade.crds` set behaves the same way. Before trusting an operator upgrade, compare the live CRD with the chart's, or make sure something that is allowed to replace CRDs owns them.
+</Callout>
+
+<Callout kind="real">
+Of the 31 HelmRelease manifests under tilt's `helm/` directory, 4 set `upgrade.crds: CreateReplace`: Flagger, Istio's base chart, External Secrets and CloudNativePG. The other 27 use the default. Not all of those ship CRDs in `crds/`, and a CRD shipped as an ordinary template is just another manifest to Helm. But one of them is kube-prometheus-stack, pinned at 90.0.0, whose README is quoted above. Before raising that pin, check its CRDs.
+</Callout>
+
+## Try it
+
+<CardSort mission="tool-helm" />
+
+## Do it for real
+
+<DoItForReal id="tool-helm-real" profile="gitops">
+
+Flagger comes with the `gitops` profile (`PROFILE=gitops ./scripts/platform.sh up`). Flux installed it as a Helm release called `flagger` in `istio-system`. First, see the release and which HelmReleases are allowed to replace CRDs on upgrade (`<none>` means the default, `Create`):
+
+```bash
+helm list -n istio-system
+kubectl get helmrelease -A -o custom-columns='NAME:.metadata.name,INSTALL_CRDS:.spec.install.crds,UPGRADE_CRDS:.spec.upgrade.crds'
+```
+
+Now count the CRDs inside the release, and inside the chart it came from:
+
+```bash
+helm get manifest flagger -n istio-system | grep -c 'kind: CustomResourceDefinition'
+helm repo add flagger https://flagger.app
+helm show crds flagger/flagger --version 1.45.0 | grep -c 'kind: CustomResourceDefinition'
+kubectl get crd canaries.flagger.app metrictemplates.flagger.app alertproviders.flagger.app
+```
+
+What to expect: the release's manifest holds no CRDs, the chart's `crds/` holds three, and all three exist in the cluster. They were installed beside the release, not as part of it, which is why `helm upgrade` leaves them alone. On tilt it's Flux's `CreateReplace` that keeps them current. `helm repo remove flagger` undoes the repo you added.
+
+</DoItForReal>
+
+<Quiz
+  id="tool-helm-1"
+  q="You helm upgrade an operator from chart 1.2 to 1.3. The 1.3 chart's crds/ directory has a changed CRD. The upgrade succeeds. What state is the CRD in?"
+  options={["Replaced with the 1.3 version, like every other object", "Rolled back, because the upgrade touched a CRD", "Still the version first installed: Helm only creates CRDs on install"]}
+  answer={2}
+  explain="Helm's docs: CRDs are never installed on upgrade or rollback, and if they are already present, regardless of version, Helm will not attempt to install or upgrade them."
+/>
+
+<Quiz
+  id="tool-helm-2"
+  q="A Flux HelmRelease sets nothing under spec.upgrade.crds. Its chart ships a newer CRD in crds/. What does Flux do on upgrade?"
+  options={["Replaces the CRD, because Flux manages CRDs by default", "Nothing to existing CRDs: the default policy, Create, only creates missing ones", "Deletes and recreates the CRD"]}
+  answer={1}
+  explain="Flux's default CRD policy is Create: create CRDs if they do not exist, but do not upgrade or delete them. Set CreateReplace to opt in to replacing them."
+/>
