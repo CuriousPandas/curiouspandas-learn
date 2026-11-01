@@ -1609,6 +1609,45 @@ await scenario('shadow-bench', '/learn/change/prove-it-in-production/', async (p
   await expectText(page, `${r} .m-debrief`, /compared with its side effects stubbed/);
 });
 
+await scenario('code-lab', '/learn/algorithms/counting-steps/', async (page) => {
+  const r = '[data-codelab]';
+  await page.locator(r).first().scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /Finished in \d+ steps/);
+  await expectText(page, `${r} [data-out]`, /True\s+False/);
+  // The learner's edit must never sit beside output from the old code unmarked.
+  await page.locator(`${r} [data-src]`).first().pressSequentially(' ');
+  await expectText(page, `${r} [data-status]`, /since this ran/);
+  await page.click(`${r} [data-reset]`);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /quadratic/);
+  await expectText(page, `${r} [data-growth-rows]`, /2x the input, [34]\.\dx the work/);
+  // Stepping shows the line about to run and the call's own frame.
+  await page.click(`${r} [data-step]`);
+  await expectText(page, `${r} [data-status]`, /line about to run/);
+  for (let i = 0; i < 6; i++) await page.click(`${r} [data-step]`);
+  await expectText(page, `${r} [data-vars]`, /has_duplicate\(\)[\s\S]*items/);
+  const at = await page.locator(`${r} [data-listing] li.at`).count();
+  if (at !== 1) throw new Error(`stepper highlights ${at} lines`);
+  await page.click(`${r} [data-edit-btn]`);
+  const fixed = 'def has_duplicate(items):\n    seen = set()\n    for x in items:\n        if x in seen:\n            return True\n        seen.add(x)\n    return False\n';
+  await page.locator(`${r} [data-src]`).first().fill(fixed);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /linear/);
+  await expectText(page, `${r} .m-debrief`, /quadruples the work/);
+  // Loud limits: an endless loop is stopped and named, not reported as finished.
+  await page.locator(`${r} [data-src]`).first().fill('while True:\n    pass\n');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /Stopped at [\d,]+ steps/, 30000);
+  await page.locator(`${r} [data-src]`).first().fill('import math\n');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /Not your bug: real Python has 'import'/);
+  await page.locator(`${r} [data-src]`).first().fill('print(1)\nprint(1 / 0)\n');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /ZeroDivisionError on line 2/);
+  await expectText(page, `${r} [data-out]`, /^1\s*$/);
+});
+
 await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {
   const r = '[data-strangler]';
   await page.locator(r).scrollIntoViewIfNeeded();
