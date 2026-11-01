@@ -153,7 +153,24 @@ export function builtins(vm: PyProgram): Map<string, Val> {
     argc('sum', a, 1, 2);
     let t: Val = a[1] ?? 0n;
     if (typeof t === 'string') raise('TypeError', "sum() can't sum strings [use ''.join(seq) instead]");
-    for (const x of vm.toList(a[0])) { vm.charge(1); t = binop('+', t, x); }
+    // Python 3.12 made sum() of floats compensated (Neumaier), so sum([0.1] * 10)
+    // is 1.0 there and 0.9999999999999999 on 3.11. Without this the sandbox would
+    // teach the old answer. Ints met along the way are added uncompensated, as CPython does.
+    let c = 0;
+    for (const x of vm.toList(a[0])) {
+      vm.charge(1);
+      if (typeof t === 'number' && typeof x === 'number') {
+        const r: number = t + x;
+        c += Math.abs(t) >= Math.abs(x) ? (t - r) + x : (x - r) + t;
+        t = r;
+      } else if (typeof t === 'number' && (typeof x === 'bigint' || typeof x === 'boolean')) {
+        t += toFloat(typeof x === 'boolean' ? (x ? 1n : 0n) : x);
+      } else {
+        if (typeof t === 'number' && c !== 0 && Number.isFinite(c)) { t += c; c = 0; }
+        t = binop('+', t, x);
+      }
+    }
+    if (typeof t === 'number' && c !== 0 && Number.isFinite(c)) t += c;
     return t;
   });
   const sortItems = (items: Val[], kw: Map<string, Val>) => {

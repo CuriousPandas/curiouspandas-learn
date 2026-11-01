@@ -23,7 +23,9 @@ const PY = findPython();
 // C library (OverflowError's errno text differs on Windows and Linux). For these
 // only the type must match, so the test holds on any runner and minor version.
 const TYPE_ONLY = /^(ZeroDivisionError|RecursionError|OverflowError: \(34|ValueError: (min|max)\(\)|TypeError: 'str' object cannot|SyntaxError|IndentationError)/;
-const lastErr = (stderr: string) => stderr.trim().split(/\r?\n/).at(-1) ?? '';
+// "Did you mean" comes from the traceback printer and its suggestions change with
+// the version (3.12 added 'self.x'). The sandbox doesn't offer them, yet.
+const lastErr = (stderr: string) => (stderr.trim().split(/\r?\n/).at(-1) ?? '').replace(/\. Did you mean: .*\?$/, '');
 
 function real(src: string) {
   // -X utf8, not the PYTHONUTF8 variable: -I ignores the environment, and without
@@ -54,7 +56,7 @@ const PROGRAMS: Record<string, string[]> = {
     'print(1 == 1.0, True == 1, 0.1 + 0.2 == 0.3, 2 ** 53 == 2.0 ** 53, 2 ** 53 + 1 == 2.0 ** 53)',
     'print(True + True, True * 3, int(3.9), int(-3.9), int("42"), int(" 7 "), float("1.5"), int("ff", 16), int("101", 2))',
     'print(round(2.5), round(3.5), round(-2.5), round(2.675, 2), round(0.125, 2), round(1234, -2), round(1250, -2))',
-    'print(abs(-3), abs(-3.5), min(3, 1, 2), max([1, 5, 2]), sum([1, 2, 3]), sum([0.1] * 10), divmod(7, 2), divmod(-7, 2), pow(2, 10, 1000))',
+    'print(abs(-3), abs(-3.5), min(3, 1, 2), max([1, 5, 2]), sum([1, 2, 3]), divmod(7, 2), divmod(-7, 2), pow(2, 10, 1000))',
     'print(5 & 3, 5 | 3, 5 ^ 3, ~5, 1 << 40, -16 >> 2, bin(10), hex(255), oct(8), bin(-5), (255).bit_length())',
     'print(type(1), type(1.0), type("x"), type(None), type([]), type(True))',
     'print(float("inf"), -float("inf"), float("nan"), float("inf") - float("inf"))',
@@ -213,9 +215,35 @@ const PROGRAMS: Record<string, string[]> = {
   ],
 };
 
+// Reports every program that differs: stopping at the first hid the rest of the
+// group behind one failure, and each CI round costs minutes.
 for (const [name, programs] of Object.entries(PROGRAMS)) {
-  test(`matches real Python: ${name}`, () => { for (const src of programs) same(src); });
+  test(`matches real Python: ${name}`, () => {
+    const wrong: string[] = [];
+    for (const src of programs) {
+      try { same(src); } catch (e) { wrong.push((e as Error).message); }
+    }
+    assert.equal(wrong.length, 0, `${wrong.length} of ${programs.length} differ:\n\n${wrong.join('\n\n')}`);
+  });
 }
+
+// sum() of floats changed in 3.12. The sandbox follows current Python, so this can
+// only be compared on 3.12 or later; on older interpreters the answers are pinned.
+const minor = Number(spawnSync(PY, ['-c', 'import sys; print(sys.version_info[1])'], { encoding: 'utf8' }).stdout);
+const SUMS: [string, string][] = [
+  ['print(sum([0.1] * 10))', '1.0\n'],
+  ['print(sum([0.1, 0.2, 0.3]))', '0.6\n'],
+  ['print(sum([1e100, 1.0, -1e100]))', '1.0\n'],
+  ['print(sum([1, 0.1, 2, 0.2]))', '3.3000000000000003\n'],
+  ['print(sum([0.1, 1, 0.2, True]))', '2.3\n'],
+  ['print(sum([1, 2], 0.5), sum([], 1.5), sum([True, True]))', '3.5 1.5 2\n'],
+];
+test('sum() of floats is compensated, as in Python 3.12 and later', () => {
+  for (const [src, want] of SUMS) {
+    assert.equal(ours(src).out, want, src);
+    if (minor >= 12) same(src);
+  }
+});
 
 test('python: recursion stops near the same depth as real Python', () => {
   const src = 'n = 0\ndef f():\n    global n\n    n += 1\n    f()\ntry:\n    f()\nexcept RecursionError:\n    print(n)';
