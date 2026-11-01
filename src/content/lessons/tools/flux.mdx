@@ -32,7 +32,7 @@ Flux has an off switch for each object it reconciles, and it's meant to be used:
 
 Sometimes you need it to stop. Mid-incident you want to scale something by hand without Flux reverting you, or you want a release left alone while you debug it. Flux's getting-started guide describes exactly that: "Suspending updates to a kustomization allows you to directly edit objects applied from a kustomization, without your changes being reverted by the state in Git." One command does it, `flux suspend`, and `flux resume` undoes it.
 
-On tilt there's no GitRepository: Tilt applies the HelmRelease objects from your checkout, and Flux's helm-controller turns each into a Helm release. Tilt runs `flux install` with whatever Flux CLI you have, so your Flux version is your CLI's. These docs describe v2.10.
+On tilt there's no GitRepository: Tilt applies the HelmRelease objects from your checkout, and Flux's helm-controller turns each into a Helm release. Tilt pins Flux to v2.9.5 with `FLUX_VERSION` in `tilt/lib.tilt`, and that pin has to include your CLI, because a Flux CLI won't install another release's controllers: v2.10.0 refuses `--version=v2.9.5`, and v2.9.5 refuses v2.10.0. So use a v2.9.5 CLI here. The docs quoted below are the current ones, v2.10. The commands used here, `flux suspend`, `flux resume` and `flux get helmreleases`, are the same in the v2.9.5 CLI.
 
 ## How it quietly goes wrong
 
@@ -71,7 +71,7 @@ flux get helmreleases -A
 flux suspend helmrelease flagger -n istio-system
 ```
 
-In your checkout, open `helm/flagger/base/helm-release.yaml` and change the memory *request* from `32Mi` to `48Mi`. Apply it the way Tilt does (use the `docker-desktop` overlay if that's your cluster):
+In your checkout, open `helm/flagger/base/helm-release.yaml` and change the memory *request* from `32Mi` to `48Mi`. Apply it the way Tilt does (use the `docker-desktop` overlay if that's your cluster). If Tilt's `flagger` resource watches that directory, as tilt PR #16 makes it, saving the file has already applied it, and applying it again changes nothing:
 
 ```bash
 kubectl apply -k ./helm/flagger/overlays/kind

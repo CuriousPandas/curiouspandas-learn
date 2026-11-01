@@ -35,7 +35,7 @@ That default moves with kind releases, and each release's notes name it:
 - kind **v0.20.0** (June 2023): the default node image is Kubernetes `v1.27.3`.
 - kind **v0.33.0** (August 2026): the release "defaults to Kubernetes 1.37.0".
 
-The tilt platform's `kind/cluster.yaml` sets no `image`. Its README's prerequisites table asks for kind `0.20+` and says the cluster runs Kubernetes 1.36. Both of those releases satisfy `0.20+`, and neither gives 1.36. The platform's own `student-check.sh` admits it in a comment: "kind/cluster.yaml pins no node image, so the version is whatever the installed kind defaults to."
+The tilt platform was an example of exactly this until October 2026. Its `kind/cluster.yaml` set no `image`, and its README's prerequisites table asked for kind `0.20+` and said the cluster runs Kubernetes 1.36. Both of those releases satisfy `0.20+`, and neither gives 1.36. The platform's own `student-check.sh` admitted it in a comment: "kind/cluster.yaml pins no node image, so the version is whatever the installed kind defaults to." Tilt PR #12 pinned every node to `kindest/node:v1.36.1` with its `@sha256` digest, kind v0.32.0's image for that version, and the README now asks for kind 0.32+.
 
 Nothing fails at create time. The first symptom is usually the version-skew warning from [Run the real platform](/learn/platform/bring-it-home/), on every command, because kubectl is supposed to be within one minor version of the cluster. Later it can be an API or a default that behaves differently from the version the docs or labs assumed (that last part is a general point about Kubernetes versions, not something we measured here).
 
@@ -62,7 +62,7 @@ kubectl --context kind-tiltdev get nodes -o wide
 ./scripts/student-check.sh
 ```
 
-`kind version` names your kind release. The `VERSION` column of `get nodes` is the Kubernetes version that release defaulted to. Find your release on the kind releases page, and its notes will list the same default. `student-check.sh` compares that with your kubectl.
+`kind version` names your kind release. The `VERSION` column of `get nodes` is the Kubernetes version of the node image. With the pin it reads `v1.36.1` whichever kind you run. Find your release on the kind releases page: unless it's v0.32.0, its notes list a different default, which is what you'd have got without the pin. A cluster keeps the image it was created with, so if yours predates the pin it shows whatever your kind defaulted to then, until a `reset`. `student-check.sh` compares the cluster's version with your kubectl.
 
 Optional, and separate from the platform: build a throwaway cluster pinned to an image of your choosing. Pick an image line, digest included, from *your* kind version's release notes.
 

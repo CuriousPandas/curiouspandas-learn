@@ -59,7 +59,7 @@ Accepted being True isn't the whole answer either. A route can attach and still 
 An empty `status.parents` isn't *no problems reported*. It means no controller looked. `kubectl apply` checks the object's shape; only the controller that owns the parent reports attachment, and a parent nobody owns gets no report. For every route, expect one entry per parent, with **Accepted** and **ResolvedRefs** both True. Then check that each condition's `observedGeneration` matches the route's `metadata.generation`. The docs describe that as a staleness check: if they differ, the status is out of date.
 </Callout>
 
-Tilt's own `hello-world` resource does the first half of this. After applying the example it reads the Accepted condition from `status.parents` and fails with an error if it doesn't say True, rather than trusting the apply. A misspelt Gateway name fails that check. Going by the spec, a misspelt Service name would pass it, because Accepted stays True while ResolvedRefs goes False.
+Tilt's own `hello-world` resource does this, rather than trusting the apply. After applying the example it reads both Accepted and ResolvedRefs from `status.parents`, retries for up to 30 seconds while the controller writes them, and fails with an error unless both say True. Until tilt PR #12 (October 2026) it read Accepted alone. A misspelt Gateway name failed that check, but going by the spec a misspelt Service name passed it, because Accepted stays True while ResolvedRefs goes False.
 
 ## Try it
 

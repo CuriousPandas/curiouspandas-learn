@@ -16,6 +16,10 @@ sources:
     url: https://docs.tilt.dev/cli/tilt_logs.html
   - title: TemplateMechanics/tilt - Tiltfile and tilt/core.tilt
     url: https://github.com/TemplateMechanics/tilt/blob/main/tilt/core.tilt
+  - title: TemplateMechanics/tilt PR #12 - deps for the minimal and observability resources
+    url: https://github.com/TemplateMechanics/tilt/pull/12
+  - title: TemplateMechanics/tilt PR #16 - deps for the gitops-tier resources
+    url: https://github.com/TemplateMechanics/tilt/pull/16
 ---
 
 You edit a manifest, save, and look at the Tilt dashboard. Everything is green. The change never reached the cluster, and it won't until someone forces that resource to run or restarts Tilt, because the resource that applies that file was never told to watch it.
@@ -34,9 +38,9 @@ A local resource re-runs only when one of its **deps** changes. Tilt's docs say 
 
 So the command, and the files that command applies, are two separate things. Tilt knows the first. It knows the second only if you list them in `deps`. A resource that runs `kubectl apply -k ./helm/something` with no `deps` applied that directory once, went green, and stays green whatever you do to the directory afterwards.
 
-The platform hit this twice and wrote down both. In `tilt/core.tilt`, the gateway resource now has `deps`, with the reason beside it: edits to "the gateway, the certificate SANs or the HTTPS redirect never reached the cluster while Tilt stayed green." It was found when the live HTTPS redirect differed from the repo. `tilt/observability.tilt` has the same story for ServiceMonitor fixes that only reached clusters started after them. The same comments flag a second, smaller trap: relative `deps` paths resolve against the included file, not the repo root, so the platform builds them from `ROOT`.
+The platform hit this more than once and wrote each one down. In `tilt/core.tilt`, the gateway resource has `deps`, with the reason beside it: edits to "the gateway, the certificate SANs or the HTTPS redirect never reached the cluster while Tilt stayed green." It was found when the live HTTPS redirect differed from the repo. `tilt/observability.tilt` has the same story for ServiceMonitor fixes that only reached clusters started after them. The same comments flag a second, smaller trap: relative `deps` paths resolve against the included file, not the repo root, so the platform builds them from `ROOT`.
 
-It isn't fully fixed. At the commit we read, several resources still apply a directory that nothing watches: no `deps`, and the Tiltfile doesn't load that directory itself. Among them are `cert-manager` and `istio` in the `minimal` tier and `kiali` and `metrics-server` in `observability`. (Others, such as `prometheus`, also lack `deps` but are covered another way: the Tiltfile loads their directories with `kustomize()`, and the API reference says a directory passed to `kustomize()` is watched.) So an edit under `helm/cert-manager/` reaches the cluster only when you force that resource to run or restart Tilt.
+Finding every case took longer than fixing the first. When we first read the platform, `helm-repositories`, `cert-manager` and `istio` in the `minimal` tier and `kiali` and `metrics-server` in `observability` still applied directories that nothing watched: no `deps`, and the Tiltfile didn't load those directories itself. An edit under `helm/cert-manager/` reached the cluster only if you forced that resource to run or restarted Tilt. Tilt PR #12 (October 2026) gave them `deps`. A later pass over every profile found three more in the `gitops` tier, `flagger`, `external-secrets` and `cloudnative-pg`, and tilt PR #16 adds theirs. Some resources, such as `prometheus`, have no `deps` and are covered another way: the Tiltfile loads their directories with `kustomize()`, and the API reference says a directory passed to `kustomize()` is watched.
 
 <Callout kind="trap">
 Green on a Tilt local_resource means *the last run succeeded*, not *the cluster matches your files*. Without `deps`, the last run was at `tilt up`. Check what a resource watches before trusting it with an edit, and when it watches nothing, force it with `tilt trigger RESOURCE`, which the docs say will force a full rebuild.
@@ -50,21 +54,38 @@ Green on a Tilt local_resource means *the last run succeeded*, not *the cluster 
 
 <DoItForReal id="tool-tilt-real" profile="minimal">
 
-With the platform up (`./scripts/platform.sh up`) and the Tilt dashboard open at `http://localhost:10350`. The `hello-world` resource lists `examples/hello-world` in its `deps`; `cert-manager` lists nothing. Watch the difference. (If you started Tilt with a non-default `TILT_PORT`, add `--port` with that number to each `tilt` command.)
+With the platform up (`./scripts/platform.sh up`) and the Tilt dashboard open at `http://localhost:10350`. The `hello-world` resource lists `examples/hello-world` in its `deps`, so start there. (If you started Tilt with a non-default `TILT_PORT`, add `--port` with that number to these two `tilt` commands.)
 
 ```bash
 tilt logs hello-world
 # edit examples/hello-world/deployment.yaml: change the PODINFO_UI_MESSAGE value, then save
 tilt logs -f hello-world
-# Ctrl-C, then add a comment line to helm/cert-manager/overlays/kind/kustomization.yaml and save
-tilt logs cert-manager
-tilt trigger cert-manager
-tilt logs -f cert-manager
 ```
 
-The first edit makes `hello-world` run again by itself, and `https://hello.localhost` shows your new message. The second makes nothing happen: no new log lines, still green. `tilt trigger` makes it run, and since a comment changes nothing, it applies the same thing it applied before.
+The edit makes `hello-world` run again by itself, and `https://hello.localhost` shows your new message. Then put it back: `./scripts/platform.sh hello` and the browser check look for the original text, so they fail until you do. Saving it makes `hello-world` re-run again.
 
-Then put both files back. Undo the message edit: `./scripts/platform.sh hello` and the browser check look for the original text, so they fail until you do. Saving it makes `hello-world` re-run again. Undo the comment too; Tilt won't notice that one either.
+For the other half, rather than hunt for a platform resource that still watches nothing, make one. This needs only Tilt, in a scratch directory, on its own port so it stays clear of the platform's Tilt:
+
+```bash
+d=$(mktemp -d) && cd "$d" && mkdir watched unwatched
+echo one > watched/value && echo one > unwatched/value
+cat > Tiltfile <<'EOF'
+local_resource('with-deps', cmd='cat watched/value', deps=['watched'])
+local_resource('no-deps', cmd='cat unwatched/value')
+EOF
+tilt up --port 10360 --stream > tilt.log 2>&1 &
+sleep 10
+echo two > watched/value && echo two > unwatched/value
+sleep 5
+tilt logs with-deps --port 10360    # ran again by itself: one, then two
+tilt logs no-deps --port 10360      # ran once: one, and nothing since
+tilt trigger no-deps --port 10360
+sleep 3
+tilt logs no-deps --port 10360      # now one, then two
+kill %1; wait; cd .. && rm -rf "$d"
+```
+
+Both resources stay green throughout. Only the logs tell them apart, and they say why each run happened: `File Changed` for `with-deps`, `CLI Trigger` for the run you forced.
 
 </DoItForReal>
 
