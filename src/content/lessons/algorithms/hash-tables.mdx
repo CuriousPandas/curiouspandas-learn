@@ -1,0 +1,323 @@
+---
+title: Hash tables and the collision
+summary: A web form under 2 MB could tie up a server for minutes, eight years after the same attack was published. Build a hash table that stays fast, attack one with a crafted form, and find out why Python's celebrated fix doesn't cover integers.
+minutes: 28
+xp: 65
+tiers: [browser]
+builds_on: [algorithms/arrays-and-lists]
+sources:
+  - title: Crosby & Wallach - Denial of Service via Algorithmic Complexity Attacks (USENIX Security 2003)
+    url: https://www.usenix.org/legacy/events/sec03/tech/full_papers/crosby/crosby.pdf
+  - title: Klink & Wälde - Effective Denial of Service attacks against web application platforms (28C3 abstract)
+    url: https://fahrplan.events.ccc.de/congress/2011/Fahrplan/events/4680.en.html
+  - title: Klink & Wälde - the 28C3 slides (third-party copy)
+    url: https://new.dc414.org/wp-content/uploads/2011/01/2007_28C3_Effective_DoS_on_web_application_platforms.pdf
+  - title: oCERT-2011-003 - multiple implementations denial-of-service via hash algorithm collision
+    url: https://ocert.org/advisories/ocert-2011-003.html
+  - title: Aumasson & Bernstein - SipHash, a fast short-input PRF
+    url: https://www.aumasson.jp/siphash/siphash.pdf
+  - title: PEP 456 - Secure and interchangeable hash algorithm
+    url: https://peps.python.org/pep-0456/
+  - title: What's New in Python 3.3 (hash randomization on by default)
+    url: https://docs.python.org/3/whatsnew/3.3.html
+  - title: What's New in Python 3.11 (siphash13)
+    url: https://docs.python.org/3/whatsnew/3.11.html
+  - title: Python docs - data model, __hash__
+    url: https://docs.python.org/3/reference/datamodel.html
+  - title: Python docs - command line, -R and PYTHONHASHSEED
+    url: https://docs.python.org/3/using/cmdline.html
+  - title: Python docs - hashing of numeric types
+    url: https://docs.python.org/3/library/stdtypes.html
+  - title: CPython source - dictobject.c
+    url: https://raw.githubusercontent.com/python/cpython/main/Objects/dictobject.c
+  - title: PHP manual - max_input_vars
+    url: https://www.php.net/manual/en/info.configuration.php
+  - title: JEP 180 - Handle Frequent HashMap Collisions with Balanced Trees
+    url: https://openjdk.org/jeps/180
+  - title: Java HashMap documentation
+    url: https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/HashMap.html
+  - title: Rust HashMap documentation
+    url: https://doc.rust-lang.org/std/collections/struct.HashMap.html
+  - title: Python docs - C API, tp_hash, on why -1 is reserved
+    url: https://docs.python.org/3/c-api/typeobj.html
+  - title: Cloudflare - The revenge of the listening sockets (2016)
+    url: https://blog.cloudflare.com/revenge-listening-sockets/
+  - title: Jeff Erickson - Hashing, lecture notes (free)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/notes/05-hashing.pdf
+  - title: Pat Morin - Open Data Structures, chapter 5 (free, CC BY)
+    url: https://opendatastructures.org/ods-python/5_1_ChainedHashTable_Hashin.html
+---
+
+In 2003, Scott Crosby and Dan Wallach showed that "both binary trees and hash tables can degenerate to linked lists with carefully chosen input". They attacked the Bro network monitor with hardly any traffic: "Using bandwidth less than a typical dialup modem, we can bring a dedicated Bro server to its knees; after six minutes of carefully chosen packets, our Bro server was dropping as much as 71% of its traffic".
+
+Eight years later, in December 2011, Alexander Klink and Julian Wälde gave a talk showing it still worked on many web platforms. One ordinary-looking form submission could "force web application servers to use 99% of CPU for several minutes to hours for a single HTTP request." Their slides report "7 minutes of CPU usage for a 1 MB request" against Plone on 32-bit Python, and 44 minutes of CPU time for 2 MB against Tomcat. The advisory that followed didn't soften it: "The vulnerability outlined in this advisory is practically identical to the one reported in 2003".
+
+The papers had been public the whole time. To see what was attacked, and why fixing it took so many tries, you need to know how a hash table works.
+
+## What a hash table does
+
+You have a big pile of `(key, value)` pairs and you want to look up a key without scanning the pile. A **hash table** does it with one idea. Run the key through a function that turns it into a number, the key's **hash**, and use that number to pick a shelf.
+
+```text
+say hash("alice") is 7362818.   7362818 % 8 = 2, so "alice" goes in bucket 2
+```
+
+`%` gives the remainder after dividing, also called **modulo**: 7362818 divided by 8 leaves 2. Those shelves are called **buckets**. To find `"alice"` later, compute the same hash, go straight to bucket 2, and look there. No scan. So the time doesn't depend on how many keys the table holds, as long as the buckets stay short. This is why `x in my_set` beats `x in my_list`: a Python `set` is a hash table without the values.
+
+Keeping buckets short takes two things, and each of them can fail on its own:
+
+1. **A hash that spreads keys evenly.** When two keys land in the same bucket, it's a **collision**. Some are unavoidable. The table then has to compare the keys one by one.
+2. **Enough buckets.** The ratio of keys to buckets is the **load factor**. As it rises, buckets get longer, so the table grows, usually by making a larger table and moving everything across.
+
+Build one and break both.
+
+<CodeLab mission="cs-hash-table" grow="load" growArg="n" sizes="100,200,400,800" rows={18} />
+
+<Callout kind="real">
+This lab needs its own hash table because the sandbox's `dict` deliberately isn't one. Underneath, it's a JavaScript map, built to give you Python's answers rather than show you the machinery. So colliding keys don't show real probing here, and `hash()` refuses strings: real Python's string hashes change on every run, so a number shown here would look meaningful and differ on your machine. The sandbox does keep colliding keys apart and calls `__eq__` for them, as real Python does. Its count of those calls is the textbook's, though, not CPython's. The next section explains the difference.
+</Callout>
+
+## How real Python does it
+
+Python's `dict` doesn't use lists in buckets. It uses **open addressing**: if the slot it wants is taken, it tries another slot in the same table, following a fixed recipe, until it finds a free one. Here's the recipe, from CPython's source:
+
+```text
+i = mask & (i*5 + perturb + 1);
+```
+
+`mask` is the table size minus one, and `mask &` keeps the result inside the table. `perturb` starts as the full hash and is divided by 32, rounding down, on each step, so more of the hash gets used as probing goes on. Once `perturb` reaches 0, the recipe is `i*5 + 1`, the same fixed walk for every key. The sizes come from the same file: a table starts with 8 slots and may only be two-thirds full, so it grows at the 6th key, then the 11th, 22nd, 43rd, 86th. A test checks those points against real Python's memory use, up to 200,000 keys.
+
+Now the number this lesson is proudest of. Give 1,000 keys the same hash, so they all collide. Each new key has to be compared against every earlier one. The textbook formula says that's `n(n-1)/2`, which is 499,500 comparisons.
+
+Real Python, measured by counting calls to `__eq__`:
+
+| Every key's hash | Real `__eq__` calls | Our model | Textbook `n(n-1)/2` |
+|---|---|---|---|
+| 42 | 500,300 | 500,300 | 499,500 |
+| 0 | 499,500 | 499,500 | 499,500 |
+| 7 | 499,500 | 499,500 | 499,500 |
+| 12,345 | 500,719 | 500,719 | 499,500 |
+| 2⁴⁰ + 3 | 505,835 | 505,835 | 499,500 |
+
+The textbook isn't wrong about the shape, and it's off by a little. The recipe above can visit a slot twice while `perturb` is still running out, and each repeat visit compares again. A small model following CPython's rules reproduces the exact count, and this site's tests run it against real Python at sizes from 1 to 4,000. That same model drives the lab below. And ordinary keys with different hashes? **Zero** `__eq__` calls at 1,000 or 4,000 keys. That number only counts comparisons, though. Walking past an occupied slot costs time too, even when no comparison happens, and further down an attacker makes use of that.
+
+## The attack
+
+Attackers can't normally choose where your keys go. They can if they know your hash function and it's simple enough to work backwards. PHP 5 used one called DJBX33A: start at 5381, and for each character, multiply by 33 and add the character. Now look at two short strings:
+
+```text
+"Ez":  (5381 × 33 + 69)  × 33 + 122  =  5862308
+"FY":  (5381 × 33 + 70)  × 33 + 89   =  5862308
+```
+
+They collide. And because they collide at any point in a longer string, you can mix them freely: `EzEz`, `EzFY`, `FYEz` and `FYFY` all collide too. Sixteen pairs give 65,536 different keys with one hash, in about 2.3 MB of form data.
+
+Web frameworks of the time helpfully turned every form field into a hash table entry before your code ever ran. So one request was enough. Try it, and then try to stop it.
+
+<FloodLab />
+
+A secret start value looks like the obvious fix, and it does change every hash. But look at the sums above: the two strings end up equal whatever number you start from. So the collision stays. This is why "add some randomness" is not the same as a fix.
+
+SipHash, designed by Jean-Philippe Aumasson and Daniel Bernstein, takes a secret key as part of its mixing. Without the key, you can't compute a hash, and so you can't aim. The lab's SipHash is the real algorithm: a test compares it with real Python's `hash()` when the key is fixed at zero.
+
+## What Python really did, in order
+
+This story is usually told as "Python fixed it in 2012". Here's the order, from the sources.
+
+1. **2012: the fix shipped, switched off.** oCERT's advisory lists the security releases as "hash randomization disabled by default, use -R flag to enable it".
+2. **3.3: on by default.** "Hash randomization is switched on by default."
+3. **3.4: replaced anyway.** PEP 456 said, plainly, "CPython is still vulnerable to hash collision DoS attacks". Aumasson and Bernstein had shown how to recover the seed from the old scheme. Python moved to SipHash. It added, to be fair: "Although no practical attack against a Python-based service has been seen yet, the weakness has to be fixed."
+4. **3.11: a lighter variant.** "siphash13 is added as a new internal hashing algorithm."
+
+Python's own exposure had been narrower than the headlines, too. Klink and Wälde's slides say reasonable-sized attack strings existed "only for 32 bits".
+
+And not every target fell over. Crosby and Wallach's Squid cache: "Squid took 14.57 minutes to process the attack URLs versus 10.55 minutes to process the randomly chosen URLs." That's about 1.4 times. A table that isn't the bottleneck can shrug this off. Their sharpest result is Perl: strings built for Perl 5.6.1 took 6,506 seconds on 5.6.1 and under 2 seconds on 5.8.0, and strings built for 5.8.0 did the opposite. An attack is specific to one hash function, which is why changing the function works at all.
+
+## Why untrusted integer keys matter
+
+Now read exactly what the data model promises: "By default, the \_\_hash\_\_() values of str and bytes objects are "salted" with an unpredictable random value."
+
+`str` and `bytes`. Not integers. Python's integer hash is public, documented and has no secret in it: an integer hashes to itself, modulo a fixed prime, and the docs give the prime: "P = 2**61 - 1 on machines with 64-bit C longs." So every multiple of that prime hashes to 0.
+
+<CodeLab rows={6} code={`P = 2**61 - 1
+print(hash(P), hash(2 * P), hash(3 * P))
+print([hash(k * P) for k in range(1, 6)])
+print(hash(1), hash(1.0), hash(True))
+print(hash(-1))
+`} />
+
+That's the same output as real Python, on any run. The `-2` is the one exception to "hashes to itself": the docs' rule is "If the resulting hash is -1, replace it with -2", because Python's C code keeps -1 to mean an error. So the keyed hash you just credited with ending the flood does nothing here. On real CPython, inserting these keys looks like this (Windows laptop, Python 3.11.9, one run, so read the shape, not the seconds):
+
+| Keys | All hashing to 0 | Other integers of the same size | Ratio |
+|---|---|---|---|
+| 5,000 | 0.186 s | 0.0007 s | 269× |
+| 10,000 | 0.75 s | 0.0015 s | 513× |
+| 20,000 | 3.145 s | 0.0027 s | 1,153× |
+
+This is documented behaviour. Numbers that compare equal have to hash alike whatever their type (see `hash(1)` and `hash(1.0)` above), and Python's rule for that is public and has no secret in it. Nothing is broken. It's something to know when you're the one writing the code:
+
+- **If keys come from outside your program, treat them as untrusted, including numbers.** A JSON body, a query parameter or a CSV column can carry large integers as easily as strings. If those become dict keys or set members with no limit, you have this table.
+- **Limit how many.** A cap on the number of keys per request bounds the damage. PHP's `max_input_vars` exists for this reason, and its manual says so: "Use of this directive mitigates the possibility of denial of service attacks which use hash collisions."
+- **Or store the string form,** which goes under the keyed hash. The lab has a step that does that.
+
+### A range check isn't enough
+
+These keys are huge, so here's a tempting defence: refuse any ID that doesn't fit in 32 bits. That refuses every multiple of 2⁶¹ − 1 above 0, and it doesn't stop the attack. An integer's hash is still the integer, so the attacker still picks where each key starts and every slot it visits next. All keys end up on the same `i*5 + 1` walk once `perturb` runs out. So the attacker fills a long stretch of that walk, then sends keys whose first few probes land inside the stretch. Each of those has to walk along to the end of it.
+
+No two of these keys share a hash, so `__eq__` never runs: CPython compares the stored hashes first, and they differ. Every key fits in 32 bits, and random keys of the same size are no trouble at all. Windows laptop, Python 3.11.9, one run:
+
+| Keys | Crafted, all under 2³² | Random, all under 2³² | The crafted keys as strings |
+|---|---|---|---|
+| 5,460 | 0.011 s | 0.0007 s | 0.0007 s |
+| 21,844 | 0.18 s | 0.0027 s | 0.0027 s |
+| 87,380 | 6.3 s | 0.012 s | 0.012 s |
+
+Python 3.12.3 on Linux took 7.2 s for the same 87,380 keys. We haven't run this on 3.13 or later. Key for key it's weaker than multiples of 2⁶¹ − 1, which took about 3 seconds for only 20,000, so a range check does lower the damage. It doesn't change the shape, and the lab's **slots walked** count shows why: four times the keys cost about fifteen times the walking.
+
+So what does work here, and what doesn't:
+
+- **A limit on the count works,** and the limit sets the bill. An attacker who knows it fits the walk to it: in the lab, 1,000 keys built for a limit of 1,000 still walk 137,038 slots, against under 2,000 for ordinary keys. So it has to be small enough that the worst case is one you can pay.
+- **The string form works,** as the last column shows. The docs say the salting of `str` and `bytes` "is intended to provide protection against a denial-of-service caused by carefully chosen inputs".
+- **A different structure works, at a price.** Crosby and Wallach note that balanced trees "can avoid predictable input which causes worst-case behavior". [A later lesson](/learn/algorithms/trees-and-heaps/) builds one. A lookup then costs about `log n` steps every time, rather than about one.
+- **There's no simple switch.** Python has no setting that adds a secret to integer hashes, and `PYTHONHASHSEED` only covers what the docs call "the types covered by the hash randomization". A `dict` takes no hash function of your own, so the only way to key its hash is to change the key: a string, as above, or a class of your own with its own secret `__hash__`, which is more code to get right. If your keys have to stay plain integers in a plain `dict`, limiting the count is the only defence you have.
+
+<Callout kind="trap">
+Setting `PYTHONHASHSEED` to a fixed value turns string randomisation off, because the docs say it sets "a fixed value for the hash seed secret". It's useful for reproducing a test run. It's the defence switched off if it ends up in a production environment file. And the iteration order of a set of strings depends on it, so tests that rely on that order pass and fail depending on the seed. A `dict` is different: it keeps insertion order regardless.
+</Callout>
+
+<DoItForReal id="alg-hash-real" needs="terminal">
+
+Run these with real Python on your own machine. The first prints `500300` on Python 3.11 or 3.12. The second takes a few seconds, and it's the first timing table above on your hardware. The third is the 32-bit attack, at 43,689 keys.
+
+```python
+class Key:
+    checks = 0
+    def __init__(self, value):
+        self.value = value
+    def __hash__(self):
+        return 42
+    def __eq__(self, other):
+        Key.checks += 1
+        return self.value == other.value
+
+d = {}
+for i in range(1000):
+    d[Key(i)] = i
+print(Key.checks)
+```
+
+```python
+import time
+P = 2**61 - 1
+for keys in ([k * P for k in range(1, 20001)], [k * P + k for k in range(1, 20001)]):
+    start = time.perf_counter()
+    d = {}
+    for k in keys:
+        d[k] = True
+    print(round(time.perf_counter() - start, 4), "seconds")
+```
+
+```python
+import random, time
+
+def craft(k):
+    m = 1 << k
+    mask = m - 1
+    walk = [0] * m
+    where = [0] * m
+    i = 0
+    for j in range(m):
+        walk[j] = i
+        where[i] = j
+        i = (5 * i + 1) & mask
+    filled = m // 2
+    keys = walk[:filled]
+    seen = set(keys)
+    r = random.Random(1)
+    while len(keys) < 2 * m // 3 - 1:
+        x = r.getrandbits(32)
+        if x in seen:
+            continue
+        i = x & mask
+        perturb = x
+        inside = True
+        while True:
+            if where[i] >= filled:
+                inside = False
+                break
+            if perturb == 0:
+                break
+            perturb >>= 5
+            i = mask & (i * 5 + perturb + 1)
+        if inside:
+            keys.append(x)
+            seen.add(x)
+            filled += 1
+    return keys
+
+keys = craft(16)
+print(len(keys), "keys, under 2**32:", max(keys) < 2**32, "hashes all different:", len({hash(k) for k in keys}) == len(keys))
+randoms = random.Random(0).sample(range(2**32), len(keys))
+for name, batch in (("crafted", keys), ("random", randoms), ("as strings", [str(k) for k in keys])):
+    start = time.perf_counter()
+    d = {}
+    for k in batch:
+        d[k] = True
+    print(name, round(time.perf_counter() - start, 4), "seconds")
+```
+
+</DoItForReal>
+
+## Other languages, other choices
+
+There's more than one fix. Java's `HashMap` chose a different way out: JEP 180 keeps a bucket of colliding keys in a balanced tree, so "In the case of high hash collisions, this will improve worst-case performance from O(n) to O(log n)." That only helps keys that can be put in order. The lab's "trees in buckets" option is a sketch of this idea, not Java's code. Rust takes the keyed route: "By default, HashMap uses a hashing algorithm selected to provide resistance against HashDoS attacks."
+
+Tables differ on how full they run, too. Java's documentation says "the default load factor (.75) offers a good tradeoff between time and space costs." Python's dict stays at two-thirds or less.
+
+## No attacker needed
+
+Everything so far took someone trying. Cloudflare's 2016 write-up shows it doesn't have to. Linux kept listening sockets in a table, and in that kernel, "LHTABLE is small - it has only 32 buckets." It hashes on the destination port alone. Cloudflare's DNS setup had 16,000 TCP sockets on port 53, each bound to a different IP address: "Since the port number is fixed, all these sockets ended in exactly one LHTABLE bucket."
+
+Port 53 falls in bucket 21 (`53 % 32 = 21`), and unrelated packets to ports like 16725 landed in the same bucket. Each one then had to walk the whole thing: "the \_\_inet\_lookup\_listener call had to traverse all 16k socket entries. This wasn't fast, in fact it took 2ms to finish." The symptom was rare enough to hide: "But out of 21,600 measurements about 20 had high latency of up to 100ms."
+
+The table was sized for a world in which nobody binds 16,000 sockets to a single port. Then somebody did. They made two changes: for TCP, the DNS server now binds one socket to all addresses, and they increased the table's size in their kernels.
+
+<GoDeeper title="Why the average is constant, and why that isn't a guarantee">
+For a table with chaining, suppose the hash function is chosen at random from a suitable family (a *universal* family: any two different keys collide with probability at most `1/m`, where `m` is the number of buckets). Then for a key `x`, the expected number of other keys in its bucket is at most `n/m`, by adding that `1/m` over all `n` keys. Erickson's notes name that fraction: "We call this fraction n/m the load factor of the hash table." So an expected lookup costs `O(1 + n/m)`, and keeping `n/m` bounded by growing the table makes it `O(1)`.
+
+Then the catch. A bound on the expected length of one chain "does not imply that the expected worst-case search time is constant!" Erickson gives the expected longest chain at load 1 as `Θ(log n / log log n)`.
+
+And the theorem needs the function to be *chosen at random*, unknown to whoever picks the keys. If the attacker knows the function, the guarantee is void. That is hash flooding in one sentence, and it's why a keyed hash restores the theorem's assumption and a public hash doesn't.
+</GoDeeper>
+
+<Quiz
+  id="alg-hash-1"
+  q="Your Python service stores values in a dict, keyed by a large integer ID taken straight from each request. You're on the current version of Python, and string hashes are randomised. Is it safe from hash flooding?"
+  options={["Yes: hash randomisation has been on by default since Python 3.3", "Not by that alone: randomisation covers str and bytes, while integers hash to themselves modulo a public prime, so an attacker can aim integers. Limit the count, or key by the string form", "Yes: Python integers can't collide"]}
+  answer={1}
+  explain="The docs promise salting for str and bytes only. Multiples of 2**61 - 1 all hash to 0 on 64-bit CPython, and 20,000 of them took about 3 seconds to insert on a laptop, against 0.003 s for other integers of the same size. A range check alone wouldn't save you: keys that all fit in 32 bits can still be aimed, with no two hashes alike."
+/>
+
+<Quiz
+  id="alg-hash-2"
+  q="A team fixes a flooding problem by starting their simple multiply-and-add hash from a secret random number instead of a fixed one. Every hash value changes. Did it help?"
+  options={["Yes: the attacker no longer knows any hash value", "No: strings that collide under that hash collide from any starting number, because the difference between them doesn't depend on the start. It needs a hash where the key is part of the mixing", "Yes, as long as the secret is long enough"]}
+  answer={1}
+  explain="Ez and FY reach the same value from any starting point, and the lab shows the flood going straight through. Changing every value isn't the same as changing which keys collide. Python's own first attempt was defeated differently: researchers showed the seed could be recovered, and PEP 456 replaced it with SipHash."
+/>
+
+<Quiz
+  id="alg-hash-3"
+  q="You've built a hash table with a good hash function but a fixed 8 buckets. It's much faster than before. What happens as you add more and more keys?"
+  options={["It stays fast: a good hash function is all a table needs", "The work per insert keeps growing: each bucket holds n/8 keys, so it's quadratic overall, just eight times smaller. The table has to grow with its keys", "It raises an error when the buckets are full"]}
+  answer={1}
+  explain="The load factor is keys divided by buckets. A fixed number of buckets means it grows without limit. Growing the table keeps the average bucket short, and the occasional big copy is paid for by all the cheap inserts between growths."
+/>
+
+## What to remember
+
+- A hash table is fast while its buckets are short. That takes a hash that spreads keys evenly and a table that grows.
+- A collision costs a probe, and a same-hash collision costs a comparison as well. All keys colliding costs about `n²/2`, and a request carrying them can be small.
+- If an attacker can compute your hash, they can aim. A real fix makes the hash depend on a secret key, and a random starting number isn't necessarily that.
+- Python's `str` and `bytes` hashes are keyed. Its integer hashes aren't, on purpose. So numeric keys from outside still need a limit or a string form. A range check lowers the damage and doesn't remove it, because different hashes can still walk.
+- Measure the real thing: 1,000 colliding keys cost 500,300 comparisons, not 499,500, and a small model can match that exactly.

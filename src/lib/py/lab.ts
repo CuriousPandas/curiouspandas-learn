@@ -41,7 +41,7 @@ export function checkCases(r: RunResult, fn: string, cases: { args: unknown[]; w
 }
 
 export type GrowthPoint = { n: number; ops: number | null };
-export type GrowthShape = 'constant' | 'logarithmic' | 'linear' | 'n log n' | 'quadratic' | 'cubic or worse' | 'unknown';
+export type GrowthShape = 'constant' | 'logarithmic' | 'linear' | 'n log n' | 'quadratic' | 'cubic or worse' | 'exponential or worse' | 'unknown';
 
 /**
  * Steps a function takes at each size. The setup's own steps are subtracted: the
@@ -70,6 +70,14 @@ export function classify(points: GrowthPoint[]): GrowthShape {
   if (ok.length < 2) return 'unknown';
   const a = ok.at(-2)!, b = ok.at(-1)!;
   const k = Math.log(b.ops / a.ops) / Math.log(b.n / a.n);
+  // Sizes a fixed amount apart separate these: adding the same amount multiplies
+  // exponential work by the same factor or more, while for any polynomial that
+  // factor falls as n grows. Doubling sizes can't tell them apart from two points.
+  if (k >= 2.5 && ok.length >= 3) {
+    const gaps = ok.slice(1).map((p, i) => p.n - ok[i].n);
+    const factors = ok.slice(1).map((p, i) => p.ops / ok[i].ops);
+    if (gaps.every((g) => g === gaps[0]) && factors.at(-1)! >= 1.5 && factors.at(-1)! >= factors[0] * 0.9) return 'exponential or worse';
+  }
   if (k < 0.03) return 'constant';
   if (k < 0.5) return 'logarithmic';
   if (k < 1.5) {

@@ -1,0 +1,218 @@
+---
+title: "From constant to exponential: best, worst and average"
+summary: Out of 21,600 pings, about 20 were up to a hundred times slower, and an average would never have shown it. Learn the three cases, make a sort go quadratic on purpose, meet the growth rates no faster machine can rescue, and learn how to measure the shape of your own code.
+minutes: 22
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/dynamic-programming, algorithms/sorting]
+sources:
+  - title: Cloudflare - The revenge of the listening sockets (2016)
+    url: https://blog.cloudflare.com/revenge-listening-sockets/
+  - title: Linux source - include/net/inet_hashtables.h, for what has changed since that post
+    url: https://raw.githubusercontent.com/torvalds/linux/master/include/net/inet_hashtables.h
+  - title: Bentley and McIlroy - Engineering a Sort Function (1993), university course copy
+    url: https://cs.fit.edu/~pkc/classes/writing/papers/bentley93engineering.pdf
+  - title: Crosby and Wallach - Denial of Service via Algorithmic Complexity Attacks (2003)
+    url: https://www.usenix.org/legacy/events/sec03/tech/full_papers/crosby/crosby.pdf
+  - title: Pat Morin - Open Data Structures, section 1.3 and Lemma 2.1 (free, CC BY)
+    url: https://opendatastructures.org/ods-python/1_3_Mathematical_Background.html
+  - title: Jeff Erickson - Algorithms, chapter 1, Recursion Trees (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/01-recursion.pdf
+  - title: Tim Peters - listsort.txt, notes on CPython's sort
+    url: https://raw.githubusercontent.com/python/cpython/main/Objects/listsort.txt
+  - title: ACM/IEEE - Computer Science Curricula 2023, the AL-Complexity unit this lesson closes
+    url: https://csed.acm.org/
+---
+
+In 2016, Cloudflare's engineers were measuring ping times inside one of their own data centres, between an idle machine and a production server. "As you can see most pings finished below 1ms. But out of 21,600 measurements about 20 had high latency of up to 100ms."
+
+That's fewer than one ping in a thousand. Any average would look fine. Yet they went looking, and found a kernel function that "usually terminated quickly, in under 2us, but sometimes it hit a slow path and took 1-2ms to finish."
+
+The slow path was a hash table. You'll know hash tables as the structure with a lookup that takes the same time however much is in it. In the kernels that 2016 post describes, Linux kept its listening sockets in one with 32 buckets, chosen by port number alone. (Current kernel source also has a second listener table, hashed by port and address, so read this as history and not as today's Linux.) Cloudflare had 16,000 sockets all listening on port 53, so every one of them was in the same bucket: "When an RST or SYN packet hit it, the __inet_lookup_listener call had to traverse all 16k socket entries."
+
+Nothing was broken. On average a lookup in that table was fast, as it's meant to be, and for the packets that happened to land in bucket 21 it was a long list. Their fix had two parts. The main one emptied the bucket: for TCP, their DNS server stopped binding to each address separately and bound to all of them at once, `*:53`. They also made the table bigger. A bigger table alone couldn't have fixed this, because all those sockets share port 53, so they'd still all land in one bucket.
+
+The counting-steps lesson taught you to ask how work grows with input. This lesson asks the next question: **which input?**
+
+## Three cases
+
+The same code on the same size of input can take very different amounts of work. Take the plainest search there is, going through a list until you find what you want:
+
+- **Best case**, what you're after is first: 1 comparison.
+- **Worst case**, it's last or missing: `n` comparisons.
+- **Average case**, assuming it's in the list and every position is equally likely: `(n + 1) / 2`.
+
+<CodeLab code={`def find(items, target):
+    looked = 0
+    for x in items:
+        looked += 1
+        if x == target:
+            break
+    return looked
+
+items = list(range(1000))
+counts = [find(items, t) for t in items]
+print("best", min(counts))
+print("worst", max(counts))
+print("average", sum(counts) / len(counts))
+print("not there", find(items, -1))
+`} />
+
+Each one answers a different question:
+
+- **Worst case** is a promise. It's what you can rely on whatever turns up, which is why it's the one quoted most. It can also be too gloomy, if the bad input never happens.
+- **Average case** is what you'll usually see. But notice the word *assuming* up there. An average is only ever an average over some inputs, and someone had to decide which.
+- **Best case** is nearly useless for planning, and it's how a demo gets to look good.
+
+<Callout kind="trap">
+An average can quietly stop being true, because the inputs it assumed were replaced. "Random-looking" data is an assumption, and sorted data, repeated data and hostile data are all normal. Crosby and Wallach showed in 2003 that "both binary trees and hash tables can degenerate to linked lists with carefully chosen input". Nobody has to be attacking you, either: Cloudflare's 16,000 sockets were chosen by their own design.
+</Callout>
+
+## Make a sort go quadratic
+
+Quicksort is the classic case where the average is great and the worst isn't. Pick one item as the **pivot**. Split the rest into smaller and larger, and sort each of those. If the pivot lands near the middle, the work is about `n log n`. If it lands at one end every time, one side is empty and you've only removed one item, so the work is `n²`.
+
+And which input puts it at the end, if you always pick the first item? One that's already sorted.
+
+The lab's **Measure growth** feeds your function a sorted list.
+
+<CodeLab mission="alg-growth-quicksort" grow="quicksort" sizes="100,200,400,800" rows={12} />
+
+Here are comparisons counted at `n = 800` in real Python, by this site's tests. Shuffled is the mean over 200 shuffles.
+
+| Input | First item as pivot | Middle item as pivot |
+|---|---|---|
+| Already sorted | 319,600 | 6,187 |
+| Reversed | 319,600 | 6,187 |
+| Shuffled | 8,468 | 8,432 |
+| Up then down, with no repeats: `0, 2, 4 ... 798, 799, 797 ... 3, 1` | 160,399 | 319,600 |
+
+Look at the last row. On that input, the middle pivot does the worst it can: exactly `n(n - 1) / 2`. Your fix didn't remove the worst case, it moved it. And the shuffled row barely changed, because the average was never the problem.
+
+This isn't a toy result. In 1991, two of Bentley and McIlroy's colleagues "found that a qsort run that should have taken a few minutes was chewing up hours of CPU time", and it turned out to be an organ-pipe array. "Had they not interrupted it, it would have gone on for weeks." (Their organ pipe is `1 2 3 ... n n ... 3 2 1`, which repeats every value, so it isn't the table's row. On 800 such items, this lesson's middle pivot makes 160,000 comparisons: still quadratic, though not the exact worst case.) The authors then tested others and "found no qsort that could not easily be driven to quadratic behavior". The sorting lesson is the place to go further.
+
+## The shapes past quadratic
+
+[The counting-steps lesson](/learn/algorithms/counting-steps/) gave you the shapes from constant to quadratic. There are three more to know, and they're a different kind of bad. The first is merely expensive, and the other two change what's possible. Here's a typical example for each, using an invented, round speed of a million steps a second:
+
+| Name | Big-O | Typical example | n = 10 | n = 20 | n = 60 |
+|---|---|---|---|---|---|
+| Cubic | `O(n³)` | Three nested loops | 1 ms | 8 ms | 0.2 seconds |
+| Exponential | `O(2ⁿ)` | Try every subset | 1 ms | 1 second | 36,500 years |
+| Factorial | `O(n!)` | Try every ordering | 3.6 seconds | 77,000 years | a number of years with 69 digits |
+
+The polynomial ones all have a fixed power of `n`. The exponential and factorial ones have `n` *in* the power, or multiply by `n` itself.
+
+That changes what better hardware can do for you. For a quadratic algorithm, a machine 1,000 times faster handles about 32 times as much input. For `2ⁿ`, the same machine lets you add 10 to `n`, and that's it. Going from 50 to 60 costs what the whole upgrade bought.
+
+Here are the real things. Both of these do what they say, which is what makes them hard to shortcut: the output really has that many items in it. Press **Measure growth** and see what name the lab gives them. Each size is a fixed amount above the last, because that's how you tell: adding the same amount multiplies exponential work by the same factor, or more, while for a polynomial that factor keeps shrinking.
+
+<CodeLab code={`def subsets(items):
+    if not items:
+        return [[]]
+    rest = subsets(items[1:])
+    return rest + [[items[0]] + s for s in rest]
+
+print(len(subsets([1, 2])))
+print(subsets([2, 3]))
+`} grow="subsets" sizes="8,10,12,14" />
+
+<CodeLab code={`def orderings(items):
+    if len(items) < 2:
+        return [items]
+    out = []
+    for i in range(len(items)):
+        for rest in orderings(items[:i] + items[i + 1:]):
+            out.append([items[i]] + rest)
+    return out
+
+print(len(orderings([1, 2, 3])))
+print(orderings([1, 2, 3]))
+`} grow="orderings" sizes="4,5,6,7" />
+
+Trying every subset and every ordering isn't a contrived thing to want. Lots of real problems have that shape if you solve them by brute force: picking the best set of items for a limited budget tries subsets, and visiting a list of places by the shortest round trip tries orderings. For some of them, nobody knows a way that's fundamentally better. A planned lesson on P and NP, in the trail on the limits of computing, will be about that gap.
+
+## Big-O isn't "worst case"
+
+These get mixed up constantly, and they're different ideas. **Best, worst and average say which inputs you're talking about.** **Big-O, Big-Omega and Big-Theta say what kind of bound you're stating** on whatever you picked:
+
+- `O(f)` is a ceiling: it grows no faster than `f`.
+- `Ω(f)` (Big-Omega) is a floor: it grows at least as fast as `f`.
+- `Θ(f)` (Big-Theta) is both, so it grows exactly like `f`, ignoring multipliers.
+
+So all of these are true, and they all describe the same search:
+
+- Linear search's worst case is `Θ(n)`.
+- Linear search's best case is `Θ(1)`.
+- Linear search overall is `O(n)` on every input, because `n` is a ceiling on all of them.
+
+"Quicksort is O(n log n)" is a false statement as written, and it's said every day. Its average case is, and its worst case is `Θ(n²)`. When you see a big-O, ask which case it's about.
+
+## Time and space
+
+Everything so far has counted steps. Memory grows by input size too, and you've been trading between them all along:
+
+- The set in `has_duplicate` spent memory to skip a scan.
+- `fib`'s memo spent `n` slots to remove an exponential.
+- A pre-processed map spends preparation and storage so that each query is fast.
+
+This is called a **time-space tradeoff**, and it's usually the first move when something's too slow: is there something you could remember? And it can run the other way as well. `fib`'s two-variable version got the time without the memory, and a linear search needs no index at all, which on a tiny list may well be the better deal.
+
+## Measuring your own code
+
+You can find out the shape of your code without any theory, as long as you run an experiment properly:
+
+1. **Pick what to count.** Prefer counted operations to a stopwatch. Timing varies from run to run, and comparing counts gives you an exact answer.
+2. **Choose sizes that show the shape.** Doubling sizes (100, 200, 400) tell you polynomial shapes: 2x the work is linear, 4x is quadratic, 8x is cubic. Sizes a fixed step apart (10, 12, 14) tell you whether it's exponential.
+3. **Choose the inputs on purpose.** Run shuffled, sorted, reversed and nearly sorted, and the worst input you can think of. Otherwise you're measuring your test data.
+4. **Compare with what you expected.** If you predicted `n log n` and you measure `n²`, one of them is wrong, and finding which is the useful part.
+
+<Callout kind="real">
+"Steps" in this page's lab are its own counting, and two different runs here give the same number. On a real machine the same shape shows up, with noise, and a smaller big-O can still lose on small inputs. That's why CPython's own sort, by its notes in `listsort.txt`, uses binary insertion sort on short runs even though insertion sort is quadratic. Measure on sizes you'll really have.
+</Callout>
+
+<GoDeeper title="The formal definitions, recurrences and amortised cost">
+**Formally.** `g` is in `O(f)` if there are constants `c > 0` and `n₀` with `g(n) ≤ c·f(n)` for all `n ≥ n₀`. `g` is in `Ω(f)` if there are `c > 0` and `n₀` with `g(n) ≥ c·f(n)` for all `n ≥ n₀`. `g` is in `Θ(f)` if it's in both. *Open Data Structures*, section 1.3, gives these and is free.
+
+**Recursive algorithms.** A recursive function's cost is a **recurrence**, a formula in terms of itself. For `T(n) = r·T(n/c) + f(n)`, draw the recursion as a tree and add it up level by level. Erickson's chapter 1 gives three cases, which is the form of the "master theorem" worth knowing:
+
+- Each level is smaller by a constant factor: `T(n) = O(f(n))`. The top dominates.
+- All levels are equal: `T(n) = O(f(n) log n)`. Mergesort, where `T(n) = 2T(n/2) + O(n)`, gives `O(n log n)`.
+- Each level is larger by a constant factor: `T(n) = O(n^(log_c r))`. The leaves dominate.
+
+Fibonacci's `T(n) = T(n-1) + T(n-2) + O(1)` doesn't fit that form, because its subproblems shrink by subtracting, so it needs its own count. Subtracting isn't what makes it exponential, since `T(n) = T(n-1) + O(1)` subtracts and is linear. It's exponential because each call makes two more, and the sizes fall too slowly to stop the tree getting deep.
+
+**Amortised cost.** Some single operations are costly and most are cheap. Appending to a growable array sometimes copies everything, yet Lemma 2.1 of *Open Data Structures* shows that any sequence of `m` adds and removes spends `O(m)` in total on resizing. So the cost per operation, averaged across a *sequence*, is constant. Note what this average is over. It isn't over inputs, so it's a promise that holds on every input, and it's a different thing from average case.
+</GoDeeper>
+
+<Quiz
+  id="alg-growth-1"
+  q="A library's documentation says its search is 'O(1) on average'. Your data arrived sorted, from one source, and searches are very slow. What's the likely explanation?"
+  options={["The documentation is lying", "An average rests on an assumption about inputs, and your inputs may be the case it doesn't cover", "Sorted data is always faster"]}
+  answer={1}
+  explain="Average case is an average over assumed inputs. Change the inputs and the promise goes with them, which is what happened to Cloudflare's 32-bucket table, with no attacker involved."
+/>
+
+<Quiz
+  id="alg-growth-2"
+  q="Which statement about quicksort is correct?"
+  options={["It is O(n log n), so it can't go quadratic", "Its average case is n log n, its worst case is n², and which input is worst depends on how the pivot is chosen", "Choosing the middle item removes the worst case"]}
+  answer={1}
+  explain="Big-O states a bound on a case, not a verdict on the algorithm. The middle pivot only moves the worst case: up-then-down input hits it, as you can measure."
+/>
+
+<Quiz
+  id="alg-growth-3"
+  q="Your program takes 2ⁿ steps. You buy a machine 1,000 times faster. How much bigger an input can you now handle in the same time?"
+  options={["1,000 times bigger", "About 32 times bigger", "About 10 more, since 2¹⁰ is about 1,000"]}
+  answer={2}
+  explain="Each extra item doubles the work, so 1,000 times the speed buys about 10 items. For a quadratic program, it would buy about 32 times the input. That's why exponential growth is a different kind of problem and not just a bigger number."
+/>
+
+## What to remember
+
+- Best, worst and average say which inputs you mean. O, Ω and Θ say what kind of bound. They're separate.
+- An average always assumes something about the inputs. Check that the assumption holds.
+- Worst cases don't go away. You move them, and someone or something may find them.
+- Exponential and factorial work can't be rescued by hardware. Each extra item multiplies the bill.
+- To find a shape, count steps across sizes and across deliberately chosen inputs.

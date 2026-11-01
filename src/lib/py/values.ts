@@ -268,6 +268,27 @@ export function compare(op: '<' | '<=' | '>' | '>=', a: Val, b: Val): boolean {
   return raise('TypeError', `'${op}' not supported between instances of '${tname(a)}' and '${tname(b)}'`);
 }
 
+// An equal hash doesn't make two keys the same key: == decides. Using the hash
+// alone as the key silently merged every colliding key into one, so a dict of
+// five keys sharing a __hash__ had length 1 and answered True for keys it never
+// held. Each class keeps its own list per hash value, which dies with the program.
+// The scan is what real Python's collisions cost in kind, but not in exact count:
+// this finds a key in the order keys first appeared, so n colliding inserts make
+// n(n-1)/2 __eq__ calls here, while CPython's probing makes a slightly different
+// number. src/lib/cs/hashtable.ts holds the exact model.
+const collisions = new WeakMap<PyClass, Map<string, PyInstance[]>>();
+function collidingKey(v: PyInstance, h: string): string {
+  let owner = v.cls;
+  for (let c: PyClass | null = v.cls; c; c = c.base) if (c.attrs.has('__hash__')) { owner = c; break; }
+  let table = collisions.get(owner);
+  if (!table) collisions.set(owner, table = new Map());
+  let keys = table.get(h);
+  if (!keys) table.set(h, keys = []);
+  for (let i = 0; i < keys.length; i++) if (keys[i] === v || eq(keys[i], v)) return `h${h}#${i}`;
+  keys.push(v);
+  return `h${h}#${keys.length - 1}`;
+}
+
 // Keys collapse the way Python's hash and == do: 1, 1.0 and True are one key.
 export function hashKey(v: Val): string {
   if (v === null) return 'n';
@@ -281,7 +302,7 @@ export function hashKey(v: Val): string {
   if (v instanceof PyList || v instanceof PyDict || v instanceof PySet) return raise('TypeError', `unhashable type: '${tname(v)}'`);
   if (v instanceof PyInstance) {
     const h = hooks.dunder(v, '__hash__', []);
-    if (h !== undefined) return `h${str(h)}`;
+    if (h !== undefined) return collidingKey(v, str(h));
     if (v.cls.lookup('__eq__')) return raise('TypeError', `unhashable type: '${v.cls.name}'`);
     return `o${v.id}`;
   }

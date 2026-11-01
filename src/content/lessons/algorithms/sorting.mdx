@@ -1,0 +1,303 @@
+---
+title: Five ways to sort, and the wall at n log n
+summary: A library sort that should have taken minutes was going to take weeks. Race five sorts with every comparison counted, attack quicksort with McIlroy's adversary, and see what a random pivot really stops and what it doesn't. Then watch sorted return a wrong answer with no error.
+minutes: 26
+xp: 60
+tiers: [browser]
+builds_on: [algorithms/searching]
+sources:
+  - title: Bentley & McIlroy - Engineering a Sort Function (1993, course-page copy)
+    url: https://cs.fit.edu/~pkc/classes/writing/papers/bentley93engineering.pdf
+  - title: McIlroy - A Killer Adversary for Quicksort (1999, page proof on his own site)
+    url: https://www.cs.dartmouth.edu/~doug/mdmspe.pdf
+  - title: Sedgewick & Wayne - Quicksort, section 2.3 (free booksite)
+    url: https://algs4.cs.princeton.edu/23quicksort/
+  - title: Sedgewick & Wayne - Mergesort, section 2.2 (free booksite)
+    url: https://algs4.cs.princeton.edu/22mergesort/
+  - title: Python docs - Sorting HOWTO
+    url: https://docs.python.org/3/howto/sorting.html
+  - title: Python docs - list.sort, on stability
+    url: https://docs.python.org/3/library/stdtypes.html
+  - title: Tim Peters - listsort.txt, on how Python's sort works (CPython source)
+    url: https://raw.githubusercontent.com/python/cpython/main/Objects/listsort.txt
+  - title: de Gouw et al. - OpenJDK's Java.utils.Collection.sort() Is Broken (CAV 2015)
+    url: https://link.springer.com/chapter/10.1007/978-3-319-21690-4_16
+  - title: Tim Peters and others - bpo-23515, Python's fix
+    url: https://bugs.python.org/issue23515
+  - title: Auger et al. - On the Worst-Case Complexity of TimSort (2018)
+    url: https://arxiv.org/abs/1805.08612
+  - title: Qualys - qsort() memory corruption in glibc (2024)
+    url: https://www.qualys.com/2024/01/30/qsort.txt
+  - title: Oracle - Java SE 7 compatibility notes
+    url: https://www.oracle.com/java/technologies/compatibility.html
+  - title: MIT OpenCourseWare - 6.006, recitation 3, on selection sort, insertion sort and stability (free)
+    url: https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/resources/mit6_006s20_r03/
+  - title: Pat Morin - Open Data Structures, chapter 11 (free, CC BY; the PDF keeps the formulas)
+    url: https://opendatastructures.org/ods-python/11_1_Comparison_Based_Sorti.html
+  - title: Wikipedia - Introsort (for Musser's authorship and date)
+    url: https://en.wikipedia.org/wiki/Introsort
+  - title: David Musser - introsort paper (1997, PostScript on his own site)
+    url: https://www.cs.rpi.edu/~musser/gp/introsort.ps
+  - title: cppreference - std::sort
+    url: https://en.cppreference.com/w/cpp/algorithm/sort
+  - title: Microsoft - Array.Sort, on its introspective sort
+    url: https://learn.microsoft.com/en-us/dotnet/api/system.array.sort
+---
+
+In the summer of 1991, two researchers at Bell Labs ran the system's sort on some data. Jon Bentley and Doug McIlroy tell it: "Yet in the summer of 1991 our colleagues Allan Wilks and Rick Becker found that a qsort run that should have taken a few minutes was chewing up hours of CPU time. Had they not interrupted it, it would have gone on for weeks."
+
+This wasn't some forgotten program. It was `qsort`, the library routine that had "served faithfully" for almost two decades. The input was an "organ-pipe" array: numbers going up and then back down, like 1 2 3 3 2 1. Bentley and McIlroy went shopping for a better one and came back with this: "we found no qsort that could not easily be driven to quadratic behavior".
+
+Sorting is one of the most studied problems in computing, and the library version could still take weeks on a simple shape of input. So this lesson counts comparisons, and it looks at what each sort is really promising.
+
+## Five ways to sort
+
+A **comparison sort** learns about its data only by asking "is this one smaller than that one?". So we can count those questions, and the count is the same on any machine. Here are five.
+
+**Selection sort** finds the smallest item and puts it first, then finds the next smallest, and so on. It's like sorting a hand of cards by scanning for the lowest card each time. It asks the same number of questions whatever the data looks like.
+
+**Insertion sort** takes items one at a time and slides each one left until it's in place among those already sorted. On data that is nearly in order, almost nothing moves.
+
+**Merge sort** splits the list in half, sorts each half, and merges the two sorted halves by repeatedly taking the smaller front item.
+
+**Quicksort** picks one item, the **pivot**, and splits everything else into "smaller than the pivot" and "larger than the pivot". Then it sorts each side. Everything depends on the pivot. A pivot near the middle halves the work, and a pivot at the extreme removes only one item.
+
+**Python's `sorted`** looks for runs that are already in order, then merges them. It uses only `<`.
+
+Here's what each costs for 1,000 items, counted by the lab below:
+
+| Sort | Already sorted | Shuffled | Organ pipe |
+|---|---|---|---|
+| Selection sort | 499,500 | 499,500 | 499,500 |
+| Insertion sort | 999 | 247,364 | 250,499 |
+| Merge sort | 4,932 | 8,699 | 5,487 |
+| Quicksort, first item as pivot | 499,500 | 12,320 | 84,744 |
+| Quicksort, random pivot | 10,614 | 10,572 | 11,244 |
+| Python's `sorted` | 999 | 8,645 | 1,998 |
+
+Read the columns, not just the rows. Quicksort with a first-item pivot is at its worst on the input a person would call the easiest. Comparing every pair of 1,000 items takes 499,500 questions, which is the number in its first cell, so it did no better than that. Merge sort and `sorted` have no bad column here, and `sorted` gets cheaper when the data has order in it.
+
+## Try the slow two
+
+Selection sort first. **Measure growth** feeds it lists of growing size, and those lists are already sorted.
+
+<CodeLab grow="selection_sort" sizes="100,200,400,800" code={`def selection_sort(items):
+    a = items[:]
+    for i in range(len(a)):
+        smallest = i
+        for j in range(i + 1, len(a)):
+            if a[j] < a[smallest]:
+                smallest = j
+        a[i], a[smallest] = a[smallest], a[i]
+    return a
+
+print(selection_sort([5, 2, 9, 1, 5, 6]))
+`} />
+
+The list was sorted before it started, and selection sort read all of it anyway. It never finds out. Now insertion sort on the same lists:
+
+<CodeLab grow="insertion_sort" sizes="100,200,400,800" code={`def insertion_sort(items):
+    a = items[:]
+    for i in range(1, len(a)):
+        j = i
+        while j > 0 and a[j] < a[j - 1]:
+            a[j], a[j - 1] = a[j - 1], a[j]
+            j -= 1
+    return a
+
+print(insertion_sort([5, 2, 9, 1, 5, 6]))
+`} />
+
+Linear. Each item checks one neighbour and stops. A sort that gets cheaper when the data is already nearly in order is called **adaptive**, and real data is very often nearly in order. Hand either program a reversed list and see what happens to insertion sort.
+
+## The wall at n log n
+
+Can any comparison sort beat merge sort's roughly `n log₂ n`? There's a neat argument that says no, and it needs only a little counting.
+
+Three items can arrive in 6 different orders. Four can arrive in 24. In general `n` items can arrive in `n!` orders (that's `n × (n-1) × ... × 2 × 1`). A sort has to do something different for each of them, because each needs different rearranging. But each question has only two answers, so each one can at best cut the remaining possibilities in half.
+
+So you need enough questions to halve `n!` possibilities down to one. Three items: 6 orders, and two questions reach only 4, so you need 3. That number of questions is `log₂(n!)`, rounded up, and for big `n` it grows like `n log₂ n` and stays a little below it:
+
+| n | Orders to tell apart | No sort can guarantee fewer questions than | n log₂ n |
+|---|---|---|---|
+| 3 | 6 | 3 | 5 |
+| 10 | 3,628,800 | 22 | 33 |
+| 1,000 | about 4 × 10²⁵⁶⁷ | 8,530 | 9,966 |
+
+That's the wall. Python's `sorted` on shuffled data used 8,645 comparisons in the table above, about 1.3% over the floor of 8,530. So there isn't much left to find. As Sedgewick and Wayne put it: "No compare-based sorting algorithm can guarantee to sort N items with fewer than lg(N!) ~ N lg N compares." (`lg` is their way of writing log₂, and `~` means "grows like".)
+
+How did `sorted` use only 999 on sorted input, far below the wall? The wall is about the worst case. It says some input costs that much, not that every input does. Tim Peters's own notes on Python's sort say it needs "less than lg(N!) comparisons needed, and as few as N-1" on data with structure in it.
+
+You can count `sorted`'s comparisons yourself. The class below does one thing: it adds to a counter each time Python asks it `<`.
+
+<CodeLab rows={22} code={`count = 0
+
+class Counted:
+    def __init__(self, value):
+        self.value = value
+    def __lt__(self, other):
+        global count
+        count += 1
+        return self.value < other.value
+
+def cost(values):
+    global count
+    count = 0
+    sorted([Counted(v) for v in values])
+    return count
+
+print("sorted:  ", cost(list(range(1000))))
+print("reversed:", cost(list(range(1000, 0, -1))))
+print("all same:", cost([7] * 1000))
+print("zigzag:  ", cost([i % 2 for i in range(1000)]))
+`} />
+
+<Callout kind="real">
+This lab's `sorted` is a port of the sort in CPython 3.11 and 3.12 (their sort makes the same comparisons, and a test compares the port's counts with real Python's). So the counts above are real. The sort's code changed in Python 3.13 and the port hasn't been compared with it, so on a newer Python a count can differ a little. Python's strategy for choosing which runs to merge was also replaced in 3.11, with one called powersort, so "Python uses Timsort" is only loosely true now.
+</Callout>
+
+## The Killer Lab
+
+In 1999 McIlroy came back to quicksort with something much nastier than an organ pipe. "Quicksort can be made to go quadratic by constructing input on the fly in response to the sequence of items compared."
+
+The trick: don't decide the input in advance. Every item starts as **gas**, with no value at all. When the sort compares two gas items, the adversary freezes one of them to the smallest value not yet used, so the item the sort is likely to be using as a pivot turns out to be nearly the smallest left. The sort sees a perfectly consistent set of answers. When it finishes, the frozen values form a real list of numbers: an input that would have done the same thing if you'd fed it in at the start.
+
+Because it watches what the sort asks and doesn't care why, the pivot rule barely matters: "It may even pick the pivot at random."
+
+But the standard textbook praises the same idea. Its quicksort shuffles the list first, which does the job of a random pivot, and it says the chance of quadratic behaviour "is much less than the probability that your computer will be struck by lightning!"
+
+Both of those are true. Find out why. The lab's random pivots start from a **seed**: the number a random generator starts from. The same seed gives the same "random" numbers every time, which is what lets you repeat a run.
+
+<KillerLab />
+
+Here are the runs that settle it, at `n = 1,000` with random pivots:
+
+| Run | Comparisons |
+|---|---|
+| Adversary answering live, seed 11 | 498,502 |
+| The input it built, replayed as a plain list, seed 11 again | 498,502 |
+| The same list, seeds 12, 13 and 14 | 10,345 / 10,821 / 11,136 |
+
+**On a file of different numbers, a random pivot protects you from the input, as long as nobody knows your random numbers.** An attacker who sends a fixed file can't aim at pivots they can't predict, and Sedgewick's lightning applies to them. An attacker who answers the comparisons doesn't need to predict anything, since they react after each pivot is chosen. An attacker who knows the seed can predict it all, and the file works again.
+
+McIlroy's own view of what this means: "No matter how hard implementers try, they cannot (without great sacrifice of speed) defend against all inputs." Against median-of-three, the lab gets about `0.25 n²`, which matches the line for Irix in his table. He's also clear about its limits: "The adversary is highly specific to quicksort. Against an insertion sort it did as badly as possible, forcing only n - 1 comparisons to sort n items." `sorted` gets the same n - 1.
+
+He was writing about quicksort, and the usual way out now is to stop being one when things go badly. **Introsort**, from David Musser in 1997, watches how deep its recursion gets and past a limit switches to heapsort, whose worst case is `n log n`. Microsoft's documentation for .NET describes it in one line: "If the number of partitions exceeds 2 * LogN, where N is the range of the input array, it uses a Heapsort algorithm." cppreference says of C++'s `std::sort` that introsort "is usually used for implementing sort()". Against a sketch of that idea on this lab's partition, the adversary gets 34,844 comparisons at `n = 1,000`, where plain median of three costs 251,000, and doubling `n` costs about 2.2 times the work rather than 4. A test on this site counts those. We counted comparisons and not time, so whether libraries escape his "great sacrifice of speed" is their claim, and we haven't measured it.
+
+### The file that needs no attacker
+
+Everything so far assumes the numbers are different. This lab's quicksort sends every item equal to the pivot to the same side, so a file of repeated numbers splits into nothing and everything, whichever pivot it picks. Pick **all the same number** in the lab: 1,000 items cost 499,500 comparisons at every seed. **Random zeros and ones** cost about 250,000. That takes no attacker and no secret, and a random pivot has nothing to fix, because every pivot is as bad as the next.
+
+Bentley and McIlroy met this one too, in a qsort written at Berkeley in 1983 that "would consume quadratic time on arrays that contain a few elements repeated many times--in particular arrays of random zeros and ones". It isn't exotic input either: "many users sort precisely to bring together equal elements."
+
+Their paper gives the two usual fixes. One is to spread equal items over both sides: "It is important that both inner loops stop on an equal element." Sedgewick and Wayne's quicksort does that, and their lightning depends on it. The other is **three-way partitioning**, where "a fat partition divides the input into three": smaller, equal and larger. Then only the two outer parts need sorting. The quicksort in [Divide and conquer](/learn/algorithms/divide-and-conquer/) works that way, and on 1,000 equal numbers it makes one pass.
+
+<Callout kind="trap">
+Saying "we use random pivots, so we're safe" needs two more words: "from whom?" In ordinary use, nobody can answer your comparisons. But if comparisons run code someone else supplied, or your seed is fixed or guessable, you are back to about `n²/2`. A guarantee is a statement about an attacker. Check that you have the attacker it assumed.
+</Callout>
+
+## Equal items, and what stability buys
+
+Sort people by age, and two people share an age. Which comes first? A sort is **stable** if equal items keep the order they arrived in. Python's docs promise it: "Sorts are guaranteed to be stable."
+
+That makes a useful trick possible. To sort by department and then by name inside each department, sort by name first, then by department. The second sort keeps the first sort's order among equals.
+
+<CodeLab code={`people = [("b", 2), ("a", 2), ("c", 1), ("a", 1)]
+
+def second(p):
+    return p[1]
+
+print(sorted(people, key=second))
+print(sorted(people, key=second, reverse=True))
+
+# Sort by the second value, then the first, using two passes.
+print(sorted(sorted(people), key=second))
+`} />
+
+Look at the second line. With `reverse=True`, the equal items keep their original order. They don't flip.
+
+Not every sort is stable. Selection sort swaps items over long distances, so it can carry one item past an equal one. MIT's 6.006 notes show it with their version, which picks the largest each time: the input `(2, 1, 1')` comes out as `(1', 1, 2)`. Insertion sort moves one step at a time and stops at an equal neighbour, so it stays stable. Heap-based sorts aren't: Python's `heapq` docs say of their heapsort that "unlike sorted(), this implementation is not stable".
+
+## When the comparison lies
+
+A sort believes what `<` tells it. It has no other way to know anything. So what happens when `<` lies?
+
+<CodeLab mission="cs-sort-nan" />
+
+`nan` means "not a number". It's what a failed calculation or a blank cell in a spreadsheet often becomes. Python's docs quote the rule it follows: "Every NaN shall compare unordered with everything, including itself." So `nan < x` is False and `x < nan` is False, for every `x`.
+
+With that, here's what real Python does:
+
+```text
+sorted([3.3, nan, 1.1, 2.2])  ->  [3.3, nan, 1.1, 2.2]    no error
+sorted([nan, 3.3, 1.1, 2.2])  ->  [nan, 1.1, 2.2, 3.3]    no error
+sorted([3.3, 1.1, nan, 2.2])  ->  [1.1, 2.2, 3.3, nan]    no error
+sorted([1, 'a'])              ->  TypeError
+```
+
+The first one returned its input unchanged, and it isn't sorted. It looked at `3.3` and `nan`, was told they were in order, looked at `nan` and `1.1`, and was told the same. Move the NaN and you get a different answer. The last one fails loudly, and that's much better.
+
+This isn't only a Python quirk.
+
+- **Java** replaced its sort in Java 7, and some programs that used to run began to throw an exception. Oracle's notes say why: the new sort may throw one if it detects a comparison that breaks the rules, and "The previous implementation silently ignored such a situation." The bug had always been there. Now it was loud.
+- **glibc's `qsort`** had a memory corruption, found by Qualys in 2024: "To be vulnerable, a program must call qsort() with a nontransitive comparison function". Their example of such a function is the innocent-looking `return a - b`, which breaks when the subtraction overflows. It also needs an attacker-controlled list big enough that a request for more memory fails, and they add: "We have not tried to find such a vulnerable program in the real world."
+
+A rule is **transitive** if it carries across: `a < b` and `b < c` together guarantee `a < c`. A comparison sort needs that to hold for two rules: `<` itself, and "neither is smaller than the other". NaN keeps the first and breaks the second: neither of `3.3` and NaN is smaller, and neither of NaN and `1.1` is smaller, but `1.1` is smaller than `3.3`. Comparison sorts assume both, and almost nothing checks. Java's sort only sometimes notices.
+
+## Timsort, at its true size
+
+You may read that "Timsort is broken". Here's what really happened, because the headline is much bigger than the bug.
+
+In 2015 researchers trying to prove the sort correct found a flaw in how it tracked pending merges. Too many waiting runs could overflow a small fixed stack. It's a crash, not a wrong answer, and they note: "Extensive testing was not able to exhibit the bug." Java's smallest failing input was large: "the smallest counterexample is an array of 67+ million elements (with non-primitive type) and a very complex structure." (Non-primitive means objects, rather than plain numbers.)
+
+Python was barely touched. Tim Peters, who wrote the sort, marked it low priority, because "there's currently no machine in existence with enough memory to hold an array large enough for a contrived input to trigger an overflow of the pending-runs stack." The logic was fixed anyway, in February 2015, and he said why: "Absolutely agreed: a logical error is an error, and will bite us eventually, regardless of whether it does so today."
+
+Peters also pointed out that Java had changed this part of the code "in a way that _did_ make it possible to provoke the stack overflow on current hardware". Java's first patch was only a bigger stack, which the researchers showed was still too small. A later, bigger one, of 49, fell to an input needing 50 ("we were able to compute an example requiring a stack of size 50"). Current OpenJDK source now has the logic fix as well.
+
+So: a real bug, found by a proof and not by a test, in a sort that had shipped for years. It could crash Java on contrived 67-million-item inputs, and by Peters's reckoning no machine could reach it in Python. That's more interesting than the headline, and it's a better argument for careful reasoning.
+
+<GoDeeper title="The decision-tree proof of the lower bound">
+Any comparison sort can be drawn as a binary tree. Each internal node is a comparison, with one branch for each answer. Each leaf is a finished rearrangement. Running the sort on an input traces one path from the root to a leaf, and the number of comparisons is the length of that path.
+
+Two different input orders must reach different leaves, because they need different rearrangements. So the tree has at least `n!` leaves. A binary tree of height `h` has at most `2^h` leaves, so `2^h ≥ n!`, which gives `h ≥ log₂(n!)`. The height is the worst-case path, so some input costs at least that many comparisons.
+
+For the size of that number: `n!` has at least `n/2` factors of at least `n/2`, so `log₂(n!) ≥ (n/2) log₂(n/2)`, which grows like `n log n`.
+
+Three things this does and doesn't say:
+
+- It's a worst-case bound, so `sorted` using `n-1` on sorted input is no contradiction. *Open Data Structures* (section 11.1, in the PDF, since its HTML drops the formulas) extends the argument to the average case and to randomised algorithms, so a random pivot can't buy its way below it either.
+- It only covers sorts that learn by comparing. Counting sort reads the keys as numbers, and it isn't bound by this.
+- The exact bound is easy to compute with integers: in Python, `(math.factorial(n) - 1).bit_length()` gives `⌈log₂ n!⌉`. Don't use `lgamma` for it, since rounding could land you on the wrong integer.
+</GoDeeper>
+
+<Quiz
+  id="alg-sort-1"
+  q="An attacker can upload a file of numbers for your server to sort. Your quicksort picks random pivots from a generator seeded unpredictably at startup, and it handles repeated numbers. How much should you worry about McIlroy's adversary?"
+  options={["A lot: McIlroy showed random pivots don't help against his adversary", "Not much: a fixed file can't aim at pivots it can't predict, and the adversary needs to answer the comparisons or know the seed", "Not at all: quicksort can never be quadratic with random pivots"]}
+  answer={1}
+  explain="Replayed against a fresh seed, the adversary's input cost about 11,000 comparisons at n=1,000, against 498,502 live. Quadratic behaviour is still possible with random pivots. It's astronomically unlikely against a file of different numbers, and it's certain against a file of one repeated number if the partition doesn't handle those, as this lab's doesn't. The guarantee is about the attacker, so if they could learn the seed, you'd be back to about n²/2."
+/>
+
+<Quiz
+  id="alg-sort-2"
+  q="sorted(data) returned a list with no error, and some totals built from it are wrong. data has a few float('nan') values in it. What happened?"
+  options={["sorted raises an error on NaN, so something else must be wrong", "Every comparison with NaN is False, so sorted was told wrong things and can return a list that isn't sorted, with no warning", "sorted moves NaN to the end automatically, so the sort is fine"]}
+  answer={1}
+  explain="sorted([3.3, nan, 1.1, 2.2]) returns its input unchanged. Remove the NaNs before sorting, or sort with a key that puts them in a known place. Mixed types such as [1, 'a'] are the loud case: those raise TypeError."
+/>
+
+<Quiz
+  id="alg-sort-3"
+  q="You sort a list of orders by date, then sort the result by customer. In Python, what order are one customer's orders in?"
+  options={["Date order, because sorted is stable and keeps the earlier order among equal customers", "Random, because the second sort throws the first away", "Reverse date order, because each sort flips equal items"]}
+  answer={0}
+  explain="Stability means equal keys keep their existing order. That's why sorting by the secondary key first and then the primary key works, and it's guaranteed by Python's docs. A sort without that promise could scramble them."
+/>
+
+## What to remember
+
+- Count comparisons. A sort's real promise is how the count behaves on sorted, reversed and hostile input, not just shuffled.
+- With comparisons alone, no sort can guarantee to beat about `n log₂ n`, because each answer can at best halve the possibilities. It can still do far better on data with order in it.
+- Random pivots stop a crafted file of different numbers. They don't stop someone who answers the comparisons or knows the seed, and they don't stop repeated numbers unless the partition handles them. Ask who and what the guarantee is against.
+- A stable sort keeps equal items in their arrival order, and that's what makes multi-key sorting by repeated sorts work.
+- A sort believes `<`. NaN makes it return a wrong answer with no error, so clean the data first.

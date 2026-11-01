@@ -1,0 +1,194 @@
+---
+title: A recipe a machine cannot misread
+summary: On the last day of 2008, a music player froze because it followed its instructions exactly. Learn what makes a procedure an algorithm, watch a machine follow one past the point of sense, fix the loop that froze the players, and separate what a thing does from how it does it.
+minutes: 18
+xp: 45
+tiers: [browser]
+builds_on: []
+sources:
+  - title: Jeff Erickson - Algorithms, chapter 0, the definition used here (free, CC BY)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/00-intro.pdf
+  - title: PC World - Zune Chokes on Leap-year Bug (2008, quotes Microsoft's forum posting)
+    url: https://www.pcworld.com/article/532673/article-7219.html
+  - title: NBC News / AP - Microsoft says Zune players working again (2009)
+    url: https://www.nbcnews.com/id/wbna28449091
+  - title: Microsoft's archived developer blogs - hello w0rld0 (2009, reproduces the code from a fan forum)
+    url: https://learn.microsoft.com/en-us/archive/blogs/asklar/hello-w0rld0
+  - title: Pat Morin - Open Data Structures, section 1.2, Interfaces (free, CC BY)
+    url: https://opendatastructures.org/ods-python/1_2_Interfaces.html
+  - title: Python documentation - round() and the other built-in functions
+    url: https://docs.python.org/3/library/functions.html
+  - title: Wikipedia - Algorithm characterizations (quotes Knuth's definition; the book itself not read here)
+    url: https://en.wikipedia.org/wiki/Algorithm_characterizations
+---
+
+<Callout kind="tip" title="Never written code?">
+You can read along. Every program on this page has a **Run** button and a **Step** button, and you can get the idea from watching what they do without changing a line. A separate trail, Programming from Zero, is being written for people starting from nothing. It isn't ready yet.
+</Callout>
+
+On the morning of 31 December 2008, owners of Microsoft's Zune 30GB music player woke up to find it frozen. They couldn't play anything, and the device wouldn't finish starting. By that afternoon, more than 2,500 messages had piled up on Microsoft's support forum.
+
+Microsoft's explanation that day was "a bug in the internal clock driver related to the way the device handles a leap year". Its advice was to let the battery run flat, wait until the next day, recharge the player and turn it on. That worked for most people, with no change to the firmware, the software built into the device. A few were still complaining the next morning.
+
+The device hadn't misread its instructions. It was following them perfectly, and it would have gone on following them for as long as it had power. That's why a flat battery was the cure: starting again on a later date got through the loop normally. A post on Microsoft's developer blogs described what it was stuck on: "The problem is that when you're in the 366th day of a leap year, we don't go into the inner if so we don't subtract 366, and keep going into the while block forever."
+
+You'll run that loop shortly. First, what do we mean by instructions?
+
+## What makes it an algorithm
+
+Jeff Erickson's textbook gives the definition we'll use:
+
+> An algorithm is an explicit, precise, unambiguous, mechanically-executable sequence of elementary instructions, usually intended to accomplish a specific purpose.
+
+A cooking recipe is the usual comparison, and it's a useful place to see the difference. "Bake until golden" needs a person who knows what golden looks like. "Add salt to taste" needs a tongue. "Heat at 200 degrees for 25 minutes" doesn't. Go through the words:
+
+- **Explicit and precise.** Everything is stated, with nothing left to common sense.
+- **Unambiguous.** There is one way to read each step.
+- **Mechanically executable.** Following it takes no judgement at all.
+- **Elementary instructions.** Each step is something the machine can already do. "Sort the list" isn't elementary until someone has told the machine how.
+
+Notice what isn't on the list. This definition doesn't say the algorithm has to be right, or even that it has to finish. It says how clearly it has to be written down. Not every book agrees. Donald Knuth's definition, as Wikipedia quotes it (we haven't read the book), says "An algorithm must always terminate after a finite number of steps", and under that one the loop you're about to run isn't an algorithm at all. So check which definition a book is using.
+
+## Watch a machine follow orders
+
+Erickson's first example is a song: an algorithm for singing "Bottles of Beer on the Wall", for any starting number `n`. Here it is in Python. A program is the same steps, written in a language a machine can follow.
+
+Press **Run** to see all of it. Then press **Step** to walk through one line at a time and watch `i` count down in the Variables panel. `for i in range(n, 0, -1)` means "let `i` be `n`, then one less, stopping before 0".
+
+<CodeLab code={`n = 3
+for i in range(n, 0, -1):
+    print(i, "bottles of beer on the wall,", i, "bottles of beer,")
+    print("Take one down, pass it around,", i - 1, "bottles of beer on the wall.")
+print("No bottles of beer on the wall, no bottles of beer,")
+print("Go to the store, buy some more,", n, "bottles of beer on the wall.")
+`} />
+
+Read the output closely. It says "1 bottles of beer". Anyone singing this would fix that without noticing. A machine can't, and that's the deal: you get perfect obedience, and you give up every correction a person would make without being asked.
+
+## When the recipe leaves a decision open
+
+Precise is harder than it sounds, because most of what we say leaves something out. Try two instructions that sound complete: "put these names in alphabetical order" and "round to the nearest whole number".
+
+<CodeLab code={`print(sorted(["apple", "Banana", "cherry"]))
+print(round(0.5), round(1.5), round(2.5), round(3.5))
+`} />
+
+"Banana" came before "apple", because Python compares the codes behind the letters, and every capital letter's code is lower than every small letter's. And `round(2.5)` is 2. Python's documentation says so: "if two multiples are equally close, rounding is done toward the even choice". Neither of these is a bug. Your instruction left a decision open, and someone you've never met closed it for you.
+
+So an underspecified instruction doesn't make a machine stop and ask. It runs, and the gap gets filled by whatever its authors chose. If you want capitals ignored, or halves rounded up, you have to say so.
+
+<Callout kind="trap">
+Nothing warned you. Both lines ran without an error and printed something plausible. A program that does the wrong thing confidently is harder to catch than one that crashes, and that will come up again and again on this trail.
+</Callout>
+
+## The day the loop never ended
+
+Here is the Zune code, translated into Python so you can run it. It works out the year from a count of days, where 1 January 1980 is day 1. Each pass of the `while` loop takes a whole year's days off the count and adds one to the year, until fewer than a year's worth of days remain. In `is_leap`, `%` gives the remainder after dividing, so `year % 4 == 0` asks whether the year divides exactly by 4.
+
+Change the last line, and find out what happened on 31 December 2008.
+
+<CodeLab mission="alg-what-last-day" />
+
+When the count reached 366 in a leap year, the outer test said "more than 365 left, so go round again". The inner test said "not more than 366, so don't subtract". Nothing changed, so the next pass asked the same two questions and got the same two answers. Every instruction was clear, and every one of them ran.
+
+It was also easy to miss. The loop hangs on one day in every 1,461, the last day of a leap year. On every other day it gives the right answer.
+
+<Callout kind="real">
+The page stops the loop at 5 million steps, because this lab counts them. The player had nothing like that, and neither would real Python: this loop would run until someone pulled the power. Here's what we can and can't check. Microsoft's public statement names the clock driver and the leap year, not this code. The code comes from a fan forum, as reproduced in that blog post, and we haven't seen the firmware. The post doesn't say how `days` is produced either. What we did check, with a test on this site, is that when 1 January 1980 counts as day 1, this exact loop hangs on the last day of a leap year and on no other day, which is the date Microsoft reported.
+</Callout>
+
+So an algorithm can be precise and still be wrong. Three separate questions are worth asking about any procedure:
+
+1. **Can it be misread?** That's what the definition covers.
+2. **Does it always finish?** On every input, not just the ones you tried.
+3. **Is the answer right?** Also on every input.
+
+Most of this trail is about a fourth question, which only makes sense once those three are answered: how much work does it take?
+
+## What it does, and how it does it
+
+A second distinction runs through the rest of this trail. Open Data Structures, a free textbook, puts it this way: "An interface describes what a data structure does, while an implementation describes how the data structure does it."
+
+A **data structure** is a way of organising data so a program can use it. An **interface**, it goes on, "sometimes also called an abstract data type, defines the set of operations supported by a data structure and the semantics, or meaning, of those operations". You'll see it shortened to **ADT**.
+
+Think of a phone book as a promise with two operations:
+
+- `put(name, number)` stores a number under a name.
+- `get(name)` gives back the number most recently stored under that name.
+
+That's the interface. It doesn't say whether the numbers live in a list, on cards, or anywhere else. Here are two implementations. **A** keeps a list of pairs and looks through it. **B** uses a Python dictionary. Run it, and see whether both kept the promise.
+
+<CodeLab code={`# Implementation A: a list of (name, number) pairs.
+pairs = []
+
+def put_a(name, number):
+    pairs.append((name, number))
+
+def get_a(name):
+    for pair in pairs:
+        if pair[0] == name:
+            return pair[1]
+    return None
+
+# Implementation B: a dictionary.
+book = {}
+
+def put_b(name, number):
+    book[name] = number
+
+def get_b(name):
+    return book.get(name)
+
+put_a("Mei", 111)
+put_b("Mei", 111)
+print(get_a("Mei"), get_b("Mei"))
+
+# Mei gets a new number.
+put_a("Mei", 222)
+put_b("Mei", 222)
+print(get_a("Mei"), get_b("Mei"))
+`} rows={18} />
+
+They agree until Mei changes her number. Then A hands back the old one, with no error, because it finds the first match and stops. It looks like a phone book and it breaks the promise. A test that only ever stored each name once would have passed it.
+
+To fix A, you could make `get_a` walk the list and keep the last match, or make `put_a` replace an existing pair. Try one. Both honour the interface, and they cost different amounts of work, which is the point of the separation: **the interface decides what's correct, and the implementation decides what it costs.** Later lessons take the common interfaces, list, stack, queue, set and map, and ask what each implementation charges.
+
+<GoDeeper title="Proving a loop finishes">
+To prove a loop ends, look for a **variant**: a whole number that can't go below zero and gets strictly smaller on every pass. A value like that can only shrink a finite number of times, so the loop has to stop.
+
+In the Zune loop, `days` looks like a variant, since each pass subtracts 365 or 366. The proof fails on exactly one branch: a leap year with `days` equal to 366 changes nothing, so the number doesn't get smaller. Trying to write the proof points straight at the bug. Adding `else: break` closes that branch, and every pass then either shrinks `days` or ends the loop.
+
+Whether a loop finishes can't be decided in general, by any program, for all programs. That's the halting problem. For one loop you can read, it's often this easy.
+</GoDeeper>
+
+<Quiz
+  id="alg-what-1"
+  q="Which of these instructions is closest to an algorithm, in the sense used here?"
+  options={["Bake until golden", "Tidy the list so that it looks right", "Compare the first two numbers, and swap them if the first is bigger", "Pick a sensible number of retries"]}
+  answer={2}
+  explain="Each of the others needs a person's judgement: what golden looks like, what looks right, what's sensible. Comparing two numbers and swapping them is something a machine can do with no judgement at all."
+/>
+
+<Quiz
+  id="alg-what-2"
+  q="The Zune's loop was precise and unambiguous, and it froze the player. What does that show?"
+  options={["The definition of an algorithm must be wrong", "Being impossible to misread says nothing about whether a procedure finishes or gives the right answer", "The machine must have misread the instruction on that one day"]}
+  answer={1}
+  explain="The machine did exactly what the code said, on every pass. Precision only removes misreading. Finishing and being right are separate questions, and on 1,460 days out of every 1,461 this loop looked fine."
+/>
+
+<Quiz
+  id="alg-what-3"
+  q="Two phone books both offer put and get. One stores names in a list and the other in a dictionary. Which statement is right?"
+  options={["They're the same interface only if they store the data the same way", "Same interface and different implementations, as long as both really keep the promise that get returns the latest number", "The one that returns an answer without an error is correct"]}
+  answer={1}
+  explain="An interface says what the operations mean and nothing about how they work. But it does include the meaning: implementation A in the lab returned an answer with no error, and the answer broke the promise."
+/>
+
+## What to remember
+
+- An algorithm is precise enough that following it takes no judgement.
+- A machine gives you exact obedience and none of the corrections a person would make.
+- Precise doesn't mean right. Ask separately whether it can be misread, whether it always finishes, and whether the answer is right.
+- A gap in your instructions doesn't stop the machine. Somebody else's choice fills it.
+- An interface says what a thing does. An implementation says how, and that's what sets the cost.

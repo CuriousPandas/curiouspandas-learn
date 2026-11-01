@@ -3,18 +3,17 @@ import Base from '../../layouts/Base.astro';
 import '../../styles/widgets.css';
 import { curriculum } from '../../lib/curriculum.ts';
 import coverage from '../../data/cs2023-coverage.json';
+import { STANDING_LABEL, standing, type UnitStanding, type Verdict } from '../../lib/coverage.ts';
 
 const tracks = await curriculum();
 const lessons = new Map(tracks.flatMap((t) => t.lessons.map((l) => [l.id, { title: l.title, href: l.href, ready: l.status === 'ready', track: t.title }])));
 
-// The audit's verdict is dated and stays as written; what moves on its own is how
-// many of the planned lessons exist. A unit never turns "covered" just because a
-// lesson shipped: that takes someone rereading it against the curriculum.
-const LABEL: Record<string, string> = { covered: 'Covered', partial: 'Partly', none: 'Not taught', excluded: 'Left out on purpose' };
 const units = coverage.areas.flatMap((a) => a.units);
-const count = (s: string) => units.filter((u) => u.status === s).length;
+const written = (u: { planned: string[] }) => u.planned.filter((id) => lessons.get(id)?.ready).length;
+const standingOf = (u: { status: string; planned: string[] }) => standing(u.status as Verdict, written(u));
+const count = (s: UnitStanding) => units.filter((u) => standingOf(u) === s).length;
 const planned = [...new Set(units.flatMap((u) => u.planned))];
-const written = planned.filter((id) => lessons.get(id)?.ready);
+const writtenPlanned = planned.filter((id) => lessons.get(id)?.ready);
 ---
 <Base title="What's covered" description="How much of computer science this site teaches, measured unit by unit against the CS2023 curriculum, including everything still missing.">
   <article class="wrap page">
@@ -25,10 +24,11 @@ const written = planned.filter((id) => lessons.get(id)?.ready);
       <div class="stat">covered<b>{count('covered')}</b></div>
       <div class="stat">partly covered<b>{count('partial')}</b></div>
       <div class="stat">not taught yet<b>{count('none')}</b></div>
+      <div class="stat">re-audit due<b>{count('reaudit')}</b></div>
       <div class="stat">left out on purpose<b>{count('excluded')}</b></div>
-      <div class="stat">planned lessons written<b>{written.length} of {planned.length}</b></div>
+      <div class="stat">planned lessons written<b>{writtenPlanned.length} of {planned.length}</b></div>
     </div>
-    <p class="muted">Last audited {coverage.retrieved}, by reading the lessons against the curriculum. "Partly" is generous: at least one listed topic is really taught, not most of them. Breadth is measured here, not how good a lesson is. This is one standard's view of the field, and a university course also gives you things a website can't, like feedback from people.</p>
+    <p class="muted">Last audited {coverage.retrieved}, by reading the lessons against the curriculum. "Partly" is generous: at least one listed topic is really taught, not most of them. "Re-audit due" means lessons for that unit were written after the audit and nobody has yet checked them against the curriculum, so it doesn't mean covered. Breadth is measured here, not how good a lesson is. This is one standard's view of the field, and a university course also gives you things a website can't, like feedback from people.</p>
 
     {coverage.areas.map((a) => (
       <section class="area">
@@ -43,10 +43,11 @@ const written = planned.filter((id) => lessons.get(id)?.ready);
                 <details>
                   <summary>
                     <span class="u-title">{u.title}</span>
-                    <span class={`u-status ${u.status}`}>{LABEL[u.status]}</span>
+                    <span class={`u-status ${standingOf(u)}`}>{STANDING_LABEL[standingOf(u)]}</span>
                     {plan.length > 0 && <span class="muted u-plan">{done.length} of {plan.length} planned lessons written</span>}
                   </summary>
                   <div class="u-body">
+                    {standingOf(u) === 'reaudit' && <p><em>This was the audit's finding on {coverage.retrieved}, before these lessons were written:</em></p>}
                     <p>{u.note}</p>
                     {u.lessons.length > 0 && <p><strong>Taught today in:</strong> {u.lessons.map((id, i) => <>{i > 0 && ', '}{lessons.get(id)?.ready ? <a href={lessons.get(id)!.href}>{lessons.get(id)!.title}</a> : id}</>)}</p>}
                     {plan.length > 0 && <p><strong>Planned:</strong> {plan.map((id, i) => <>{i > 0 && ', '}{lessons.get(id)!.ready ? <a href={lessons.get(id)!.href}>{lessons.get(id)!.title}</a> : lessons.get(id)!.title}</>)}</p>}
@@ -75,6 +76,7 @@ const written = planned.filter((id) => lessons.get(id)?.ready);
   .u-status.partial { background: var(--sun-soft); color: var(--sun-text); }
   .u-status.none { background: var(--berry-soft); color: var(--berry); }
   .u-status.excluded { border-style: dashed; color: var(--ink-2); }
+  .u-status.reaudit { background: var(--sky-soft); color: var(--sky); }
   .u-plan { font-size: 0.82rem; }
   .u-body { padding: 0 2px 8px; font-size: 0.93rem; overflow-wrap: anywhere; }
   .u-body p { margin: 4px 0; }

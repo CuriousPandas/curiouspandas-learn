@@ -1,0 +1,201 @@
+---
+title: Trees, heaps and priority queues
+summary: A height check fired, a recovery ran, the check fired again, and a service went down, by its authors' fictionalized account. Grow four trees from one stream of keys, re-enact that loop, and build the priority queue that makes the fast version of shortest paths possible.
+minutes: 28
+xp: 65
+tiers: [browser]
+builds_on: [algorithms/stacks-and-queues]
+sources:
+  - title: Sen & Tarjan - Deletion Without Rebalancing in Balanced Binary Trees (SODA 2010, course-page copy)
+    url: https://cs.uwaterloo.ca/~imunro/cs840/ProjectPapers/SODA10_121_sens.pdf
+  - title: Crosby & Wallach - Denial of Service via Algorithmic Complexity Attacks (2003)
+    url: https://www.usenix.org/legacy/events/sec03/tech/full_papers/crosby/crosby.pdf
+  - title: Sedgewick & Wayne - Binary search trees, section 3.2 (free booksite)
+    url: https://algs4.cs.princeton.edu/32bst/
+  - title: Sedgewick & Wayne - Balanced search trees, section 3.3 (free booksite)
+    url: https://algs4.cs.princeton.edu/33balanced/
+  - title: Sedgewick & Wayne - Priority queues, section 2.4 (free booksite)
+    url: https://algs4.cs.princeton.edu/24pq/
+  - title: Pat Morin - Open Data Structures, PDF (free, CC BY; the HTML drops the formulas)
+    url: https://opendatastructures.org/ods-python.pdf
+  - title: Pat Morin - Open Data Structures, BinaryHeap, section 10.1
+    url: https://opendatastructures.org/ods-python/10_1_BinaryHeap_Implicit_Bi.html
+  - title: Pat Morin - Open Data Structures, B-trees, section 14.2
+    url: https://opendatastructures.org/ods-python/14_2_B_Trees.html
+  - title: Pat Morin - Open Data Structures, random binary search trees, section 7.1
+    url: https://opendatastructures.org/ods-python/7_1_Random_Binary_Search_Tr.html
+  - title: Python docs - heapq
+    url: https://docs.python.org/3/library/heapq.html
+  - title: Rust BTreeMap documentation
+    url: https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+  - title: MIT OpenCourseWare - 6.006, lectures 6 to 8 (free)
+    url: https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes/
+---
+
+Siddhartha Sen and Robert Tarjan open a 2010 paper with a story, and they tell you straight away what kind of story it is: "Here is the true story that motivated this work, fictionalized to protect the parties involved." So the reader can check that the authors said this, and can't check that it happened. It's still worth telling, because the failure in it is very real as a pattern.
+
+A database provider built a store of customer records on a balanced tree, and it rebalanced the tree after inserts but not after deletes. "As a safety check, a height limit of 80 was placed on the allowed height of the tree". In a healthy tree of this kind, 80 levels would hold 2⁴⁰ records, far beyond anything they'd store.
+
+Some time after launch, the check fired. Going over the limit counted as an error and started a recovery. Then: "This process, too, caused the height bound to be exceeded, and this cycle repeated, causing an extended service outage."
+
+Notice what didn't fail. The safety check was correct every time it fired. The tree had really become too tall. Nothing about a height limit can tell you why, though, and the recovery walked straight back into it.
+
+## What a tree is
+
+A **tree** is made of **nodes**. One node at the top is the **root**, and each node points to its **children**. A node with no children is a **leaf**. The **height** is the number of steps on the longest path from the root down.
+
+The kind we start with is a **binary search tree**. Each node has at most two children, and it keeps one rule: everything to the left is smaller, and everything to the right is larger. To find a key, start at the root and go left or right after each comparison. It's binary search, with the halving built into the structure, so it stays cheap to add keys too: walk down until you fall off the bottom, and hang the new node there.
+
+Each comparison goes one level down. So the cost of finding something is the height, and that makes height the one number that matters.
+
+So what decides the height? Nothing in that rule does.
+
+## Grow some
+
+One stream of keys goes into four structures. Start with the plain tree. It has no opinion about its own shape, so the order the keys arrive in is all that decides it.
+
+<TreeShaper />
+
+Sorted input gives exactly `n(n-1)/2` comparisons and a height of exactly `n-1`: for 1,000 keys, 499,500 and 999. Crosby and Wallach said it directly: "if the elements happen to be sorted beforehand, then the tree would degenerate to a linked list". And the shuffled tree, from the same keys, is only 19 levels deep, with 10,672 comparisons in total, about 10.7 per key. Sedgewick and Wayne give the average for one operation on a large tree: "requires ~ 2 ln N (about 1.39 lg N) compares on the average." (`ln` and `lg` are logarithms, base e and base 2.) For 1,000 keys that's about 14. Our figure is lower because most of those inserts went into a tree that was still small.
+
+Nearly sorted is the one to take to heart. With about one neighbouring pair in twenty swapped, the plain tree still reached height 971. Real data arrives nearly sorted all the time: timestamps, order numbers, IDs from a counter.
+
+## The tree that keeps itself short
+
+A deep plain tree also fails loudly in Python, if you walk it with recursion, because each level is a waiting call.
+
+<CodeLab rows={15} code={`def chain(n):
+    root = {"key": 0, "right": None}
+    last = root
+    for k in range(1, n):
+        node = {"key": k, "right": None}
+        last["right"] = node
+        last = node
+    return root
+
+def height(node):
+    if node is None:
+        return -1
+    return 1 + height(node["right"])
+
+print(height(chain(500)))
+print(height(chain(2000)))
+`} />
+
+That's what sorted keys build, and a `RecursionError` at around 1,000 levels is the kinder of the two failures. Inserting 2,000 sorted keys with a recursive insert stops at key number 999 on real Python.
+
+A **balanced tree** refuses to get tall. After each insert it checks a rule, and if the rule is broken, it moves a few nodes around with a **rotation**, a small rearrangement that keeps everything in order and shortens one side.
+
+A **red-black tree**, the kind in the story, paints each node red or black and keeps two rules: a red node has no red child, and every path from a node to the bottom passes the same number of black nodes. The shortest possible path is all black, the longest alternates red and black, so no path is ever more than twice as long as another. Sedgewick and Wayne state the result: "The height of a red-black BST with N nodes is no more than 2 lg N." In the lab above, 1,000 sorted keys give height 16, where the plain tree reached 999.
+
+A cost hides in that word "after": the rules have to be restored after a delete too, and that's the fiddly part. Sen and Tarjan note: "Many textbooks describe algorithms for insertion but not deletion." So the vendor skipped it. And there was precedent, they say: Berkeley DB's B+ tree is rebalanced on inserts but not deletes. "Thus it was perhaps natural to try the same thing for red-black trees. But disaster ensued."
+
+## Re-enact it
+
+The second half of the lab replays it. **Untick "rebalance after deletes"**, then replay. Here the keys arrive in order and every second one is deleted soon after, like short-lived records.
+
+<Callout kind="real">
+Sen and Tarjan don't publish the vendor's workload, and they don't say what its recovery process did. Both of ours are illustrations. The log is one we found by trying simple patterns, and our recovery replays that log into an empty tree. What you can check is the tree's behaviour, which is real: with this log and no delete repairs, a test confirms the height is exactly `n-2` for `n` live keys. So the check fires after 247 updates, with only 83 keys in a tree that could have held 2⁴⁰. Their paper's real results are general: if nothing repairs a tree after deletes, it "can evolve to have arbitrary structure", and with a differently designed tree, the ravl tree that is the paper's subject, skipping those repairs becomes safe.
+</Callout>
+
+The check is correct, and a tree of 83 keys at height 81 is exactly what it exists to catch. So here's the actual lesson in the story: **a check can detect a problem without being able to fix it.** If the recovery re-creates the conditions, then you've built a loop. Tick the repair back on and the same log runs to the end at height 16.
+
+<Callout kind="trap">
+Copying a shortcut from somewhere else is how the authors suggest this happened. Why it could be safe in one structure and not another is our reading, not something the paper says about Berkeley DB: a B-tree only grows at the root, so underfull nodes don't make it any taller, while a red-black tree's rule depends on the colours staying true, and a delete changes them. (The paper does say that multiway trees with underfilled nodes "have the desired properties", and it leaves the proof to a companion paper we haven't read.) The same shortcut, on a structure whose guarantee depends on what you skipped, gave a different result.
+</Callout>
+
+## Why databases use wide trees
+
+Look at the B-tree in the lab. A node holds many keys in a block, so it has many children. That's the **fanout**. With more children per node, the tree gets shorter fast:
+
+| Children per node | Levels for 1,000,000,000 keys |
+|---|---|
+| 2 (binary) | 30 |
+| 16 | 8 |
+| 100 | 5 |
+| 256 | 4 |
+| 500 | 4 |
+
+Why would that matter, if each node now takes more comparisons to search? Because reading a node is what costs. Rust's documentation makes the case for memory: in a binary tree, "every comparison is a potential cache-miss due to the indirection." Its B-tree instead "makes each node contain B-1 to 2B-1 elements in a contiguous array." On a disk, that's the difference between 30 reads and 4.
+
+It also grows differently. A node that overflows splits and pushes one key up. The tree only gets taller when the root itself splits, so every leaf always stays at the same depth, in any arrival order. Run sorted keys through it, and it won't care. [The indexes lesson](/learn/databases/indexes/) measures what this does for a real SQLite query.
+
+## A queue that knows who's next
+
+Sometimes you never search for a key at all. You only ever want the most urgent item. Hospital triage works like this, and so do a job scheduler and an event simulator. Each item has a **priority**, you can add items at any time, and removing an item always gets the lowest number. That's a **priority queue**. It's a description of behaviour: it doesn't say how to build it.
+
+Sedgewick and Wayne list the obvious ways. Keep an unsorted list and adding is instant, but each removal scans everything. Keep it sorted and removal is instant, but each add has to shift items along. In both, one of the two operations "takes linear time in the worst case". A **heap** makes both about `log n`.
+
+A **binary heap** is a tree with a weaker promise than a search tree. Python's docs: "Min-heaps are binary trees for which every parent node has a value less than or equal to any of its children." That's all. Siblings are in no particular order, and nothing is sorted. But the smallest item is always at the root, so you always know who's next.
+
+It's kept **complete**: every level is full except possibly the last, which fills from the left. So its height is about `log₂ n`, always, whatever order the keys arrive in. Look back at the heap panel in the lab. It's the same shape on every run. And a complete tree needs no pointers, since it fits in a plain list:
+
+```text
+position:        0   1   2   3   4   5   6
+value:           1   3   2   7   4   9   5
+
+children of i:   2*i + 1  and  2*i + 2
+parent of i:     (i - 1) // 2
+```
+
+This is the rule from the docs, and it's what `heap[k] <= heap[2*k+1]` means. To add, put the item at the end and swap it upward while it's smaller than its parent. To remove, take the root, move the last item to the top, and swap it down with its smaller child while it's larger. Each walks one path, so each costs about `log₂ n`.
+
+Now build it. The starter is a priority queue that gives the right answers, and scans.
+
+<CodeLab mission="cs-heap-queue" grow="drain" sizes="200,400,800,1600" rows={20} />
+
+<Callout kind="real">
+Real Python has this as `heapq`, and you should use it there. The sandbox has no `import`, so you built your own. Your `push` should give the same list as real `heappush` for the same keys, and a test confirms the textbook version does. Your `pop_smallest` gives the same values in the same order as `heappop`, though the list in between can differ: `heapq` walks the hole all the way down first and then sifts up, which saves comparisons. The heap in the lab above is a port of `heapq` itself, and a test holds its list and comparison count to the real thing after every operation.
+</Callout>
+
+## Three things a real priority queue needs
+
+A bare heap isn't quite enough, and Python's `heapq` docs list what's missing.
+
+**Ties.** Two tasks with equal priority should usually come out in the order they went in. A heap doesn't do that on its own: the docs note that their heapsort, "unlike sorted(), this implementation is not stable". The fix is to store an **entry count** alongside the priority, as `(priority, count, task)`. Tuples compare left to right, so the count breaks ties in arrival order. "And since no two entry counts are the same, the tuple comparison will never attempt to directly compare two tasks." Without it, two equal priorities would go on to compare the tasks themselves, and that can raise an error.
+
+**Changing a priority.** A heap can't find an item without scanning it, and pulling one out of the middle breaks the structure. So don't. The docs' approach: "mark the entry as removed and add a new entry with the revised priority". When a stale entry reaches the top, throw it away.
+
+**Building it all at once.** If you have all the items up front, `heapify` makes a heap from a list "in linear time", which beats pushing one at a time.
+
+The shortest-paths lesson shows where this pays off. Its own code uses Dijkstra's plain scan, as his paper did, and it counts how much a heap would save. A real Python version would use `heapq`: it keeps a queue of places to visit, nearest first, and when it finds a shorter way to a place, it pushes a fresh entry and skips the old one when it surfaces.
+
+<GoDeeper title="Why these heights hold">
+**Random insertion order.** If the keys arrive in a uniformly random order, a plain binary search tree has expected search cost `O(log n)`. *Open Data Structures*, theorem 7.1, proves it, and it stresses that the expectation is over the random order of arrival. That's the hole sorted input walks through: nothing makes real input random. In this lab's seeded runs the mean comparison count over 40 shuffles stays within 3% of `2(n+1)Hₙ - 4n`, where `Hₙ` is the harmonic number `1 + 1/2 + ... + 1/n`. That formula is a standard result, tested here by simulation. The short form Sedgewick gives, `~ 1.39 lg N`, is asymptotic, so don't check it against small `n`.
+
+**B-tree height.** If every non-root internal node has at least `B` children, then the number of leaves multiplies by at least `B` per level, so `h ≤ log_B ℓ + 1`, where `ℓ` is the number of leaves. That's *Open Data Structures*, section 14.2. Its PDF has the formulas, since the HTML drops them.
+
+**Heap height.** A complete tree with `n` nodes has `2^k` nodes on each full level `k`, so its height is `⌊log₂ n⌋`. That's why heap operations are `O(log n)` in the worst case rather than on average. The balance comes from the positions in the list, and arrival order can't touch it.
+</GoDeeper>
+
+<Quiz
+  id="alg-tree-1"
+  q="Your service stores records in a plain binary search tree, keyed by creation timestamp. It tested fast with random data, and it gets slower every week in production. What's the most likely reason?"
+  options={["Timestamps arrive in order, so the tree grows into a long chain: each insert walks further than the last", "Timestamps are too big to compare quickly", "Binary search trees slow down as a rule once they have over a thousand keys"]}
+  answer={0}
+  explain="A plain tree's shape comes entirely from arrival order. Sorted or nearly sorted keys give a height close to n, and the comparison count grows quadratically. Random test data hid it. A balanced tree or a B-tree doesn't care about the order."
+/>
+
+<Quiz
+  id="alg-tree-2"
+  q="A health check correctly detects that a data structure is corrupt, and it triggers an automatic rebuild. The rebuild replays the same operations that caused the corruption. What's the likely outcome?"
+  options={["The rebuild fixes it, since the data is fresh", "A loop: the check fires again at the same point, and it's right each time. Detecting a problem doesn't fix its cause, and the recovery re-creates it", "The check stops firing, since it only fires once"]}
+  answer={1}
+  explain="This is the pattern in Sen and Tarjan's account (fictionalized by the authors, so read it as a pattern): the check was sound and the system still went down. A recovery has to change something the failure depended on."
+/>
+
+<Quiz
+  id="alg-tree-3"
+  q="You need to repeatedly take the most urgent job from a changing set. Why a heap, rather than keeping the jobs sorted?"
+  options={["A heap keeps everything fully sorted more cheaply", "A heap only promises that each parent is no larger than its children. That's less than sorted order, yet enough to find the minimum, and it makes both adding and removing about log n", "A heap uses no memory for its structure at all"]}
+  answer={1}
+  explain="A sorted list gives instant removal, and each add has to shift items along. An unsorted list gives instant adds, and each removal scans. A heap does a little of the work each time, so neither operation is ever more than about log₂ n."
+/>
+
+## What to remember
+
+- A search tree's cost is its height, and a plain tree's height is decided by arrival order. Sorted is the worst case, and nearly sorted is nearly as bad.
+- Balanced trees restore a rule after each change, including deletes. The guarantee depends on the rule staying true.
+- A check that detects a problem can't fix its cause. Make sure the recovery doesn't re-create it.
+- Wider nodes mean a shorter tree, which is why databases use B-trees.
+- A heap promises less than sorted order, and that's the point: the smallest is always on top, and both operations cost about `log₂ n`. Add an entry count for fair ties and mark entries as removed instead of pulling them out.

@@ -1,0 +1,279 @@
+---
+import '../styles/widgets.css';
+import { CACHE_LINES, CACHE_WORDS, LINE_WORDS, MAX_SIZE, MIN_SIZE, SIZE_STEP, WALKS, RULES, HIT_NS, MISS_NS } from '../lib/cs/layout.ts';
+---
+<div class="widget card layout" data-layout>
+  <div class="widget-head">
+    <strong>Layout Lab</strong>
+    <span class="pill info">written in TypeScript, not Python: a Python list holds pointers, and Python's array module spends so long on each step that it hides most of the effect</span>
+  </div>
+  <div class="ll-grid">
+    <div class="ll-main">
+      <section class="ll-panel" data-model>
+        <h4>The model <span class="pill">checked against a reference by this site's tests</span></h4>
+        <p class="ll-note">A small made-up cache: {CACHE_LINES} lines of {LINE_WORDS} words, so {CACHE_WORDS} words in all, starting empty. It is not your CPU. An array slot is 1 word, and a list node is 2: its value and the address of the next node. Time uses Norvig's round numbers, {HIT_NS} ns for a hit and {MISS_NS} ns for a miss.</p>
+        <div class="controls">
+          <label>walk
+            <select data-walk>{WALKS.map((w) => <option value={w.id}>{w.label}</option>)}</select>
+          </label>
+          <label>size <input type="range" data-size min={MIN_SIZE} max={MAX_SIZE} step={SIZE_STEP} value="512" aria-label="Number of elements" /> <b data-size-label>512</b></label>
+          <button class="btn small primary" type="button" data-walk-run>Walk</button>
+          <button class="btn small" type="button" data-walk-reset>Clear results</button>
+        </div>
+        <div class="stats" aria-live="polite">
+          <div class="stat">steps<b data-s="steps">0</b></div>
+          <div class="stat">hits<b data-s="hits">0</b></div>
+          <div class="stat">misses<b data-s="misses">0</b></div>
+          <div class="stat">model time<b data-s="ns">0</b></div>
+        </div>
+        <canvas class="ll-map" data-map width="640" height="120" role="img" aria-label="Memory map. Nothing has been walked yet."></canvas>
+        <p class="ll-legend"><span class="ll-key miss"></span> read that missed the cache <span class="ll-key hit"></span> read that hit <span class="ll-key idle"></span> not read. Memory runs left to right, top to bottom, and each block is one cache line.</p>
+        <div class="ll-scroll">
+          <table class="ll-table">
+            <thead><tr><th scope="col">Walk</th><th scope="col">Size</th><th scope="col">Hits</th><th scope="col">Misses</th><th scope="col">Model time</th></tr></thead>
+            <tbody data-history><tr><td colspan="5" class="muted">Nothing walked yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="ll-panel" data-growth>
+        <h4>A Python list growing <span class="pill">capacities checked against real sys.getsizeof</span></h4>
+        <p class="ll-note">Press to append. The list only moves when its length passes its capacity. CPython's rule since 3.9. Copies assume each resize moves everything, which is an upper bound, because realloc may grow in place.</p>
+        <div class="controls">
+          <button class="btn small primary" type="button" data-append="1">Append 1</button>
+          <button class="btn small" type="button" data-append="100">Append 100</button>
+          <button class="btn small" type="button" data-append="10000">Append 10,000</button>
+          <button class="btn small" type="button" data-append="2000000">Append 2,000,000</button>
+          <button class="btn small" type="button" data-grow-reset>Empty the list</button>
+        </div>
+        <p class="ll-bar" aria-hidden="true"><i data-bar></i></p>
+        <p class="ll-line" data-grow-line role="status">Length 0, capacity 0.</p>
+        <p class="ll-jumps" data-jumps></p>
+        <div class="ll-scroll">
+          <table class="ll-table">
+            <thead><tr><th scope="col">If the rule were</th><th scope="col">Capacity</th><th scope="col">Resizes</th><th scope="col">Copies per append</th><th scope="col">Slack</th></tr></thead>
+            <tbody data-rules>{RULES.map((r) => <tr data-rule={r.id}><th scope="row">{r.label}</th><td>0</td><td>0</td><td>0</td><td>0%</td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="ll-panel" data-machine>
+        <h4>Your machine <span class="pill gold">shown, never checked: this is your hardware today</span></h4>
+        <p class="ll-note">This walks real memory on your device: the same number of steps through one big array, once in order and once as a scattered cycle. Each point is 20,000,000 steps because browser timers are coarse, so it takes a few seconds. It pauses while it is off screen. A ratio near 1x is an honest result too, and nothing here marks it right or wrong.</p>
+        <div class="controls">
+          <button class="btn small primary" type="button" data-machine-run>Run on my machine</button>
+        </div>
+        <p class="ll-line" data-machine-status role="status">Not run yet.</p>
+        <div class="ll-scroll">
+          <table class="ll-table">
+            <thead><tr><th scope="col">Elements</th><th scope="col">Memory</th><th scope="col">In order, ns per step</th><th scope="col">Scattered, ns per step</th><th scope="col">Ratio</th></tr></thead>
+            <tbody data-machine-rows><tr><td colspan="5" class="muted">No measurements yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { LAYOUT_MISSION, RULES, CACHE_LINES, LINE_WORDS, NODE_WORDS, chase, growthAfter, makeCycle, makeInOrder, walkRun, type Walk } from '../lib/cs/layout.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const time = (ns: number) => (ns >= 1000 ? `${(ns / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })} µs` : `${ns} ns`);
+  const SHORT: Record<Walk, string> = { array: 'array', 'list-ordered': 'list, in order', 'list-shuffled': 'list, scattered' };
+  const walkName = (w: Walk) => SHORT[w];
+
+  // 20 million steps, as the sources report found: fewer and a coarse browser timer
+  // swamps the small sizes, and they would read as measured when they are noise.
+  const STEPS = 20_000_000, CHUNK = 2_000_000;
+  const SIZES = [1_000, 10_000, 100_000, 1_000_000, 4_000_000];
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-layout]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = LAYOUT_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), LAYOUT_MISSION, () => state, () => {});
+    const size = q<HTMLInputElement>('[data-size]'), walk = q<HTMLSelectElement>('[data-walk]'), map = q<HTMLCanvasElement>('[data-map]');
+
+    // ---- the model ------------------------------------------------------
+    size.addEventListener('input', () => { q('[data-size-label]').textContent = size.value; });
+
+    let last: ReturnType<typeof walkRun> | null = null, frame = 0, shown = 0;
+    const colour = (name: string) => getComputedStyle(root).getPropertyValue(name).trim();
+
+    function draw(upto: number) {
+      const r = last;
+      shown = upto;
+      const dpr = window.devicePixelRatio || 1, width = map.clientWidth || 640;
+      if (!r) { map.width = width * dpr; map.height = 60 * dpr; return; }
+      const words = r.walk === 'array' ? r.n : r.n * NODE_WORDS;
+      // One block per cache line, so the misses line up with what a miss fetches.
+      const totalLines = Math.ceil(words / LINE_WORDS);
+      const gap = 2, perRow = Math.max(4, Math.min(32, Math.floor((width + gap) / 18)));
+      const side = (width - gap * (perRow - 1)) / perRow, rows = Math.ceil(totalLines / perRow);
+      const cell = side / LINE_WORDS;
+      const height = Math.ceil(rows * (side + gap));
+      map.style.height = `${height}px`;
+      map.width = width * dpr; map.height = height * dpr;
+      const c = map.getContext('2d')!;
+      c.scale(dpr, dpr);
+      const [idle, hit, miss] = [colour('--bg-2'), colour('--bamboo'), colour('--berry')];
+      const at = (line: number) => [(line % perRow) * (side + gap), Math.floor(line / perRow) * (side + gap)];
+      c.fillStyle = idle;
+      for (let l = 0; l < totalLines; l++) { const [x, y] = at(l); c.fillRect(x, y, side, side); }
+      for (let i = 0; i < upto; i++) {
+        const a = r.addrs[i], l = Math.floor(a / LINE_WORDS), [x, y] = at(l), w = a % LINE_WORDS;
+        c.fillStyle = r.outcome[i] ? hit : miss;
+        // The word's own slice of its line. A node's two words read as one slice.
+        const wide = r.walk === 'array' ? cell : cell * NODE_WORDS;
+        c.fillRect(x + w * cell, y, Math.max(wide - 0.5, 1), side);
+      }
+    }
+
+    function animate() {
+      const r = last!;
+      cancelAnimationFrame(frame);
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { draw(r.addrs.length); return; }
+      let i = 0;
+      const per = Math.max(1, Math.ceil(r.addrs.length / 70));
+      const tick = () => {
+        i = Math.min(r.addrs.length, i + per);
+        draw(i);
+        if (i < r.addrs.length) frame = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+
+    function showHistory() {
+      const body = q('[data-history]');
+      if (!state.runs.length) { body.replaceChildren(el('tr', {}, el('td', { colspan: '5', class: 'muted' }, 'Nothing walked yet.'))); return; }
+      body.replaceChildren(...state.runs.slice(-8).reverse().map((r) => el('tr', {}, el('td', {}, walkName(r.walk)), el('td', {}, fmt(r.n)), el('td', {}, fmt(r.hits)), el('td', {}, fmt(r.misses)), el('td', {}, time(r.ns)))));
+    }
+
+    q('[data-walk-run]').addEventListener('click', () => {
+      const r = walkRun(walk.value as Walk, Number(size.value));
+      last = r;
+      state.runs.push({ walk: r.walk, n: r.n, hits: r.hits, misses: r.misses, ns: r.ns });
+      q('[data-s="steps"]').textContent = fmt(r.n);
+      q('[data-s="hits"]').textContent = fmt(r.hits);
+      q('[data-s="misses"]').textContent = fmt(r.misses);
+      q('[data-s="ns"]').textContent = time(r.ns);
+      map.setAttribute('aria-label', `Memory map of a walk of ${r.n} elements: ${r.misses} reads missed the cache and ${r.hits} hit. The cache holds ${CACHE_LINES} lines.`);
+      showHistory();
+      animate();
+      refresh();
+    });
+    q('[data-walk-reset]').addEventListener('click', () => {
+      state.runs.length = 0;
+      last = null;
+      cancelAnimationFrame(frame);
+      for (const k of ['steps', 'hits', 'misses', 'ns']) q(`[data-s="${k}"]`).textContent = '0';
+      map.style.height = '60px';
+      draw(0);
+      showHistory();
+      refresh();
+    });
+    // Colours change with the scheme and the width with rotation: a canvas keeps neither.
+    new ResizeObserver(() => { if (last) draw(shown); }).observe(map);
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (last) draw(shown); });
+    draw(0);
+    map.style.height = '60px';
+
+    // ---- growth ---------------------------------------------------------
+    let length = 0;
+    function showGrowth() {
+      const g = growthAfter('cpython', length);
+      q('[data-bar]').style.width = g.capacity ? `${(100 * length) / g.capacity}%` : '0';
+      q('[data-grow-line]').textContent = `Length ${fmt(length)}, capacity ${fmt(g.capacity)}: room for ${fmt(g.capacity - length)} more before the next move.`;
+      q('[data-jumps]').textContent = g.jumps.length ? `Capacity so far: 0, ${g.jumps.slice(0, 14).map(([, c]) => fmt(c)).join(', ')}${g.jumps.length > 14 ? `, and ${g.jumps.length - 14} more` : ''}.` : '';
+      for (const r of RULES) {
+        const x = growthAfter(r.id, length), cells = q(`[data-rule="${r.id}"]`).querySelectorAll('td');
+        cells[0].textContent = fmt(x.capacity);
+        cells[1].textContent = fmt(x.resizes);
+        cells[2].textContent = x.copiesPerAppend.toFixed(2);
+        cells[3].textContent = `${x.slackPct.toFixed(1)}%`;
+      }
+    }
+    root.querySelectorAll<HTMLButtonElement>('[data-append]').forEach((b) => b.addEventListener('click', () => { length += Number(b.dataset.append); showGrowth(); }));
+    q('[data-grow-reset]').addEventListener('click', () => { length = 0; showGrowth(); });
+
+    // ---- your machine ---------------------------------------------------
+    // Never asserted, by the site's tests or by this page. It reports what it saw.
+    let visible = true, running = false, sink = 0;
+    new IntersectionObserver((es) => { visible = es.some((e) => e.isIntersecting); }).observe(q('[data-machine]'));
+    const pause = () => new Promise<void>((done) => {
+      const wait = () => (visible ? done() : setTimeout(wait, 200));
+      setTimeout(wait, 0);
+    });
+
+    async function timeWalk(next: Int32Array) {
+      let total = 0, at = 0;
+      for (let left = STEPS; left > 0; left -= CHUNK) {
+        await pause();
+        const t = performance.now();
+        at = chase(next, at, Math.min(left, CHUNK));
+        total += performance.now() - t;
+      }
+      sink ^= at;
+      return total * 1e6 / STEPS;
+    }
+
+    const run = q<HTMLButtonElement>('[data-machine-run]');
+    run.addEventListener('click', async () => {
+      if (running) return;
+      running = true;
+      run.disabled = true;
+      const rows = q('[data-machine-rows]'), status = q('[data-machine-status]');
+      rows.replaceChildren();
+      try {
+        for (const n of SIZES) {
+          status.textContent = `Timing ${fmt(n)} elements…`;
+          const row = el('tr', {}, el('td', {}, fmt(n)), el('td', {}, n * 4 >= 1048576 ? `${(n * 4) / 1048576 >= 10 ? Math.round((n * 4) / 1048576) : ((n * 4) / 1048576).toFixed(1)} MB` : `${Math.round((n * 4) / 1024)} KB`), el('td', {}, '…'), el('td', {}, '…'), el('td', {}, '…'));
+          rows.append(row);
+          const cells = row.querySelectorAll('td');
+          const inOrder = await timeWalk(makeInOrder(n));
+          cells[2].textContent = inOrder.toFixed(2);
+          await pause();
+          const scattered = await timeWalk(makeCycle(n, 1));
+          cells[3].textContent = scattered.toFixed(2);
+          cells[4].textContent = inOrder > 0 ? `${(scattered / inOrder).toFixed(1)}x` : 'too fast to time';
+        }
+        status.textContent = `Done. One run, on this device, in this browser, today. Run it again and the numbers will move. (Walks ended at ${sink}, so the engine had to do them.)`;
+      } catch (e) {
+        // A phone can refuse the memory. Say so, rather than leave a table that looks finished.
+        status.textContent = `Stopped: this browser refused the measurement (${(e as Error).message}). The rows above are all that ran.`;
+      }
+      running = false;
+      run.disabled = false;
+    });
+
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .layout .ll-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .layout .ll-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .layout .ll-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
+  .layout .ll-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .layout h4 { margin: 0 0 6px; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .layout h4 .pill { font-weight: 600; white-space: normal; }
+  .layout .ll-note { margin: 0 0 8px; font-size: 0.86rem; color: var(--ink-2); }
+  .layout .controls input[type="range"] { width: 150px; }
+  .layout .ll-map { display: block; width: 100%; margin: 6px 0; border-radius: 6px; }
+  .layout .ll-legend { margin: 0 0 8px; font-size: 0.8rem; color: var(--ink-2); }
+  .layout .ll-key { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin: 0 2px 0 6px; vertical-align: -1px; border: 1px solid var(--line-2); }
+  .layout .ll-key.miss { background: var(--berry); }
+  .layout .ll-key.hit { background: var(--bamboo); }
+  .layout .ll-key.idle { background: var(--bg-2); }
+  .layout .ll-scroll { overflow-x: auto; }
+  .layout .ll-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; font-variant-numeric: tabular-nums; margin: 0; }
+  .layout .ll-table th, .layout .ll-table td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
+  .layout .ll-table thead th { font-weight: 600; }
+  .layout .ll-table tbody th { font-weight: 500; }
+  .layout .ll-bar { margin: 8px 0 4px; height: 10px; border-radius: 99px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
+  .layout .ll-bar i { display: block; height: 100%; width: 0; background: var(--bamboo); transition: width .15s; }
+  .layout .ll-line { margin: 4px 0; font-size: 0.88rem; overflow-wrap: anywhere; }
+  .layout .ll-jumps { margin: 0 0 8px; font-size: 0.82rem; color: var(--ink-2); overflow-wrap: anywhere; }
+</style>

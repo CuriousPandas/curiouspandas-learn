@@ -1,0 +1,220 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card flood" data-flood>
+  <div class="widget-head">
+    <strong>Flood Lab</strong>
+    <span class="pill info">a model of CPython's dict rules, with its equality checks and its slot table held to real CPython in CI. No network: the "request" is a list in this page.</span>
+  </div>
+  <div class="fl-grid">
+    <div class="fl-main">
+      <div class="controls">
+        <label>traffic
+          <select data-f="traffic">
+            <option value="ordinary">ordinary form fields</option>
+            <option value="crafted">crafted Ez/FY keys</option>
+            <option value="ints">integer keys: multiples of 2^61-1</option>
+            <option value="walk">integer keys that fit in 32 bits</option>
+          </select>
+        </label>
+        <label>defence
+          <select data-f="defence">
+            <option value="none">none: DJBX33A</option>
+            <option value="seeded">DJBX33A from a secret start value</option>
+            <option value="keyed">SipHash with a secret key</option>
+            <option value="trees">trees in buckets (sketch)</option>
+          </select>
+        </label>
+        <label>keys
+          <select data-f="pairs">
+            <option value="10">1,024</option>
+            <option value="12" selected>4,096</option>
+          </select>
+        </label>
+        <label class="fl-tick"><input type="checkbox" data-f="cap" /> limit requests to 1,000 fields</label>
+        <label class="fl-tick" data-as-str-wrap hidden><input type="checkbox" data-f="intsAsStr" /> store integer keys as strings</label>
+        <label class="fl-tick" data-range-wrap hidden><input type="checkbox" data-f="rangeCheck" /> refuse integers that don't fit in 32 bits</label>
+        <button class="btn small primary" type="button" data-send>Send</button>
+        <button class="btn small" type="button" data-reset>Reset lab</button>
+      </div>
+      <p class="fl-status" data-status role="status">Nothing sent yet.</p>
+      <div class="stats">
+        <div class="stat">keys accepted<b data-accepted>0</b></div>
+        <div class="stat">request size<b data-bytes>0</b></div>
+        <div class="stat">equality checks<b data-checks>0</b></div>
+        <div class="stat">slots walked<b data-probes>0</b></div>
+        <div class="stat">textbook n(n-1)/2<b data-textbook>0</b></div>
+      </div>
+      <figure class="fl-fig">
+        <svg data-svg viewBox="0 0 200 60" preserveAspectRatio="none" role="img" aria-label="Occupied slots each insert walked past, from first key to last">
+          <path data-line class="fl-line" d="" />
+        </svg>
+        <figcaption class="muted" data-caption>Occupied slots each insert walked past, first key on the left, last on the right.</figcaption>
+      </figure>
+      <div class="fl-table" tabindex="0" role="region" aria-label="Requests sent so far">
+        <table>
+          <thead><tr><th scope="col">Traffic</th><th scope="col">Defence</th><th scope="col">Keys</th><th scope="col">Checks</th><th scope="col">Slots</th></tr></thead>
+          <tbody data-runs></tbody>
+        </table>
+      </div>
+      <section class="fl-lh">
+        <h4>No attacker needed <span class="muted">Linux's listening table, as Cloudflare described it in 2016: 32 buckets, hashed on the port alone</span></h4>
+        <div class="controls">
+          <button class="btn small" type="button" data-lh="one">Bind 16,000 sockets to port 53</button>
+          <button class="btn small" type="button" data-lh="many">Bind 16,000 sockets to different ports</button>
+        </div>
+        <div class="fl-buckets" data-buckets aria-hidden="true"></div>
+        <p class="fl-lh-text" data-lh-text role="status">No sockets bound yet. All 32 buckets are empty.</p>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { FLOOD_MISSION, LHTABLE_SIZE, PARAM_CAP, calm, flooded, lhBucket, lhTable, walked, type Defence, type FloodRun, type LabConfig, type Traffic } from '../lib/cs/hashtable.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const kb = (b: number) => (b >= 1024 ? `${(b / 1024).toFixed(0)} KB` : `${b} bytes`);
+  const TRAFFIC: Record<Traffic, string> = { ordinary: 'ordinary', crafted: 'crafted', ints: 'huge integers', walk: '32-bit integers' };
+  const DEFENCE: Record<Defence, string> = { none: 'none', seeded: 'secret start', keyed: 'SipHash', trees: 'trees' };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-flood]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    let state = FLOOD_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), FLOOD_MISSION, () => state, () => {});
+    const f = (k: string) => q<HTMLInputElement>(`[data-f="${k}"]`);
+
+    // Buckets persist and only their heights change, so re-renders keep their elements.
+    const buckets = Array.from({ length: LHTABLE_SIZE }, () => el('span', {}));
+    q('[data-buckets]').append(...buckets);
+
+    const config = (): LabConfig => ({
+      traffic: f('traffic').value as Traffic,
+      defence: f('defence').value as Defence,
+      cap: f('cap').checked,
+      intsAsStr: integerTraffic() && f('intsAsStr').checked,
+      rangeCheck: integerTraffic() && f('rangeCheck').checked,
+      pairs: Number(f('pairs').value),
+    });
+    function integerTraffic() { return f('traffic').value === 'ints' || f('traffic').value === 'walk'; }
+
+    function drawLine(r: FloodRun) {
+      const top = Math.max(r.accepted, 1), n = r.drawn.length, step = Math.max(1, Math.floor(n / 200));
+      let d = '';
+      for (let i = 0; i < n; i += step) {
+        const x = (200 * i) / Math.max(1, n - 1), y = 58 - (56 * Math.min(r.drawn[i], top)) / top;
+        d += `${d ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
+      }
+      q('[data-line]').setAttribute('d', d);
+      const what = r.probes === null ? 'Equality checks each insert needed' : 'Occupied slots each insert walked past';
+      q('[data-caption]').textContent = `${what}, first key on the left, last on the right. The top of the box is ${fmt(top)}; the worst insert took ${fmt(r.worstInsert)}.`;
+    }
+
+    function verdict(r: FloodRun): [string, string] {
+      const names = r.probes === null
+        ? `${fmt(r.accepted)} keys, ${fmt(r.checks)} equality checks`
+        : `${fmt(r.accepted)} keys, ${fmt(r.checks)} equality checks, ${fmt(r.probes)} slots walked`;
+      if (r.outOfRange && r.accepted === 0) return [`The range check refused all ${fmt(r.outOfRange)} keys, so nothing reached the table. That stops these keys, and it says nothing about keys that do fit.`, 'ok'];
+      // Before the trees verdict: calling this a pass would be the false assurance the
+      // lab exists to remove. The sketch has no slots, so it can't run this attack at all.
+      if (r.probes === null && r.traffic === 'walk') return [`Not modelled. These keys have different hashes, so the sketch sees no collision and makes ${fmt(r.checks)} checks. That is not a pass: this sketch has no probe path for the attack to follow, and a real tree-bucket table has its own shape we haven't modelled. Pick another defence to see the walk.`, 'warn'];
+      if (r.probes === null && r.traffic !== 'ordinary') return [`${names}. Sorted buckets turn a flood into about n log n, for keys that can be ordered. A sketch of Java's idea, not its code.`, 'ok'];
+      if (r.probes === null) return [`${names}. No key shared a hash, so the trees were never needed. This sketch doesn't count slots.`, 'warn'];
+      if (r.traffic === 'walk' && r.cap && walked(r)) return [`${names}. The attacker fitted the walk to the limit, so these keys still walk. The limit bounds the bill at this size. Bounded, not fixed.`, 'warn'];
+      // The limit first: what gets through it still floods, and calling that only a
+      // flood would hide that the cost is now bounded.
+      if (r.cap && r.sent > r.accepted && r.checks > r.accepted) return [`${names}. The limit threw away ${fmt(r.sent - r.accepted)} fields, and what got through still collided. Bounded, not fixed.`, 'warn'];
+      if (flooded(r)) return [`${names}: the flood reached the table. Every key landed on the same hash, so each insert compared against the rest.`, 'bad'];
+      // The attack the equality count can't see. It must never fall through to the
+      // calm verdict: zero checks is true here, and reads as safe.
+      if (walked(r)) return [`${names}. Zero equality checks because no two keys share a hash, and the table still walked about ${fmt(Math.round(r.probes / r.accepted))} occupied slots per key. This is a flood. ${r.rangeCheck ? 'The range check accepted every key.' : ''}`.trim(), 'bad'];
+      if (calm(r)) return [`${names}: cheap for this request, on both counts. That describes this traffic, and doesn't make the table safe from other traffic.`, 'ok'];
+      return [`${names}.`, 'warn'];
+    }
+
+    function send() {
+      const r = state.lab.send(config());
+      q('[data-accepted]').textContent = r.accepted === r.sent ? fmt(r.accepted) : `${fmt(r.accepted)} of ${fmt(r.sent)}`;
+      q('[data-bytes]').textContent = kb(r.bytes);
+      q('[data-checks]').textContent = fmt(r.checks);
+      q('[data-probes]').textContent = r.probes === null ? 'not modelled' : fmt(r.probes);
+      q('[data-textbook]').textContent = fmt(r.textbook);
+      const [text, kind] = verdict(r);
+      q('[data-status]').textContent = text;
+      q('[data-status]').className = `fl-status ${kind}`;
+      drawLine(r);
+      q('[data-runs]').prepend(el('tr', {},
+        el('td', {}, `${TRAFFIC[r.traffic]}${r.intsAsStr ? ' as strings' : ''}`),
+        el('td', {}, `${DEFENCE[r.defence]}${r.cap ? `, limit ${fmt(PARAM_CAP)}` : ''}${r.rangeCheck ? ', range check' : ''}`),
+        el('td', {}, fmt(r.accepted)), el('td', {}, fmt(r.checks)), el('td', {}, r.probes === null ? 'not modelled' : fmt(r.probes))));
+      const rows = q('[data-runs]').children;
+      while (rows.length > 6) rows[rows.length - 1].remove();
+      refresh();
+    }
+
+    function bindSockets(mode: string) {
+      const bindings: [number, number][] = mode === 'one' ? [[53, 16000]] : Array.from({ length: 16000 }, (_, i) => [1024 + i, 1] as [number, number]);
+      const t = lhTable(bindings), top = Math.max(...t);
+      t.forEach((v, i) => { buckets[i].style.height = `${Math.max(2, (100 * v) / 16000)}%`; buckets[i].className = v === top && mode === 'one' ? 'hot' : ''; });
+      const text = q('[data-lh-text]');
+      if (mode === 'one') {
+        text.textContent = `Port 53 % 32 = ${lhBucket(53)}. All 16,000 sockets are in bucket ${lhBucket(53)}, so a packet for any port that lands there, such as ${16725} or ${63925}, walks all 16,000 entries. Cloudflare measured that walk at 2 ms.`;
+        state.lhSeen = true;
+      } else text.textContent = `The same 16,000 sockets across different ports: ${top} in the fullest bucket. The table is unchanged, and only the keys differ.`;
+      refresh();
+    }
+
+    q('[data-send]').addEventListener('click', send);
+    f('traffic').addEventListener('change', () => {
+      q('[data-as-str-wrap]').hidden = !integerTraffic();
+      q('[data-range-wrap]').hidden = !integerTraffic();
+    });
+    root.querySelectorAll<HTMLElement>('[data-lh]').forEach((b) => b.addEventListener('click', () => bindSockets(b.dataset.lh!)));
+    q('[data-reset]').addEventListener('click', () => {
+      state = FLOOD_MISSION.setup();
+      q('[data-runs]').replaceChildren();
+      q('[data-line]').setAttribute('d', '');
+      for (const s of ['[data-accepted]', '[data-bytes]', '[data-checks]', '[data-probes]', '[data-textbook]']) q(s).textContent = '0';
+      q('[data-status]').textContent = 'Lab reset, with new secret keys. Nothing sent yet.';
+      q('[data-status]').className = 'fl-status';
+      buckets.forEach((b) => { b.style.height = '2%'; b.className = ''; });
+      q('[data-lh-text]').textContent = 'No sockets bound yet. All 32 buckets are empty.';
+      refresh();
+    });
+    buckets.forEach((b) => { b.style.height = '2%'; });
+  }
+</script>
+
+<style is:global>
+  .flood .fl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 980px) { .flood .fl-grid { grid-template-columns: minmax(0, 1fr) 290px; } }
+  .flood .fl-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .flood .controls label { min-width: 0; }
+  .flood .controls label[hidden] { display: none; }
+  .flood .controls .fl-tick { flex-wrap: nowrap; align-items: flex-start; }
+  .flood .controls select { max-width: 100%; min-width: 0; }
+  .flood .fl-status { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); }
+  .flood .fl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .flood .fl-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .flood .fl-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .flood .stats { margin: 0; }
+  .flood .fl-fig { margin: 0; }
+  .flood .fl-fig svg { display: block; width: 100%; height: 110px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; }
+  .flood .fl-fig figcaption { font-size: 0.82rem; margin-top: 4px; }
+  .flood .fl-line { stroke: var(--berry); fill: none; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+  .flood .fl-table { overflow-x: auto; }
+  /* The lesson body makes every table display: block so wide ones scroll. Here that stops width: 100% sharing out the columns, and the last column gets cut off. */
+  .widget.flood .fl-table table { display: table; width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  .flood .fl-table th, .flood .fl-table td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
+  /* Five columns on a phone: the last one, the count this lab exists to show, was cut off. */
+  @media (max-width: 480px) { .widget.flood .fl-table table { font-size: 0.78rem; } .widget.flood .fl-table th, .widget.flood .fl-table td { padding-right: 5px; } }
+  .flood .fl-lh { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .flood h4 { margin: 0; font-size: 0.95rem; }
+  .flood h4 .muted { font-weight: 400; font-size: 0.82rem; }
+  .flood .fl-buckets { display: flex; align-items: flex-end; gap: 2px; height: 70px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 4px; box-sizing: border-box; }
+  .flood .fl-buckets span { flex: 1 1 0; min-width: 0; background: var(--bamboo); border-radius: 2px 2px 0 0; }
+  .flood .fl-buckets span.hot { background: var(--berry); }
+  .flood .fl-lh-text { margin: 0; font-size: 0.9rem; }
+</style>

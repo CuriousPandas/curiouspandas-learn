@@ -1,0 +1,196 @@
+---
+title: Stop solving the same problem twice
+summary: In 2019 a regular expression took Cloudflare's service down for 27 minutes, by retrying work it had already done. Ruby later fixed most of that kind of slowdown by remembering answers. Do the same to your own code, and then find what remembering doesn't fix.
+minutes: 22
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/divide-and-conquer]
+sources:
+  - title: Cloudflare - Details of the Cloudflare outage on July 2, 2019
+    url: https://blog.cloudflare.com/details-of-the-cloudflare-outage-on-july-2-2019/
+  - title: Ruby 3.2.0 release notes, on memoised Regexp matching
+    url: https://www.ruby-lang.org/en/news/2022/12/25/ruby-3-2-0-released/
+  - title: Russ Cox - Regular Expression Matching Can Be Simple And Fast
+    url: https://swtch.com/~rsc/regexp/regexp1.html
+  - title: Python docs - functools.cache and lru_cache
+    url: https://docs.python.org/3/library/functools.html
+  - title: Python docs - sys.setrecursionlimit
+    url: https://docs.python.org/3/library/sys.html
+  - title: Jeff Erickson - Algorithms, chapter 3, Dynamic Programming (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/03-dynprog.pdf
+  - title: MIT OpenCourseWare - 6.006, lecture notes 15 to 18 (free)
+    url: https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes/
+---
+
+On 2 July 2019, Cloudflare had an outage. Its write-up explains "how the Cloudflare service went down for 27 minutes", and the cause, in the company's own words: "last Tuesday’s update contained a regular expression that backtracked enormously and exhausted CPU used for HTTP/HTTPS serving."
+
+A regular expression is a small pattern for matching text. The part that mattered had the shape `.*.*=.*`. `.*` means "any characters, as many as you like". Cloudflare's post walks through how a **backtracking** matcher handles it. The first `.*` grabs the whole input. The rest then can't match, so the matcher gives back one character and tries again, and again, and again.
+
+It's a lot of work for a small string. Using a Perl debugger, they counted the steps on the test string `x=x`: "It takes 23 steps for this match to happen." With `x=xx` it took 33. With `x=xxx`, 45. "With 20 x’s after the = the engine takes 555 steps to match!"
+
+<Callout kind="trap">
+This gets taught as "exponential catastrophic backtracking". It wasn't exponential. Those four published counts fit `k² + 7k + 15` exactly, for `k` x's after the `=`. That's our fit to their numbers, and they don't state it. Those counts are quadratic, the same shape that slowed down the GTA load in the counting-steps lesson. They're also only for strings like these, which match. Other inputs can grow faster and still be polynomial: in Python's `re`, on one laptop, `^.*.*=.*;` on `x=` repeated took about eight times as long per doubling (0.07 seconds at 400 repeats, 0.55 at 800), which is cubic. Polynomial was enough, because real customer traffic was passing through this rule. And the post is careful to say the regex was only part of the cause. It lists process failures too, so "a regex took down the internet" flattens it.
+</Callout>
+
+The outage itself ended when Cloudflare turned the firewall component off worldwide and rolled the rule back. Its long-term answer, as the post states it, was to change engines: "The only real solution, short of fully re-writing the pattern to be more specific, is to move away from a regular expression engine with this backtracking mechanism." The post gives that as a plan, and we didn't check how it went. It's a serious change to make. In December 2022, Ruby's developers took a different road, and kept backtracking: "Since Ruby 3.2, Regexp’s matching algorithm has been greatly improved by using a memoization technique."
+
+Their own example: "# This match takes 10 sec. in Ruby 3.1, and 0.003 sec. in Ruby 3.2". (Those are Ruby's published numbers. Ruby wasn't run for this lesson.)
+
+**Memoization** means writing down an answer the first time you work it out, so you never work it out again. (That's "memo", as in a note to yourself. Erickson: "This optimization technique, now known as memoization (yes, without an R),".) That's the idea behind their change, and it's what this lesson is about.
+
+## The same work, over and over
+
+Fibonacci numbers are the classic example because the code is so short and so bad. Each number is the sum of the two before it.
+
+```python
+def fib(n):
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+```
+
+To work out `fib(5)`, it needs `fib(4)` and `fib(3)`. But `fib(4)` also needs `fib(3)`, and works it out all over again from scratch, because nothing was written down.
+
+```text
+fib(4)
+├── fib(3)
+│   ├── fib(2)
+│   │   ├── fib(1)
+│   │   └── fib(0)
+│   └── fib(1)
+└── fib(2)
+    ├── fib(1)
+    └── fib(0)
+```
+
+`fib(2)` gets worked out twice and `fib(1)` three times, from five different questions. Add one to `n` and the tree grows by about 1.6 times, while the number of different questions grows by one.
+
+Here are the counts, run in both this page's Python and real Python:
+
+| n | 10 | 20 | 25 |
+|---|---|---|---|
+| `fib(n)` | 55 | 6,765 | 75,025 |
+| Calls made | 177 | 21,891 | 242,785 |
+
+That's how a three-line function ends up being exponential. There are only 26 different questions in `fib(25)`, and it asks them a quarter of a million times.
+
+## Fix it, then break it again
+
+Press **Measure growth** in this lab. Each row adds only 4 to `n`.
+
+<CodeLab mission="alg-dp-fib" grow="fib" growArg="n" sizes="8,12,16,20" rows={12} />
+
+That final step is the part most explanations leave out. Remembering answers fixed the **time**. It did nothing for the **depth**. The first thing a memoised `fib(5000)` does is call `fib(4999)`, which calls `fib(4998)`, and all of them are still waiting on the way down, since nothing has been written down yet. Each waiting call takes up a place on the call stack. Press **Step** on any version to watch those stacked calls in the Variables panel, newest last.
+
+<Callout kind="real">
+Real Python limits that stack too, at 1,000 frames by default. Real Python also has this memo built in, as `functools.cache`, which this page's sandbox doesn't have because it has no `import` or decorators. This site's tests run the real one: it computes `fib(30)` with `CacheInfo(hits=28, misses=31, maxsize=None, currsize=31)`, and from cold `fib(5000)` raises `RecursionError`, just as your memo did. You can raise the limit with `sys.setrecursionlimit`, though its docs say the limit is there to prevent "an overflow of the C stack and crashing Python". What the limit covers changed in Python 3.12 as well, so don't rely on an exact depth.
+</Callout>
+
+So there are two ways to write this, and they aren't just style:
+
+- **Top-down, with a memo.** Keep the recursive code and write answers down as you go. It's the easiest to get from a recursive solution, and it only solves the questions that come up. It still uses the call stack.
+- **Bottom-up, with a table.** Solve the smallest question first and build up. No recursion, so no stack. You do have to work out the order yourself.
+
+This is **dynamic programming**. Solve a big problem by combining smaller problems of the same shape, and solve each one only once. It needs two things: answers to the small problems must build up to the big one, and the same small problems have to keep coming up. If they don't repeat, you get divide and conquer, and there's nothing worth remembering.
+
+Remember the `fewest` function in the greedy lesson, that always found the true minimum number of coins? Look at it again:
+
+```python
+best = [0] * (amount + 1)
+for a in range(1, amount + 1):
+    best[a] = min([best[a - c] + 1 for c in coins if c <= a])
+```
+
+It's a bottom-up table. The fewest coins for `a` is one coin, plus the fewest for what's left, whichever coin you try. Greedy looked at one coin. This looks at all of them, and it can afford to because each smaller amount's answer is already written down. That's the trade: more memory for the table, in return for not guessing.
+
+And you can keep shrinking the memory. `fib` only ever needs the last two values, so the bottom-up version you wrote needs no table at all. **Time and memory trade against each other, and sometimes, on a closer look, you can have both.**
+
+## Back to the regular expression
+
+Here's a small backtracking matcher, with the same shape as the one that hurt Cloudflare. It tries to match at each place, and if that fails it backs up and tries something else. With `memo` set to `True`, it adds a single set of (place in pattern, place in text) pairs it has already tried. Run it.
+
+<CodeLab code={`def matches(tokens, text, memo):
+    calls = 0
+    tried = set()
+    def m(t, s):
+        nonlocal calls
+        calls += 1
+        if memo:
+            # If this pair had succeeded, the whole match would have finished.
+            # So being back here means it failed, and it will fail again.
+            if (t, s) in tried:
+                return False
+            tried.add((t, s))
+        if t == len(tokens):
+            return s == len(text)
+        kind, c = tokens[t]
+        here = s < len(text) and (c == "." or c == text[s])
+        if kind == "one":
+            return here and m(t + 1, s + 1)
+        if kind == "opt":
+            return (here and m(t + 1, s + 1)) or m(t + 1, s)
+        # "star": use this character and stay, or stop using it and move on.
+        return (here and m(t, s + 1)) or m(t + 1, s)
+    return m(0, 0), calls
+
+# The pattern .*.*=.* against text with no = in it, so it has to fail.
+pattern = [("star", "."), ("star", "."), ("one", "="), ("star", ".")]
+for k in [40, 80, 160]:
+    text = "x" * k
+    print(f"k={k} plain {matches(pattern, text, False)[1]} remembering {matches(pattern, text, True)[1]}")
+`} rows={18} />
+
+Double the text and the plain version takes about four times the calls. That's quadratic again, the same signature Cloudflare published. The version that remembers takes twice the calls, which is linear. One `set`, and this matcher's quadratic is gone.
+
+Those are this matcher's own step counts, and they aren't comparable with Cloudflare's numbers, which came from Perl's debugger counting its own idea of a step.
+
+<Callout kind="real">
+Python's `re` module isn't available on this page, so that matcher is a stand-in. The real thing does backtrack. This site's research measured `^a*b?a*$` on one Windows laptop with CPython 3.11: 0.49 seconds at 8,000 characters and 2.02 seconds at 16,000, which is quadratic. It also has a trap for testers. `re` barely slows down on Cloudflare's own example string, and it needs many `=` signs to blow up, so a test using that string would pass and prove nothing.
+
+Ruby's fix also has limits, and its notes state them: "This optimization may consume memory proportional to the input length for each match." It covers "about 90% in our experiments", and it doesn't cover back-references or look-around. So Ruby added a second defence: "As a fallback measure, a timeout feature for Regexp matches is also introduced."
+</Callout>
+
+## A note on the name
+
+Why "dynamic programming"? Bellman, who coined it, later said he chose the name to hide mathematical research from a Secretary of Defense who hated the word. It's a good story, and Erickson, who's where we read it, doesn't buy all of it: Bellman's first published use "already appeared in 1952, several months before Wilson took office, so this story is at least slightly embellished." "Programming" here meant planning, as in a television programme.
+
+<GoDeeper title="How much work does it save?">
+With a memo, total work is at most the number of distinct subproblems, times the work for each one (not counting the recursive calls). For `fib`, that's `n + 1` subproblems at constant work each, so `O(n)`. The memo takes `O(n)` memory as well, and so does the stack.
+
+The naive version makes exactly `2·F(n+1) - 1` calls, where `F` is the Fibonacci sequence. So it grows as fast as Fibonacci itself, by a factor of about 1.618 for each step in `n`. Counted at `n = 10, 20, 25` above, and the formula gives `40,730,022,147` calls at `n = 50`.
+
+For the regex matcher, the subproblems are pairs of (place in pattern, place in text). A pattern of `p` tokens and a text of `n` characters gives at most `(p + 1)(n + 1)` of those: `p + 1` places in the pattern, because finishing it counts as a place too, and `n + 1` in the text. That's why remembering makes the work linear in the text. That's also the memory cost Ruby warns about. Back-references break this, because then the answer depends on more than those two numbers.
+
+Erickson's chapter 3 teaches the method in full, and it's free, and very good.
+</GoDeeper>
+
+<Quiz
+  id="alg-dp-1"
+  q="You add a memo to a recursive function and it becomes fast, then it crashes with RecursionError on large input. Why?"
+  options={["The memo uses up too much memory", "A memo stops repeated work, and the calls still stack up on the way down to the first answer", "Memoised code can't be run twice"]}
+  answer={1}
+  explain="From cold, nothing has been written down yet, so the first call has to go all the way down before anything comes back. Memoising fixes time, not depth. Building from the bottom removes the stack."
+/>
+
+<Quiz
+  id="alg-dp-2"
+  q="Which is true of the Cloudflare 2019 pattern, on Cloudflare's own published step counts?"
+  options={["Its steps grew exponentially", "Its steps grew as the square of the input size, which was still enough to take the service down", "It only became slow on inputs of many megabytes"]}
+  answer={1}
+  explain="23, 33, 45, then 555 at 20 x's fits k² + 7k + 15. Not exponential, and it didn't need to be: work growing like that, with real customer traffic passing through it, was plenty."
+/>
+
+<Quiz
+  id="alg-dp-3"
+  q="When is dynamic programming worth using on a recursive solution?"
+  options={["Whenever a function calls itself", "When the same smaller problems keep coming up, so remembering them saves work", "Only when you can't use a loop"]}
+  answer={1}
+  explain="If subproblems never repeat, as in a merge sort, there's nothing to remember. A memo there just uses memory. The test is whether the same question gets asked more than once."
+/>
+
+## What to remember
+
+- If the same subproblem keeps coming up, write down the answer once. That's the whole idea.
+- Top-down with a memo keeps your recursive code and keeps its stack. Bottom-up with a table loses both.
+- Memoising fixes time. It doesn't fix depth, and it costs memory.
+- A slow regex doesn't have to be exponential: polynomial is enough to hurt.

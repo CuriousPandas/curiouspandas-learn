@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { TRACKS, groupOf } from '../src/data/tracks.ts';
+import { STANDING_LABEL, standing } from '../src/lib/coverage.ts';
 
 const coverage = JSON.parse(readFileSync('src/data/cs2023-coverage.json', 'utf8')) as {
   areas: { id: string; title: string; units: { id: string; title: string; status: string; lessons: string[]; planned: string[]; note: string }[] }[];
@@ -28,6 +29,23 @@ test('every foundations lesson closes a unit: nothing is planned for no reason',
   for (const t of TRACKS) {
     if (groupOf(t) !== 'foundations') continue;
     for (const l of t.lessons) assert.ok(planned.has(`${t.id}/${l.slug}`), `${t.id}/${l.slug} closes no knowledge unit`);
+  }
+});
+
+// Writing a lesson doesn't prove a unit is taught, and a "Not taught" beside written
+// lessons is false: this page once said exactly that for every Algorithms unit.
+test('a verdict overtaken by new lessons says re-audit due, and never turns into covered by itself', () => {
+  assert.equal(standing('none', 0), 'none');
+  assert.equal(standing('partial', 0), 'partial');
+  assert.equal(standing('none', 3), 'reaudit');
+  assert.equal(standing('partial', 1), 'reaudit');
+  assert.equal(standing('covered', 3), 'covered');
+  assert.equal(standing('excluded', 0), 'excluded');
+  const al = coverage.areas.find((a) => a.id === 'AL')!;
+  const ready = new Set(TRACKS.flatMap((t) => t.lessons.filter((l) => l.status === 'ready').map((l) => `${t.id}/${l.slug}`)));
+  for (const u of al.units) {
+    const done = u.planned.filter((id) => ready.has(id)).length;
+    if (done > 0) assert.notEqual(STANDING_LABEL[standing(u.status as 'none', done)], 'Not taught', u.id);
   }
 });
 

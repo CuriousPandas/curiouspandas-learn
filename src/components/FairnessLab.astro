@@ -1,0 +1,127 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card fairlab" data-fairlab>
+  <div class="widget-head">
+    <strong>Fairness Lab</strong>
+    <span class="pill info">invented people, invented scores. No real system's data.</span>
+  </div>
+  <p class="fl-note">Each person's claim gets a score from 1 to 10. Everyone at or above their group's threshold is flagged for investigation. In both groups, a score carries the same chance that the claim really is wrong.</p>
+  <div class="fl-grid">
+    <div class="fl-main">
+      <div class="controls">
+        <label>Data
+          <select data-set>
+            <option value="different">Different base rates (invented)</option>
+            <option value="same">Same base rates (identical groups)</option>
+          </select>
+        </label>
+        <button class="btn small" type="button" data-search>Try every pair</button>
+      </div>
+      <div class="fl-sliders">
+        <label><span>Group A flagged at score <b data-ta-show>4</b> or above</span>
+          <input type="range" min="1" max="11" step="1" value="4" data-ta />
+        </label>
+        <label><span>Group B flagged at score <b data-tb-show>9</b> or above</span>
+          <input type="range" min="1" max="11" step="1" value="9" data-tb />
+        </label>
+      </div>
+      <div class="fl-scroll">
+        <table class="fl-table">
+          <thead><tr><th scope="col">Of each group</th><th scope="col">Group A</th><th scope="col">Group B</th><th scope="col">Gap</th></tr></thead>
+          <tbody data-rows></tbody>
+        </table>
+      </div>
+      <p class="fl-status" data-status role="status"></p>
+      <p class="fl-eq" data-eq></p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { compare, equationNote, rates, TOLERANCE } from '../lib/cs/fairness.ts';
+  import { FAIRNESS_MISSION } from '../lib/cs/fairness-missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const pct = (x: number | null) => (x === null ? 'nobody flagged' : `${(x * 100).toFixed(1)}%`);
+  const ROWS: { key: 'base' | 'fpr' | 'fnr' | 'ppv'; label: string; why: string }[] = [
+    { key: 'base', label: 'Base rate', why: 'how many claims really are wrong' },
+    { key: 'fpr', label: 'False-positive rate', why: 'of fine claims, how many get flagged' },
+    { key: 'fnr', label: 'False-negative rate', why: 'of wrong claims, how many are missed' },
+    { key: 'ppv', label: 'Predictive value', why: 'of flagged claims, how many are really wrong' },
+  ];
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-fairlab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = FAIRNESS_MISSION.setup();
+    const lab = state.lab;
+    const refresh = mountMission(q('[data-mission-panel]'), FAIRNESS_MISSION, () => state, () => {});
+    const ta = q<HTMLInputElement>('[data-ta]'), tb = q<HTMLInputElement>('[data-tb]');
+    // Kept, not re-created, across redraws: a cell replaced mid-drag loses nothing
+    // visible here, but the rows don't need rebuilding, so they aren't.
+    const cells = new Map<string, HTMLElement>();
+    q('[data-rows]').append(...ROWS.map((r) => {
+      const c = (k: string) => { const td = el('td', { 'data-cell': `${r.key}-${k}` }); cells.set(`${r.key}-${k}`, td); return td; };
+      return el('tr', {}, el('th', { scope: 'row' }, r.label, el('span', { class: 'muted fl-why' }, r.why)), c('a'), c('b'), c('gap'));
+    }));
+    let searchNote = '';
+
+    function draw() {
+      const d = lab.dataset, a = rates(d.a, lab.ta), b = rates(d.b, lab.tb);
+      q('[data-ta-show]').textContent = lab.ta === 11 ? '11 (nobody)' : String(lab.ta);
+      q('[data-tb-show]').textContent = lab.tb === 11 ? '11 (nobody)' : String(lab.tb);
+      for (const r of ROWS) {
+        const x = a[r.key], y = b[r.key];
+        cells.get(`${r.key}-a`)!.textContent = pct(x);
+        cells.get(`${r.key}-b`)!.textContent = pct(y);
+        const gap = x === null || y === null ? null : Math.abs(x - y);
+        const cell = cells.get(`${r.key}-gap`)!;
+        // Undefined is not "equal": with nobody flagged there is no predictive value to compare.
+        cell.textContent = gap === null ? 'undefined' : `${(gap * 100).toFixed(1)} pts`;
+        cell.className = r.key === 'base' ? '' : gap !== null && gap <= TOLERANCE ? 'ok' : 'bad';
+      }
+      const p = compare(d, lab.ta, lab.tb);
+      const st = q('[data-status]');
+      st.textContent = searchNote || (p.all ? 'All three match to within 2 points.' : `${a.wronglyFlagged} innocent people flagged in Group A, ${b.wronglyFlagged} in Group B, out of ${a.people} each.`);
+      st.className = `fl-status${p.all ? ' ok' : ''}`;
+      q('[data-eq]').textContent = equationNote(a, b);
+      refresh();
+    }
+
+    ta.addEventListener('input', () => { searchNote = ''; lab.set(Number(ta.value), lab.tb); draw(); });
+    tb.addEventListener('input', () => { searchNote = ''; lab.set(lab.ta, Number(tb.value)); draw(); });
+    q<HTMLSelectElement>('[data-set]').addEventListener('change', (e) => { searchNote = ''; lab.use((e.target as HTMLSelectElement).value); draw(); });
+    q('[data-search]').addEventListener('click', () => {
+      const r = lab.runSearch();
+      searchNote = r.hits.length
+        ? `Tried all ${r.tried} pairs. ${r.hits.length} match on all three to within 2 points, for example A at ${r.hits[0].ta} and B at ${r.hits[0].tb}.`
+        : `Tried all ${r.tried} pairs. None match on all three. The closest is A at ${r.closest.ta} and B at ${r.closest.tb}, still ${(Math.max(r.closest.fprGap, r.closest.fnrGap, r.closest.ppvGap ?? 1) * 100).toFixed(1)} points apart on its worst measure.`;
+      draw();
+    });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the table cells and the mission panel are created by the script. */
+  .fairlab .fl-note { margin: 0 0 10px; font-size: 0.9rem; color: var(--ink-2); }
+  .fairlab .fl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .fairlab .fl-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .fairlab .fl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .fairlab .controls label { min-width: 0; }
+  .fairlab .controls select { max-width: 100%; }
+  .fairlab .fl-sliders { display: grid; gap: 10px; }
+  @media (min-width: 620px) { .fairlab .fl-sliders { grid-template-columns: 1fr 1fr; } }
+  .fairlab .fl-sliders label { display: grid; gap: 4px; font-size: 0.9rem; min-width: 0; }
+  .fairlab .fl-sliders input { width: 100%; accent-color: var(--bamboo); }
+  .fairlab .fl-scroll { overflow-x: auto; }
+  .fairlab .fl-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+  .fairlab .fl-table th, .fairlab .fl-table td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .fairlab .fl-why { display: block; font-weight: 400; font-size: 0.78rem; }
+  .fairlab td.ok { color: var(--bamboo); font-weight: 650; }
+  .fairlab td.bad { color: var(--berry); font-weight: 650; }
+  .fairlab .fl-status { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); font-size: 0.92rem; overflow-wrap: anywhere; }
+  .fairlab .fl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .fairlab .fl-eq { margin: 0; font-size: 0.84rem; color: var(--ink-2); }
+</style>

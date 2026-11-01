@@ -1,0 +1,404 @@
+---
+import '../styles/widgets.css';
+interface Props {
+  /** Which tabs this lesson needs, in order. */
+  tabs?: string;
+  /** Which of the lab's two missions runs. Named variant, not mission: a mission="" prop is read as a progress id. */
+  variant?: 'graphs' | 'paths';
+  /** Which graph the Route tab draws. */
+  graph?: 'map' | 'negative';
+}
+const { tabs = 'flood,route,build', variant = 'graphs', graph = 'map' } = Astro.props;
+const list = tabs.split(',');
+const label: Record<string, string> = { flood: 'Flood', route: 'Route', build: 'Build' };
+---
+<div class="widget card netlab" data-netlab data-variant={variant} data-graph={graph}>
+  <div class="widget-head">
+    <strong>Network Lab</strong>
+    <span class="pill info">simulated: invented networks, real rules</span>
+  </div>
+  <div class="nl-grid">
+    <div class="nl-main">
+      {list.length > 1 && (
+        <div class="nl-tabs" role="tablist" aria-label="Network Lab views">
+          {list.map((t, i) => <button class="btn small" type="button" role="tab" aria-selected={i === 0 ? 'true' : 'false'} data-tab={t}>{label[t]}</button>)}
+        </div>
+      )}
+
+      <section data-panel="flood" hidden={list[0] !== 'flood'}>
+        <p class="nl-note">Six IMPs (the ARPANET's routers), one update per tick each, {8} buffers each. The map and those limits are the lab's. <strong>The LATER rule, the forwarding and the three numbers are RFC 789's.</strong></p>
+        <div class="controls">
+          <label>Put out
+            <select data-seqs>
+              <option value="real">8, 40, 44: as RFC 789 found them queued</option>
+              <option value="other">44, 40, 8: same numbers, other order</option>
+              <option value="invented">0, 20, 40: invented, not in RFC 789</option>
+            </select>
+          </label>
+          <button class="btn small primary" type="button" data-inject>Inject</button>
+          <label class="nl-check"><input type="checkbox" data-strict /> use Rosen's fix (<code>&lt;</code> for <code>&lt;=</code>)</label>
+        </div>
+        <div class="controls">
+          <button class="btn small" type="button" data-tick="1">Run 1 tick</button>
+          <button class="btn small" type="button" data-tick="10">Run 10 ticks</button>
+          <button class="btn small" type="button" data-tick="100">Run 100 ticks</button>
+          <label>IMP
+            <select data-imp></select>
+          </label>
+          <button class="btn small" type="button" data-restart>Restart this IMP</button>
+          <button class="btn small" type="button" data-restart-all>Restart all</button>
+          <button class="btn small" type="button" data-flood-reset>Reset</button>
+        </div>
+        <div class="nl-two">
+          <svg class="nl-svg" data-flood-svg viewBox="0 0 320 262" role="img" aria-label="Six IMPs, each showing the sequence number it last accepted and how full its buffers are"></svg>
+          <div>
+            <div class="stats">
+              <div class="stat">ticks<b data-f="ticks">0</b></div>
+              <div class="stat">updates in flight<b data-f="inFlight">0</b></div>
+              <div class="stat">accepted<b data-f="accepted">0</b></div>
+              <div class="stat">lost to full buffers<b data-f="dropped">0</b></div>
+              <div class="stat">IMPs with no free buffer<b data-f="fullImps">0</b></div>
+            </div>
+            <p class="nl-status" data-flood-status role="status">Nothing injected yet, so nothing has been tested.</p>
+            <p class="nl-rule" data-rule-check></p>
+          </div>
+        </div>
+      </section>
+
+      <section data-panel="route" hidden={list[0] !== 'route'}>
+        <div class="controls">
+          <label>Algorithm <select data-algo></select></label>
+          <label>Start <select data-start></select></label>
+          <button class="btn small" type="button" data-route-step>Step</button>
+          <button class="btn small primary" type="button" data-route-run>Run to the end</button>
+          <span class="nl-weight" data-weight-box hidden>
+            <label>Length of b to a <input type="number" data-weight value="2" step="1" min="-9" max="9" /></label>
+          </span>
+        </div>
+        <div class="nl-two">
+          <svg class="nl-svg" data-route-svg viewBox="0 0 320 230" role="img" aria-label="The graph, with visited nodes filled in"></svg>
+          <div>
+            <p class="nl-status" data-route-status role="status">Not run yet.</p>
+            <div data-route-detail></div>
+            <h4 data-reps-head hidden>The same graph, held two ways</h4>
+            <div class="nl-reps" data-reps></div>
+          </div>
+        </div>
+      </section>
+
+      <section data-panel="build" hidden={list[0] !== 'build'}>
+        <p class="nl-note">An arrow means "needs". The <strong>refuse</strong> mode behaves as Python's <code>graphlib</code> does, checked against it in this site's tests. The <strong>carry on</strong> mode is modelled from the source code of GNU make, which was never run for this lesson.</p>
+        <div class="controls">
+          <label class="nl-check"><input type="checkbox" data-cycle /> also make <code>core</code> need <code>app</code></label>
+          <label>When it meets a cycle
+            <select data-mode>
+              <option value="raise">refuse (graphlib)</option>
+              <option value="drop">carry on (modelled from make's source)</option>
+            </select>
+          </label>
+          <button class="btn small primary" type="button" data-build>Build</button>
+        </div>
+        <div class="nl-two">
+          <svg class="nl-svg" data-build-svg viewBox="0 0 320 210" role="img" aria-label="What depends on what"></svg>
+          <div>
+            <p class="nl-status" data-build-status role="status">Not built yet.</p>
+            <ol class="nl-order" data-build-order></ol>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { IMPS, LINKS, BUFFERS, REAL_SEQS, OTHER_ORDER_SEQS, INVENTED_SEQS, MAP, BUILD_DEPS, CYCLE_EDGE, later, traverse, dijkstra, bellmanFord, adjacencyList, adjacencyMatrix, out, type Graph, type PathStep, type TraversalStep } from '../lib/cs/network.ts';
+  import { NETWORK_GRAPHS_MISSION, NETWORK_PATHS_MISSION } from '../lib/cs/network-missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const SVG = 'http://www.w3.org/2000/svg';
+  const svg = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, text?: string) => {
+    const e = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const line = (a: number[], b: number[], cls: string) => svg('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], class: cls });
+
+  // Hand-placed: an automatic layout could put an edge through a node, and the
+  // graphs here are small enough that where each node sits can be chosen.
+  const FLOOD_AT = [[160, 36], [270, 90], [270, 180], [160, 222], [50, 180], [50, 90]];
+  const MAP_AT: Record<string, number[]> = { A: [34, 110], B: [120, 40], C: [110, 180], D: [215, 40], E: [215, 180], F: [290, 170], G: [290, 60] };
+  const NEG_AT: Record<string, number[]> = { s: [40, 110], a: [170, 40], b: [170, 190], t: [290, 40] };
+  const BUILD_AT: Record<string, number[]> = { app: [160, 34], lib: [70, 105], log: [250, 105], core: [160, 176] };
+
+  const SEQS: Record<string, number[]> = { real: REAL_SEQS, other: OTHER_ORDER_SEQS, invented: INVENTED_SEQS };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-netlab]')) {
+    const q = <T extends Element = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const mission = root.dataset.variant === 'paths' ? NETWORK_PATHS_MISSION : NETWORK_GRAPHS_MISSION;
+    const state = mission.setup();
+    const lab = () => state.lab;
+    const refresh = mountMission(q('[data-mission-panel]'), mission, () => state, () => {});
+    const graphName = root.dataset.graph === 'negative' ? 'negative' : 'map';
+
+    // ---------- tabs ----------
+    root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+      root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((o) => o.setAttribute('aria-selected', String(o === b)));
+      root.querySelectorAll<HTMLElement>('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== b.dataset.tab; });
+    }));
+
+    // ---------- flood ----------
+    q<HTMLSelectElement>('[data-imp]').append(...IMPS.map((n, i) => el('option', { value: String(i) }, n)));
+
+    function drawFlood() {
+      const net = lab().net, s = q<SVGSVGElement>('[data-flood-svg]');
+      s.replaceChildren(...LINKS.map(([a, b]) => line(FLOOD_AT[a], FLOOD_AT[b], 'nl-edge')));
+      IMPS.forEach((name, i) => {
+        const [x, y] = FLOOD_AT[i], used = net.queues[i].length;
+        s.append(
+          svg('circle', { cx: x, cy: y, r: 24, class: `nl-node${used >= BUFFERS ? ' full' : used ? ' busy' : ''}` }),
+          svg('text', { x, y: y - 4, class: 'nl-label' }, name),
+          svg('text', { x, y: y + 11, class: 'nl-small' }, net.stored[i] === null ? 'none' : `#${net.stored[i]}`),
+          svg('rect', { x: x - 20, y: y + 27, width: 40, height: 5, class: 'nl-bar-bg' }),
+          svg('rect', { x: x - 20, y: y + 27, width: (40 * used) / BUFFERS, height: 5, class: 'nl-bar' }),
+        );
+      });
+      for (const k of ['ticks', 'inFlight', 'accepted', 'dropped', 'fullImps'] as const) {
+        const b = q(`[data-f="${k}"]`);
+        b.textContent = net[k].toLocaleString('en-US');
+        b.parentElement!.classList.toggle('bad', (k === 'dropped' || k === 'fullImps') && net[k] > 0);
+      }
+      const st = q('[data-flood-status]'), l = lab();
+      let cls = 'nl-status', text = 'Nothing injected yet, so nothing has been tested.';
+      if (l.injected) {
+        if (net.alive) {
+          cls += ' bad';
+          text = `Still circulating after ${l.sinceInject} ticks, with no IMP generating anything new. It would run on for as long as you press the button.`;
+          if (l.sinceInject < 100) { cls = 'nl-status warn'; text = `Circulating after ${l.sinceInject} ticks. Not long enough to tell yet.`; }
+        } else if (l.restartedAll) {
+          cls += ' warn';
+          text = 'Empty, because you restarted every IMP at once. RFC 789 says that does clear it. It proves nothing about the rule: the same numbers can do it again.';
+        } else {
+          cls += ' ok';
+          text = `Died out by itself after ${net.ticks} ticks. Every IMP holds #${net.stored.find((v) => v !== null)}.`;
+        }
+      }
+      st.className = cls;
+      st.textContent = text;
+      const seqs = SEQS[q<HTMLSelectElement>('[data-seqs]').value];
+      const strict = net.strict;
+      const pairs = [0, 1, 2].map((i) => [seqs[(i + 1) % 3], seqs[i]]);
+      q('[data-rule-check]').textContent = `Under this rule: ${pairs.map(([a, b]) => `${a} is ${later(a, b, strict) ? '' : 'not '}LATER than ${b}`).join(', ')}.`;
+    }
+
+    q('[data-inject]').addEventListener('click', () => { lab().inject(SEQS[q<HTMLSelectElement>('[data-seqs]').value]); drawFlood(); refresh(); });
+    root.querySelectorAll<HTMLButtonElement>('[data-tick]').forEach((b) => b.addEventListener('click', () => { lab().run(Number(b.dataset.tick)); drawFlood(); refresh(); }));
+    q('[data-restart]').addEventListener('click', () => { lab().restart(Number(q<HTMLSelectElement>('[data-imp]').value)); drawFlood(); refresh(); });
+    q('[data-restart-all]').addEventListener('click', () => { lab().restartAll(); drawFlood(); refresh(); });
+    q('[data-flood-reset]').addEventListener('click', () => { lab().resetFlood(); drawFlood(); refresh(); });
+    q<HTMLInputElement>('[data-strict]').addEventListener('change', (e) => { lab().setStrict((e.target as HTMLInputElement).checked); drawFlood(); refresh(); });
+    q('[data-seqs]').addEventListener('change', drawFlood);
+
+    // ---------- route ----------
+    const algos = graphName === 'map'
+      ? [['bfs', 'Breadth-first (a queue)'], ['dfs', 'Depth-first (a stack)'], ['dijkstra', 'Dijkstra (shortest length)']]
+      : [['dijkstra', 'Dijkstra, textbook form'], ['bellman-ford', 'Bellman-Ford']];
+    const algoSel = q<HTMLSelectElement>('[data-algo]'), startSel = q<HTMLSelectElement>('[data-start]');
+    algoSel.append(...algos.map(([v, t]) => el('option', { value: v }, t)));
+    const graph = (): Graph => (graphName === 'map' ? MAP : lab().negative());
+    const at = graphName === 'map' ? MAP_AT : NEG_AT;
+    startSel.append(...graph().nodes.map((n) => el('option', { value: n }, n)));
+    if (graphName === 'negative') { startSel.disabled = true; q('[data-weight-box]').hidden = false; }
+
+    type Frame = { filled: string[]; now: string; dist?: Record<string, number>; waiting?: string[]; waitLabel?: string; note?: string };
+    let frames: Frame[] = [], shown = -1;
+
+    const framesFor = (): Frame[] => {
+      const g = graph(), a = algoSel.value, s = startSel.value;
+      if (a === 'bfs' || a === 'dfs') return traverse(g, s, a).map((t: TraversalStep) => ({ filled: t.order, now: t.visit, waiting: t.waiting, waitLabel: a === 'bfs' ? 'Queue (next out is first)' : 'Stack (next out is last)' }));
+      const run = a === 'dijkstra' ? dijkstra(g, s) : bellmanFord(g, s);
+      const seen: string[] = [];
+      return run.steps.map((p: PathStep) => { if (a === 'dijkstra') seen.push(p.settle); return { filled: [...seen], now: p.settle, dist: p.dist, note: p.note }; });
+    };
+
+    function drawRoute() {
+      const g = graph(), s = q<SVGSVGElement>('[data-route-svg]');
+      const f = frames[shown];
+      const kids: SVGElement[] = [];
+      s.replaceChildren();
+      const defs = svg('defs', {});
+      const marker = svg('marker', { id: 'nl-arrow-route', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+      marker.append(svg('path', { d: 'M0 0L10 5L0 10z', class: 'nl-head' }));
+      defs.append(marker);
+      kids.push(defs);
+      for (const e of g.edges) {
+        const a = at[e.from], b = at[e.to], dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+        const end = [b[0] - (dx / len) * 22, b[1] - (dy / len) * 22];
+        const l = line(a, g.directed ? end : b, `nl-edge${e.w < 0 ? ' neg' : ''}`);
+        if (g.directed) l.setAttribute('marker-end', 'url(#nl-arrow-route)');
+        kids.push(l, svg('text', { x: (a[0] + b[0]) / 2 + (dy / len) * 9, y: (a[1] + b[1]) / 2 - (dx / len) * 9 + 4, class: `nl-small nl-w${e.w < 0 ? ' neg' : ''}` }, String(e.w)));
+      }
+      for (const n of g.nodes) {
+        const [x, y] = at[n];
+        const cls = f?.now === n ? ' now' : f?.filled.includes(n) ? ' seen' : '';
+        kids.push(svg('circle', { cx: x, cy: y, r: 19, class: `nl-node${cls}`, 'data-node': n }), svg('text', { x, y: y + 5, class: 'nl-label' }, n));
+      }
+      s.append(...kids);
+      const detail = q('[data-route-detail]');
+      if (!f) { detail.replaceChildren(); return; }
+      const kidsD: HTMLElement[] = [];
+      if (f.waiting) kidsD.push(el('p', {}, el('strong', {}, `${f.waitLabel}: `), f.waiting.join(', ') || 'empty'), el('p', {}, el('strong', {}, 'Visit order: '), f.filled.join(', ')));
+      if (f.dist) {
+        kidsD.push(el('table', { class: 'nl-dist' }, el('thead', {}, el('tr', {}, ...g.nodes.map((n) => el('th', { scope: 'col' }, n)))), el('tbody', {}, el('tr', {}, ...g.nodes.map((n) => el('td', { 'data-dist': n }, f.dist![n] === undefined ? 'unknown' : String(f.dist![n])))))));
+        if (f.note) kidsD.push(el('p', { class: 'muted' }, f.note));
+      }
+      detail.replaceChildren(...kidsD);
+    }
+
+    function restartRoute() { frames = framesFor(); shown = -1; }
+
+    const finish = () => {
+      const r = lab().route(algoSel.value as 'bfs', graphName, startSel.value);
+      const st = q('[data-route-status]');
+      if (r.order) {
+        const missed = graph().nodes.filter((n) => !r.order!.includes(n));
+        st.textContent = `${algoSel.selectedOptions[0].textContent}: reached ${r.order.length} of ${graph().nodes.length}.${missed.length ? ` Cannot reach ${missed.join(', ')} from ${r.start}.` : ''}`;
+      } else {
+        // Deliberately the same plain sentence for right and wrong answers: this
+        // algorithm doesn't know, and the lesson is that nothing tells you.
+        st.textContent = `Finished with no error. Distance from ${r.start}: ${graph().nodes.map((n) => `${n} = ${r.dist![n] ?? 'unreachable'}`).join(', ')}.`;
+      }
+      refresh();
+    };
+
+    q('[data-route-step]').addEventListener('click', () => {
+      if (!frames.length || shown >= frames.length - 1) { restartRoute(); q('[data-route-status]').textContent = 'Stepping.'; }
+      shown++;
+      drawRoute();
+      if (shown === frames.length - 1) finish();
+    });
+    q('[data-route-run]').addEventListener('click', () => { restartRoute(); shown = frames.length - 1; drawRoute(); finish(); });
+    const clear = () => { frames = []; shown = -1; q('[data-route-status]').textContent = 'Changed since the last run. Run it again.'; drawRoute(); };
+    algoSel.addEventListener('change', clear);
+    startSel.addEventListener('change', clear);
+    q<HTMLInputElement>('[data-weight]').addEventListener('change', (e) => {
+      // An empty or non-numeric box is not a length of zero.
+      const w = Number((e.target as HTMLInputElement).value);
+      if ((e.target as HTMLInputElement).value === '' || !Number.isFinite(w)) { (e.target as HTMLInputElement).value = String(lab().weights['b-a'] ?? 2); return; }
+      lab().setWeight('b', 'a', w);
+      clear();
+    });
+
+    if (graphName === 'map') {
+      q('[data-reps-head]').hidden = false;
+      const list = adjacencyList(MAP), matrix = adjacencyMatrix(MAP);
+      q('[data-reps]').replaceChildren(
+        el('div', {}, el('strong', {}, 'Adjacency list'), el('ul', {}, ...MAP.nodes.map((n) => el('li', {}, el('code', {}, `${n}: ${list[n].join(', ') || '(nothing)'}`))))),
+        el('div', {}, el('strong', {}, 'Adjacency matrix'), el('table', { class: 'nl-matrix' }, el('thead', {}, el('tr', {}, el('th', {}), ...MAP.nodes.map((n) => el('th', { scope: 'col' }, n)))), el('tbody', {}, ...MAP.nodes.map((n, i) => el('tr', {}, el('th', { scope: 'row' }, n), ...matrix[i].map((v) => el('td', v ? { class: 'on' } : {}, String(v)))))))),
+        el('p', { class: 'muted' }, `${MAP.nodes.reduce((c, n) => c + out(MAP, n).length, 0)} list entries against ${MAP.nodes.length ** 2} matrix cells for this graph.`),
+      );
+    }
+
+    // ---------- build ----------
+    function drawBuild(withCycle: boolean, dropped: [string, string][] = []) {
+      const s = q<SVGSVGElement>('[data-build-svg]'), kids: SVGElement[] = [];
+      const defs = svg('defs', {});
+      const marker = svg('marker', { id: 'nl-arrow-build', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+      marker.append(svg('path', { d: 'M0 0L10 5L0 10z', class: 'nl-head' }));
+      defs.append(marker);
+      kids.push(defs);
+      const edges = Object.entries(BUILD_DEPS).flatMap(([n, ds]) => ds.map((d) => [n, d]));
+      if (withCycle) edges.push(CYCLE_EDGE);
+      for (const [n, d] of edges) {
+        const a = BUILD_AT[n], b = BUILD_AT[d], dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+        const lost = dropped.some(([x, y]) => x === n && y === d);
+        const l = line([a[0] + (dx / len) * 22, a[1] + (dy / len) * 22], [b[0] - (dx / len) * 24, b[1] - (dy / len) * 24], `nl-edge${n === CYCLE_EDGE[0] ? ' neg' : ''}${lost ? ' lost' : ''}`);
+        l.setAttribute('marker-end', 'url(#nl-arrow-build)');
+        kids.push(l);
+      }
+      for (const n of Object.keys(BUILD_DEPS)) {
+        const [x, y] = BUILD_AT[n];
+        kids.push(svg('circle', { cx: x, cy: y, r: 22, class: 'nl-node' }), svg('text', { x, y: y + 4, class: 'nl-small' }, n));
+      }
+      s.replaceChildren(...kids);
+    }
+    q('[data-build]').addEventListener('click', () => {
+      const withCycle = q<HTMLInputElement>('[data-cycle]').checked, mode = q<HTMLSelectElement>('[data-mode]').value as 'raise' | 'drop';
+      const r = lab().build(withCycle, mode), st = q('[data-build-status]');
+      drawBuild(withCycle, r.dropped);
+      if (r.cycle) {
+        st.className = 'nl-status bad';
+        st.textContent = `Refused. These need each other in a circle: ${r.cycle.join(' needs ')}. Nothing was built.`;
+      } else if (r.dropped.length) {
+        st.className = 'nl-status warn';
+        st.textContent = `Built, with one line of warning a person might never read: ${r.dropped.map(([a, b]) => `dropped "${a} needs ${b}"`).join(', ')}. ${r.order[0]} was built without something it says it needs.`;
+      } else {
+        st.className = 'nl-status ok';
+        st.textContent = 'Built. Everything comes after what it needs.';
+      }
+      q('[data-build-order]').replaceChildren(...r.order.map((n) => el('li', {}, n)));
+      refresh();
+    });
+    q('[data-cycle]').addEventListener('change', () => drawBuild(q<HTMLInputElement>('[data-cycle]').checked));
+
+    drawFlood();
+    drawRoute();
+    drawBuild(false);
+    refresh();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: nearly everything in here is created by the script. */
+  .netlab .nl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .netlab .nl-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  /* An explicit track: an auto one grows to fit its widest child, and Linux's wider
+     fonts made a select push the whole page 4 px sideways on a 375 px iPhone. */
+  .netlab .nl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .netlab .nl-main > * { min-width: 0; }
+  .netlab .controls label, .netlab select { max-width: 100%; }
+  .netlab section[hidden] { display: none; }
+  .netlab .nl-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .netlab [role="tab"][aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .netlab label { min-width: 0; }
+  .netlab select { max-width: 100%; }
+  .netlab .nl-check { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .netlab .nl-note { margin: 0 0 8px; font-size: 0.88rem; color: var(--ink-2); }
+  .netlab .nl-two { display: grid; gap: 12px; margin-top: 10px; }
+  @media (min-width: 620px) { .netlab .nl-two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .netlab .nl-svg { width: 100%; max-width: 420px; height: auto; display: block; }
+  .netlab .nl-edge { stroke: var(--line-2); stroke-width: 2; }
+  .netlab .nl-edge.neg { stroke: var(--berry); }
+  .netlab .nl-edge.lost { stroke-dasharray: 5 5; }
+  .netlab .nl-head { fill: var(--ink-2); }
+  .netlab .nl-node { fill: var(--panel); stroke: var(--ink-2); stroke-width: 2; }
+  .netlab .nl-node.busy { stroke: var(--sun-text); }
+  .netlab .nl-node.full { fill: var(--berry-soft); stroke: var(--berry); }
+  .netlab .nl-node.seen { fill: var(--bamboo-soft); stroke: var(--bamboo); }
+  .netlab .nl-node.now { fill: var(--sun-soft); stroke: var(--sun-text); stroke-width: 3; }
+  .netlab text { text-anchor: middle; fill: var(--ink); font-family: var(--mono); }
+  .netlab .nl-label { font-size: 15px; font-weight: 700; }
+  .netlab .nl-small { font-size: 12px; }
+  .netlab .nl-w { font-weight: 700; }
+  .netlab .nl-w.neg { fill: var(--berry); }
+  .netlab .nl-bar-bg { fill: var(--line); }
+  .netlab .nl-bar { fill: var(--berry); }
+  .netlab .nl-status { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); font-size: 0.92rem; overflow-wrap: anywhere; }
+  .netlab .nl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .netlab .nl-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .netlab .nl-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .netlab .nl-rule { font-size: 0.85rem; color: var(--ink-2); margin: 0; }
+  .netlab .stat.bad { border-color: var(--berry); }
+  .netlab .stat.bad b { color: var(--berry); }
+  .netlab .nl-weight input { width: 4.5em; font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .netlab .nl-dist, .netlab .nl-matrix { border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  .netlab .nl-dist th, .netlab .nl-dist td, .netlab .nl-matrix th, .netlab .nl-matrix td { border: 1px solid var(--line); padding: 2px 7px; text-align: center; }
+  .netlab .nl-matrix td.on { background: var(--bamboo-soft); color: var(--bamboo); font-weight: 700; }
+  .netlab h4 { margin: 12px 0 6px; font-size: 0.92rem; }
+  .netlab .nl-reps { display: grid; gap: 8px; font-size: 0.85rem; overflow-x: auto; }
+  .netlab .nl-reps ul { margin: 4px 0 0; padding: 0; list-style: none; }
+  .netlab .nl-reps p { margin: 0; }
+  .netlab .nl-order { margin: 0; padding-left: 22px; font-family: var(--mono); font-size: 0.88rem; }
+  .netlab p { overflow-wrap: anywhere; }
+</style>
