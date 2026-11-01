@@ -1,0 +1,167 @@
+---
+title: Stacks, queues and who goes next
+summary: A server that works through requests in arrival order can spend a whole overload answering people who already left. Learn the two rules for who goes next, use a stack where a counter fails, watch the call stack, and build a queue that doesn't pay for every customer who leaves.
+minutes: 18
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/arrays-and-lists]
+sources:
+  - title: Google - Site Reliability Engineering, chapter 22, Addressing Cascading Failures (free online)
+    url: https://sre.google/sre-book/addressing-cascading-failures/
+  - title: Amazon Builders' Library - Avoiding insurmountable queue backlogs
+    url: https://aws.amazon.com/builders-library/avoiding-insurmountable-queue-backlogs/
+  - title: Pat Morin - Open Data Structures, section 1.2.1, the Queue, Stack and Deque interfaces (free, CC BY)
+    url: https://opendatastructures.org/ods-python/1_2_Interfaces.html
+  - title: Pat Morin - Open Data Structures, section 2.3, ArrayQueue, a queue in a circular array (free, CC BY)
+    url: https://opendatastructures.org/ods-python/2_3_ArrayQueue_Array_Based_.html
+  - title: Python documentation - using lists as stacks and queues
+    url: https://docs.python.org/3/tutorial/datastructures.html
+  - title: Python documentation - collections.deque
+    url: https://docs.python.org/3/library/collections.html
+---
+
+Picture a server with more requests than it can handle. They wait in a line, and it answers them in the order they came. That sounds like the only fair thing to do. Now follow it through, as Google's book on running large systems does:
+
+> If a user's web search is slow because an RPC has been queued for 10 seconds, there's a good chance the user has given up and refreshed their browser, issuing another request: there's no point in responding to the first one, since it will be ignored!
+
+(An RPC is one program's request to another over a network.) The server is busy and working hard, and much of what it finishes goes to people who have left. The refresh makes the line longer, too.
+
+The book's suggestion is striking: "Changing the queuing method from the standard first-in, first-out (FIFO) to last-in, first-out (LIFO)", or using another method it names, "controlled delay", can reduce load by removing requests unlikely to be worth processing. This lesson follows the first of those. Amazon's Builders' Library reports the same pull from its side: "Real time systems often are implemented with FIFO-ish queues, but prefer LIFO-ish behavior." Neither page gives a number for this, and neither describes one particular incident. So let's see the shape for ourselves.
+
+## Try it: who goes next?
+
+This is a model, and its numbers are invented for this page. Two requests arrive every tick and the server finishes one, so it is overloaded from the start. Users give up after 10 ticks. An answer delivered after that is wasted. The only difference between the two runs is which request the server takes next.
+
+`pop(0)` takes the oldest and `pop()` takes the newest. Run it, then change `patience` or the number of arrivals and see what moves.
+
+<CodeLab code={`def simulate(order, patience=10):
+    waiting = []
+    useful = 0
+    wasted = 0
+    for tick in range(60):
+        waiting.append(tick)
+        waiting.append(tick)
+        if order == "oldest first":
+            request = waiting.pop(0)
+        else:
+            request = waiting.pop()
+        if tick - request <= patience:
+            useful += 1
+        else:
+            wasted += 1
+    return useful, wasted
+
+print("oldest first:", simulate("oldest first"))
+print("newest first:", simulate("newest first"))
+`} rows={18} />
+
+Each run does the same 60 units of work. Serving the oldest first gives 21 useful answers and 39 wasted, and it stops doing anything useful at all once the line gets long. Serving the newest first gives 60 useful answers.
+
+It has a cost, which that score hides. Both runs left 60 requests unanswered. Serving oldest first left the requests from the last 30 ticks. Serving newest first left one from every tick, including the very first, and it never comes back for those unless the server catches up. That's plainly unfair to whoever got left behind. So this is a choice for overload and not a better rule in general. Amazon's page has the same idea: fresh data first, and whatever piled up during the surge "can then be processed as capacity is available".
+
+## Two rules, one interface
+
+You now have both rules. *Open Data Structures* describes them as one interface with two operations, add a value and remove the next value, and the thing that differs is "The Queue's queueing discipline":
+
+- A **queue**, or FIFO for first-in, first-out, "removes items in the same order they were added". Like the line at a shop.
+- A **stack**, or LIFO for last-in, first-out: "the most recently added element is the next one removed". Like a pile of plates, where you can only reach the top.
+
+Stacks use the words **push** for add and **pop** for remove. There's also the **deque**, pronounced "deck", which allows both ends. And a **priority queue** picks the next item by rank rather than arrival, like a hospital's triage. A later lesson on this trail covers that one.
+
+This is the interface and implementation split from the first lesson. "Stack" is a promise about which item comes back. It says nothing about where the items are kept.
+
+## Stacks: finish the newest thing first
+
+A stack fits any job where the most recent thing has to be finished first. Your editor's undo is one: the last change comes off first. A text with brackets is another, because the last bracket opened is the first that has to close.
+
+<CodeLab mission="alg-stack-brackets" rows={13} />
+
+Python's documentation points out how neatly a list does this job: "To add an item to the top of the stack, use `append()`. To retrieve an item from the top of the stack, use `pop()` without an explicit index." Both work at the end of the array, where nothing has to move, so both are cheap.
+
+### The stack your program runs on
+
+You've been looking at a stack all along. When one function calls another, the first one has to wait, and it has to remember where it was. Those waiting functions form the **call stack**, with the newest call on top.
+
+Press **Step** here and watch the Variables panel, which lists the calls with the newest last. The function called last is the one that has to finish first.
+
+<CodeLab code={`def add_tax(price):
+    return round_up(price * 2)
+
+def round_up(x):
+    return x + 1
+
+def total(price):
+    return add_tax(price) + 10
+
+print(total(5))
+`} />
+
+A stack takes memory, so it has a limit. This function calls itself and never stops:
+
+<CodeLab code={`def go_deeper(n):
+    return go_deeper(n + 1)
+
+print(go_deeper(1))
+`} />
+
+<Callout kind="real">
+The limit here matches real Python's default of 1,000 calls, and a test on this site compares both. Python stops with a `RecursionError`, which is a clean, loud failure. Other languages can run out of real stack memory and crash, which is what "stack overflow" means.
+</Callout>
+
+## Queues: the line that keeps moving
+
+A queue fits jobs that should be handled in arrival order: printing, messages, a set of tasks shared out among workers. Python's list looks like an obvious way to build one, using `append` to join the back and `pop(0)` to leave from the front. Python's own tutorial warns you about that, in so many words: "lists are not efficient for this purpose. While appends and pops from the end of list are fast, doing inserts or pops from the beginning of a list is slow (because all of the other elements have to be shifted by one)."
+
+Time to measure that. In this game, the player at the front of the line passes a parcel on and goes to the back, and then the next player is out. It needs a real queue, because people keep rejoining the line, so you can't just read the answer off the input.
+
+<CodeLab mission="alg-queue-parcel" grow="pass_the_parcel" sizes="100,200,400,800" rows={14} />
+
+<Callout kind="real" title="In real Python, use deque">
+Real Python already has what you just built. `from collections import deque` gives you `append` and `popleft`, and the documentation says deques support appends and pops "from either side of the deque with approximately the same O(1) performance in either direction", while lists "incur O(n) memory movement costs for pop(0) and insert(0, v) operations". Use it, and don't hand-roll a queue in production code.
+
+This lab's sandbox has no `import`, so `deque` isn't available here. That's why you built one. A test on this site runs your kind of queue and a real `deque` on the same players and checks they give the same order.
+</Callout>
+
+<Callout kind="trap">
+`queue.pop(0)` reads like a single cheap operation, and on a short list it effectively is. You saw the same pattern in `x in seen` two lessons back. If a program gets slower as its backlog grows, a queue built like this is worth looking for, and it hurts most at exactly the moment the backlog is already long.
+</Callout>
+
+There's a limit worth knowing in the index version. Items that have left stay in the list until the whole list goes away. A long-running queue would never give that memory back, so real implementations reuse their space. *Open Data Structures* builds one out of an array that wraps around at the end, so a slot freed at the front gets reused.
+
+<GoDeeper title="Why two lists are linear overall">
+Two lists make a queue this way: add to `inbox`, and take from `outbox`. When `outbox` is empty, pop everything from `inbox` onto it, which reverses the order, so the oldest item ends up on top.
+
+A single take can cost a lot, because it might move every item. But follow one item through its life. It gets pushed onto `inbox` once, popped from `inbox` once, pushed onto `outbox` once and popped from `outbox` once. That's four operations per item however the adds and takes interleave, so `m` operations cost `O(m)` in total. A single take can be slow. The average can't. This is the same amortised argument as the growing array in the last lesson.
+</GoDeeper>
+
+<Quiz
+  id="alg-queues-1"
+  q="A server is overloaded and users give up after a few seconds. Why might it answer the newest requests first?"
+  options={["Newest requests are always smaller", "The oldest ones have probably been abandoned, so answering them spends the work on nobody. The cost is that older requests may wait a very long time", "Stacks are faster than queues"]}
+  answer={1}
+  explain="It's a choice about which work is still worth doing. It isn't fair, and it isn't free: in the model, one request from every tick never got an answer, including some left waiting from the very first tick. That's why it's a rule for overload and not a general improvement."
+/>
+
+<Quiz
+  id="alg-queues-2"
+  q="Why can't a counter of open brackets check that brackets match?"
+  options={["It runs out of numbers on long text", "It knows how many are open and not which kind or in what order, so ([)] looks fine. A stack remembers the most recent opener, and that's the one that has to close next", "Counters are slower than stacks"]}
+  answer={1}
+  explain="The last opened is the first that must close, which is exactly a stack's rule. A counter throws away the one fact the check needs."
+/>
+
+<Quiz
+  id="alg-queues-3"
+  q="You build a work queue on a Python list with append and pop(0). It's fine in testing with 100 jobs. With a backlog of a million, it crawls. What's the fix in real Python?"
+  options={["Use pop() instead, since it's fast", "Use collections.deque, whose popleft doesn't move everything along", "Sort the list first"]}
+  answer={1}
+  explain="pop() is fast because it takes from the end, which changes the queue into a stack and gives you the wrong order. A deque keeps first-in, first-out at a constant cost per operation."
+/>
+
+## What to remember
+
+- "Who goes next" is a real design choice. First-in, first-out is a queue, and last-in, first-out is a stack.
+- A stack fits work where the newest must finish first, and it's what your function calls run on.
+- Under overload, answering in arrival order can spend everything on people who have gone. Serving the newest first has its own cost in fairness.
+- `pop(0)` on a list is a loop in disguise. In real Python, reach for `collections.deque`.
+- A queue is an interface. How it's built decides what it costs, and you can change that without changing the answers.

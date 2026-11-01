@@ -1,0 +1,146 @@
+---
+title: Binary search, and the bug everybody writes
+summary: A binary search in a famous book had been proved correct, and the one in Java's library had nine years of use. Both had the same wrong line. Write a binary search, find the shortest array that breaks the classic version (it isn't the one Bloch named), and see the quieter failure that hands back a wrong answer with no error.
+minutes: 18
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/counting-steps]
+sources:
+  - title: Joshua Bloch - Nearly All Binary Searches and Mergesorts are Broken, Google Research blog (2006)
+    url: https://research.google/blog/extra-extra-read-all-about-it-nearly-all-binary-searches-and-mergesorts-are-broken/
+  - title: CPython source - bisect.py
+    url: https://raw.githubusercontent.com/python/cpython/main/Lib/bisect.py
+  - title: CPython source - _bisectmodule.c
+    url: https://raw.githubusercontent.com/python/cpython/main/Modules/_bisectmodule.c
+  - title: Python documentation - bisect
+    url: https://docs.python.org/3/library/bisect.html
+  - title: SQLite - The query planner
+    url: https://www.sqlite.org/queryplanner.html
+  - title: Sedgewick and Wayne - Algorithms, section 1.1 (the free booksite)
+    url: https://algs4.cs.princeton.edu/11model/
+---
+
+In June 2006, Joshua Bloch published a blog post with a title meant to get attention: "Nearly All Binary Searches and Mergesorts are Broken". He had written the binary search in Java's standard library himself, and it had a bug. In his words: "It was reported to Sun recently when it broke someone's program, after lying in wait for nine years or so."
+
+He was also writing about a famous book. Jon Bentley's *Programming Pearls* has a binary search that Bentley proved correct and then tested, and it contains the same bug. It "escaped detection for two decades". The bug is in one line, the one that finds the middle:
+
+```java
+int mid = (low + high) / 2;
+```
+
+That's a line almost anyone would write. Bloch explains the failure: "The sum overflows to a negative value, and the value stays negative when divided by two." When the book came out, arrays big enough to trigger it were unimaginable. "This was inconceivable back in the '80s, when Programming Pearls was written, but it is common these days at Google and other places."
+
+What should you take from a proof that was correct and a program that crashed? Bloch: "It is not sufficient merely to prove a program correct; you have to test it too." To see why, we need binary search itself, and then we'll break it.
+
+## Two ways to look something up
+
+The direct way is **linear search**: start at the beginning and look at each item until you find it or run out. It works on any list. In the worst case, when the item is last or missing, it reads everything.
+
+**Binary search** is what you do with a printed dictionary. Open it in the middle. If your word comes earlier, the whole second half is gone, and you never have to look at it. Go to the middle of what's left, and repeat. It has two requirements. The list has to be sorted, because that's what lets one look rule out half. And jumping to the middle has to be cheap, which means an array and not a linked list: on a linked list the comparisons stay at about `log n`, but the walks between them add up to about `n` reads.
+
+Each read cuts what's left in half, so the worst case is how many times you can halve `n` before nothing remains:
+
+| Items | Worst-case reads |
+|---|---|
+| 1,000 | 10 |
+| 1,000,000 | 20 |
+| 1,000,000,000,000,000,000 | 60 |
+
+Those are the reads for Python's real `bisect_left`, counted by a test on this site with a stand-in list that tallies each look and always steers the search towards the bigger side. For every size up to 300, the same test also tries every target and every gap between items. `bisect_left` doesn't stop when it sees a match, so on 1,000 items it takes 9 or 10 reads every time. A version that does stop, like the one you're about to write, can finish in one read when the first middle happens to be the one you wanted. So the table is the bound you can promise. Going from a thousand items to a million costs 10 more reads. That's the `O(log n)` row from [Count the steps](/learn/algorithms/counting-steps/). SQLite's documentation says the same about its own lookups: "the time required to look up the desired row is proportional to logN rather than being proportional to N as in a full table scan." [Indexes](/learn/databases/indexes/) shows what that does for a database.
+
+## Try it: write one
+
+`find` is a linear search. Run it, measure it, and turn it into a binary search. **Step** is the best way to debug this, because you can watch `low` and `high` close in on the answer. It's easier to get wrong than it looks, which is part of the story here, and the mission tries the awkward cases: one item, two items, and a missing target at each end.
+
+<CodeLab mission="alg-search-halving" grow="worst" sizes="1000,10000,100000" rows={13} />
+
+## The line Python gets away with
+
+You probably just wrote `mid = (low + high) // 2`, and it's correct in Python. Python's own library has that same line:
+
+```python
+mid = (lo + hi) // 2
+```
+
+That's from `bisect.py`, and it's correct there, because a Python integer grows as large as it needs to and never overflows. So the bug isn't in the algorithm. It's in the arithmetic the algorithm runs on. Python's faster version, written in C, doesn't have that luxury, because a C number has a fixed size. So its line first converts `lo` to `size_t`, C's type for sizes. A conversion like that is called a **cast**. `size_t` is **unsigned**, meaning it holds no negative numbers, so the same size of number reaches twice as high and the sum fits:
+
+```c
+mid = ((size_t)lo + hi) / 2;
+```
+
+An `int` in Java is 32 **bits**, which are binary digits, so it holds whole numbers up to 2,147,483,647, which is `2^31 - 1`. Add one to that and it doesn't get bigger. It wraps around to the most negative number the type can hold. Bentley's proof, like most on paper, assumed integers that don't run out.
+
+Bloch's fixes are short. One is `low + (high - low) / 2`, where the difference can't overflow. The other is `(low + high) >>> 1`. In Java, `>>> 1` shifts a number's bits one place to the right, which halves it, and reads them as unsigned while it does. So the sum can wrap and the halving still gets the right answer.
+
+## Try it: the Midpoint Lab
+
+Neither Python nor this page's JavaScript wraps at 32 bits, so the lab does that arithmetic on purpose and says so. It searches a virtual array, where the value at index `i` is `i`, so an array of two billion takes no memory at all.
+
+Bloch wrote that the bug can appear in arrays "whose length (in elements) is 2^30 or greater". Your mission is to find the shortest array that actually breaks. You can use binary search to find it, and that's the fastest way.
+
+<MidpointLab />
+
+<Callout kind="trap" title="Even Bloch's number is off by one">
+With exactly `2^30` elements, the largest index is `2^30 - 1`. The largest sum of `low` and `high` is then `2^31 - 2`, and that fits. The first length that can overflow is `2^30 + 1`, with `low` and `high` both at `2^30`. It changes nothing about his point, and he does say "roughly a billion". We tested it by running the arithmetic, and at small integer widths by trying every length and every target. He updated the post himself in 2008 for a different problem in his C fix, and ended that update: "Now that we've made this change, we know that the program is correct;)". The wink is his.
+</Callout>
+
+Press **Try 1,000 random targets** at the shortest breaking length. You'll almost certainly see none crash. Those targets come from inside the array, and at that length only the last element, one value in about a billion, reaches the failing sum. A missing key bigger than everything before it crashes too, and that's the "missing target at each end" test from the mission above. At the longest length about half of the random targets crash. This is why testing didn't catch it. Arrays that long were rare, a random target on a barely-big-enough one almost never gets there, and the test that does only fails on an array that long. Bloch doesn't conclude that testing or proof is pointless. He lists design, testing, formal methods, code reviews and static analysis as all great, says none of them is enough alone, and goes on: "A bug can exist for half a century despite our best efforts to exterminate it."
+
+<Callout kind="real">
+Bloch's post also quotes Jon Bentley's claim that the first binary search was published in 1946 and the first one correct for all values of `n` only appeared in 1962. That's second-hand here: Bloch quoting Bentley, and we haven't checked it further. And you probably won't meet arrays this size in Python, where the integers are safe anyway. The bug is worth knowing as a pattern: a proof or a test only covers the arithmetic it assumed, and today's "nobody will ever have that much data" is next decade's bug report.
+</Callout>
+
+## The failure you're more likely to meet
+
+The overflow needs a billion elements. This next one needs two. Binary search trusts that the list is sorted, and it has no way of noticing when it isn't. Real Python, measured for this trail:
+
+```python
+from bisect import bisect_left
+bisect_left([2, 1], 2)      # returns 2: past the end, meaning "not here"
+bisect_left([3, 1, 2], 3)   # returns 3: past the end, meaning "not here"
+```
+
+Take the second one. The number 3 is right there at index 0. The search looks at the middle, sees 1, decides the target must be later, and never looks at the start. No exception, no warning, and an answer that looks perfectly reasonable.
+
+Checking first won't save you cheaply either, since checking that a list is sorted means reading all of it, which throws away the reason you used binary search. That's why the promise is yours to keep: the second panel of the lab above runs the same logic as `bisect_left`, and a test on this site compares them, wrong answers included.
+
+Keeping a list sorted has its own price. Python's documentation warns about using `bisect` to insert: "Keep in mind that the O(log n) search is dominated by the slow O(n) insertion step." Finding the place is cheap, and making the room is what [Arrays and lists](/learn/algorithms/arrays-and-lists/) measured. Trees, later on this trail, are one way around that.
+
+<GoDeeper title="The invariant, and where ⌈log₂(n+1)⌉ comes from">
+An **invariant** is something true on every pass of a loop. For binary search: if the target is in the array at all, it's between `low` and `high`. It's true at the start, when those are the whole array, and each comparison keeps it true while shrinking the range. When `low` passes `high`, the range is empty, so the target isn't there. That's the correctness proof.
+
+It's also where the proof and the machine part company. The proof takes `(low + high) / 2` as an integer between `low` and `high`. With a 32-bit `int` that isn't always so. The proof was fine for the integers it assumed, and a 32-bit `int` can't hold them all.
+
+For the count, with `r` items left, a comparison leaves at most `⌊r/2⌋`. Starting from `n` and halving like that, you reach zero after at most `⌈log₂(n+1)⌉` reads. A test here confirms that this equals the true worst case of Python's `bisect_left` for every `n` it tries, across every target and gap. The last element isn't always the worst one: at `n = 10` it takes 3 reads, and the worst case is 4.
+</GoDeeper>
+
+<Quiz
+  id="alg-search-1"
+  q="A sorted list goes from 1,000 items to 1,000,000. Roughly how many more reads does the worst-case binary search need?"
+  options={["About 1,000 times as many", "About 10 more: from 10 to 20", "The same number"]}
+  answer={1}
+  explain="A thousand times the data is about 10 more halvings, since 2 to the 10 is about 1,000. A linear search would take a thousand times the reads."
+/>
+
+<Quiz
+  id="alg-search-2"
+  q="Why is mid = (low + high) // 2 correct in Python and a bug in Java?"
+  options={["Python rounds differently", "Python integers never overflow. A Java int wraps around past 2,147,483,647, so a big enough sum turns negative", "Java's arrays start at 1"]}
+  answer={1}
+  explain="The line is the same. The arithmetic underneath is different. That's the lesson: the algorithm was correct for integers that a 32-bit `int` can't hold."
+/>
+
+<Quiz
+  id="alg-search-3"
+  q="bisect_left([3, 1, 2], 3) returns 3, which means the number isn't there, though it's at index 0. What went wrong?"
+  options={["bisect has a bug", "The list isn't sorted. Binary search relies on that and never checks, so it ruled out the half that held the answer", "Python can't search for the number 3"]}
+  answer={1}
+  explain="There's no error, because nothing failed from its point of view. Sorted input is a promise the caller makes. Checking it would mean reading the whole list, which is what binary search exists to avoid."
+/>
+
+## What to remember
+
+- Linear search works on anything and in the worst case reads everything. Binary search needs a sorted list it can jump around cheaply, and reads about log₂ n items.
+- A correct proof covers the arithmetic it assumed. A fixed-size `int` has other arithmetic.
+- The shortest array that breaks the classic line has `2^30 + 1` elements, and only a search that ends at the very end triggers it: the last element, or a missing key bigger than everything before it. Rare failures get past testing.
+- An unsorted list makes a search lie, quietly. Sorted input is your promise to keep.

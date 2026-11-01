@@ -4,7 +4,7 @@ summary: A game took six minutes to load because of two loops nobody could see, 
 minutes: 16
 xp: 45
 tiers: [browser]
-builds_on: []
+builds_on: [algorithms/what-is-an-algorithm]
 sources:
   - title: t0st - How I cut GTA Online loading times by 70% (2021)
     url: https://nee.lv/2021/02/28/How-I-cut-GTA-Online-loading-times-by-70/
@@ -20,13 +20,13 @@ sources:
     url: https://jeffe.cs.illinois.edu/teaching/algorithms/
 ---
 
-In 2021 a player called t0st got tired of waiting for GTA Online to load, and went looking for the reason in a game whose source code nobody outside the company could read. On his old PC it took about six minutes, with one CPU core flat out the whole time. He found this: "It turns out GTA struggles to parse a 10MB JSON file". The file held "some 63k item entries".
+In 2021 a player called t0st got tired of waiting for GTA Online to load, and went looking for the reason in a game whose source code nobody outside the company could read. On his old PC it took about six minutes, four of them with one CPU core flat out doing nothing else. (A core is one of the independent workers inside a processor, the CPU.) He found this: "It turns out GTA struggles to parse a 10MB JSON file". JSON is a common text format for data, and to parse a file is to read its text and turn it into data a program can use. The file held "some 63k item entries".
 
 Two loops were eating the time, and neither looked like a loop in the code that called it.
 
-**The first was inside a library call.** The parser read the file with `sscanf`, one small value at a time. Each `sscanf` first measured the length of all the text left, so a 10 MB file got measured again for every value in it. t0st was fair about this: "To be fair I had no idea most sscanf implementations called strlen so I can't blame the developer who wrote this."
+**The first was inside a library call.** A library is code that comes with a language, ready to call. The parser read the file with its `sscanf` function, one small value at a time. Each `sscanf` first measured the length of all the text left, using another function, `strlen`, so a 10 MB file got measured again for every value in it. t0st was fair about this: "To be fair I had no idea most sscanf implementations called strlen so I can't blame the developer who wrote this."
 
-**The second was a duplicate check.** Before storing each item, the game looked through every item stored so far. "It checks the entire array, one by one, comparing the hash of the item to see if it's in the list or not." And then the punchline: "And all of the items in the JSON are unique!"
+**The second was a duplicate check.** Before storing each item, the game looked through every item stored so far. "It checks the entire array, one by one, comparing the hash of the item to see if it's in the list or not." (A hash is a number worked out from an item, which is quicker to compare than the item itself. [A later lesson](/learn/algorithms/hash-tables/) covers them.) And then the punchline: "And all of the items in the JSON are unique!"
 
 His measurements, with a patch for each problem:
 
@@ -45,7 +45,7 @@ We can't see what Rockstar tested, but we can see why code like this survives. B
 
 Bruce Dawson has written up a run of these bugs in Windows, and he has the best description of them: "O(n^2) is the sweet spot of badly scaling algorithms: fast enough to make it into production, but slow enough to make things fall down once it gets there."
 
-## Why a stopwatch can't find it
+## Why a stopwatch alone isn't enough
 
 A stopwatch tells you how long this code took, on this machine, with this input, today. Every part of that changes. What doesn't change is how the work grows when the input grows, and you get that by counting steps.
 
@@ -57,15 +57,17 @@ Take the duplicate check. The first item is compared with nothing, the second wi
 
 For 63,000 items, that's 1,984,468,500 comparisons. (t0st wrote `(n²+n)/2` and flagged it himself with "if my math is right". The difference is 0.003% and changes nothing, but the slip is a nice reminder that the shape matters more than the last digit.)
 
-Now look at what happens when `n` doubles. `n²` becomes four times bigger, so the work quadruples. That's the whole signature: **twice the input, four times the work**. You can spot it from two measurements, with no stopwatch.
+Now look at what happens when `n` doubles. `n²` becomes four times bigger, so the work quadruples. That's the signature of quadratic growth: **twice the input, four times the work**. You can read it off counted steps, with no stopwatch. Check it across a few doublings, because one pair of sizes can mislead. `2^n` also quadruples going from `n = 2` to `n = 4`. In the other direction, a quadratic program that does other work too can stay under 4x for a while: the slow merge sort in [a later lesson](/learn/algorithms/divide-and-conquer/) measures 2.92x, then 3.19x, then 3.44x.
 
 ## Try it
 
-This is real Python, and this page runs it. If you've never read code, you can still follow along: the function goes through a list of items, and for each one asks "have I seen you before?". `seen` is the list of everything so far.
+This is Python, run by a small interpreter built into this page. If you've never read code, you can still follow along: the function goes through a list of items, and for each one asks "have I seen you before?". `seen` is the list of everything so far.
 
 The lab counts steps, including work a single line hides. Press **Run**, then **Measure growth**, then find the fix. **Step** walks through it one line at a time, showing each variable change.
 
 <CodeLab mission="cs-growth-duplicates" grow="has_duplicate" sizes="200,400,800,1600" />
+
+**Measure growth** feeds it lists that are already in order, with no duplicates. If your fix sorts the list first, the lab will call that linear, but only because `sorted` is cheap on a list already in order. On shuffled lists that fix grows a little faster than linear, and [the sorting lesson](/learn/algorithms/sorting/) shows why.
 
 <Callout kind="trap">
 The dangerous line looked like the cheapest one in the program. `if x in seen` is a loop when `seen` is a list. So are `items.pop(0)` and `items.insert(0, x)`, because every item after that spot has to move. And so was `sscanf`, in a way its callers had no reason to expect. When a program gets slow as data grows, look for loops that don't look like loops.
@@ -104,7 +106,7 @@ So `(n² - n) / 2` is in `O(n²)`: take `c = 1` and `n₀ = 1`. The definition t
   q="Your import takes 2 seconds for 10,000 rows and 8 seconds for 20,000. What does that suggest?"
   options={["It's linear: both are just a few seconds", "It's quadratic: twice the input took four times as long, so 1,000,000 rows would take far longer than the 200 seconds a linear guess predicts", "The machine got slower: time can't tell you anything"]}
   answer={1}
-  explain="Doubling the input and quadrupling the time is the signature of n². At that rate, 100 times the rows costs about 10,000 times the time: around 5.5 hours. Two runs are enough to see it coming, though a stopwatch is noisy, so counted steps are a firmer check when you can get them."
+  explain="Doubling the input and quadrupling the time is the signature of n². At that rate, 100 times the rows costs about 10,000 times the time: around 5.5 hours. Two runs are enough to suspect it. A stopwatch is noisy and one pair of sizes can mislead, so check a few doublings, with counted steps when you can get them."
 />
 
 <Quiz
@@ -120,12 +122,12 @@ So `(n² - n) / 2` is in `O(n²)`: take `c = 1` and `n₀ = 1`. The definition t
   q="t0st's two patches saved 1 min 30 s and 3 min 10 s on their own. Both together took the load from 6 minutes to 1 min 50 s. What's the honest conclusion?"
   options={["His measurements must be wrong, because the savings should add up to 4 min 40 s", "Savings from separate fixes don't have to add up, so measure the combination too, not just each change alone", "The duplicate check was the real cause"]}
   answer={1}
-  explain="Together they saved 4 min 10 s, less than the sum. The popular telling blames the duplicate check, yet the JSON patch alone was the bigger win. Only measuring each combination showed that."
+  explain="Together they saved 4 min 10 s, less than the sum. And the JSON patch alone was the bigger win. Only measuring each combination showed that."
 />
 
 ## What to remember
 
 - Judge code by how its work grows, because that's what stays true on other machines.
-- Twice the input and four times the work means quadratic. You can spot it from two measurements.
+- Twice the input and four times the work is the signature of quadratic. Check it across a few doublings, because one pair of sizes can mislead.
 - Passing tests on small data tell you almost nothing about this.
 - The slow line often doesn't look like a loop.

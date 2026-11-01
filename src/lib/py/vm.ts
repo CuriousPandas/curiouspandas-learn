@@ -48,6 +48,8 @@ export class PyProgram {
   retval: Val = null;
   maxDepth = 1;
   sortItems!: (items: Val[], kw: Map<string, Val>) => Val[];
+  /** Calls to sorted() and list.sort(). A mission that asks for a hand-written sort reads this. */
+  sortCalls = 0;
   private builtinEnv: Map<string, Val>;
   private trace: { fn: string; line: number }[] = [];
 

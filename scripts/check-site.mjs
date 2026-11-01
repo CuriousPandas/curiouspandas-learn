@@ -170,10 +170,13 @@ const expectText = async (page, sel, re, timeout = 8000) => {
   let last = '';
   while (Date.now() < deadline) {
     last = (await loc.innerText().catch(() => '')) ?? '';
-    if (re.test(last)) return last;
+    // innerText still returns the words of a [hidden] element, so without this a
+    // mission's debrief "appeared" before the mission was finished, and the
+    // scenario passed with nothing done. Only what a learner can see counts.
+    if (re.test(last) && await loc.isVisible()) return last;
     await page.waitForTimeout(150);
   }
-  throw new Error(`${sel} never matched ${re} (last: ${JSON.stringify(last.slice(-200))})`);
+  throw new Error(`${sel} never matched ${re} while visible (last: ${JSON.stringify(last.slice(-200))})`);
 };
 
 await scenario('git-first-commit', '/learn/git/what-is-git/', async (page) => {
@@ -1646,6 +1649,689 @@ await scenario('code-lab', '/learn/algorithms/counting-steps/', async (page) => 
   await page.click(`${r} [data-run]`);
   await expectText(page, `${r} [data-status]`, /ZeroDivisionError on line 2/);
   await expectText(page, `${r} [data-out]`, /^1\s*$/);
+});
+
+// ---- Algorithms trail: the first lessons -----------------------------------
+// innerText of a hidden element still returns its text, so expectText on a hidden
+// debrief can pass with the mission unfinished. These wait for it to be visible.
+const debriefShows = (page, r) => page.locator(`${r} .m-debrief`).waitFor({ state: 'visible', timeout: 15000 });
+const debriefHidden = async (page, r) => { if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error(`${r}: mission finished too early`); };
+const mission = (id) => `[data-codelab][data-mission="${id}"]`;
+const setCode = async (page, r, src) => {
+  await page.locator(`${r} [data-edit-btn]`).isVisible().then((v) => (v ? page.click(`${r} [data-edit-btn]`) : null));
+  await page.locator(`${r} [data-src]`).fill(src);
+};
+
+await scenario('alg-what-is-an-algorithm', '/learn/algorithms/what-is-an-algorithm/', async (page) => {
+  // The first lab is what someone who has never seen code meets, so it has to work.
+  const first = '[data-codelab] >> nth=0';
+  await page.locator(first).scrollIntoViewIfNeeded();
+  await page.locator(first).locator('[data-run]').click();
+  await page.waitForFunction(() => /1 bottles of beer/.test(document.querySelector('[data-codelab] [data-out]').textContent));
+  // The note promises read-along, and must not link to a track that isn't written.
+  const note = await page.locator('main .callout').first().innerText();
+  if (!/Programming from Zero/.test(note)) throw new Error(`note reads: ${note}`);
+  if (await page.locator('main .callout').first().locator('a').count()) throw new Error('the note links somewhere: Programming from Zero is not written yet');
+
+  const r = mission('alg-what-last-day');
+  const starter = await page.locator(`${r} [data-src]`).inputValue();
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-out]`, /^2007\s*$/);
+  // Failure case one: an endless loop that isn't this bug doesn't tick the step.
+  await setCode(page, r, 'while True:\n    pass\n');
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /Stopped at [\d,]+ steps/, 30000);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 1) throw new Error('an unrelated hang ticked the step');
+  // The real day: the page stops it, and the panel shows the state it is stuck in.
+  await setCode(page, r, starter.replace('year_from_days(10000)', 'year_from_days(10593)'));
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /Stopped at [\d,]+ steps/, 30000);
+  await expectText(page, `${r} [data-vars]`, /days\s+366[\s\S]*year\s+2008/);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .m-steps li.done`).length === 2, r);
+  // Failure case two: the tempting fix stops the hang and gets the year wrong.
+  await setCode(page, r, starter.replace('if days > 366:', 'if days >= 366:'));
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /Finished/);
+  await debriefHidden(page, r);
+  await setCode(page, r, starter.replace('                year += 1\n        else:', '                year += 1\n            else:\n                break\n        else:'));
+  await page.click(`${r} [data-run]`);
+  await debriefShows(page, r);
+
+  // Same interface, and only one of them keeps the promise.
+  const book = page.locator('[data-codelab]').nth(3);
+  await book.scrollIntoViewIfNeeded();
+  await book.locator('[data-run]').click();
+  const out = await book.locator('[data-out]');
+  const deadline = Date.now() + 8000;
+  while (!/111 111\s+111 222/.test(await out.innerText())) {
+    if (Date.now() > deadline) throw new Error(`phone book printed: ${await out.innerText()}`);
+    await page.waitForTimeout(100);
+  }
+});
+
+await scenario('layout-lab', '/learn/algorithms/arrays-and-lists/', async (page) => {
+  const r = '[data-layout]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const walk = async (id, size) => {
+    await page.selectOption(`${r} [data-walk]`, id);
+    await page.locator(`${r} [data-size]`).fill(String(size));
+    await page.click(`${r} [data-walk-run]`);
+  };
+  const misses = async () => Number((await page.locator(`${r} [data-s="misses"]`).innerText()).replace(/,/g, ''));
+  await expectText(page, `${r} [data-history]`, /Nothing walked yet/);
+  await walk('array', 512);
+  if (await misses() !== 64) throw new Error(`array at 512: ${await misses()} misses, the model says 64`);
+  await walk('list-ordered', 512);
+  if (await misses() !== 128) throw new Error(`in-order list at 512: ${await misses()} misses, the model says 128`);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} .m-steps li.done`).length === 1, r);
+  // Failure case: where the list fits in the cache, scattering shows nothing and must not tick.
+  await walk('list-shuffled', 32);
+  await walk('list-ordered', 32);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 1) throw new Error('a size that fits in the cache ticked the scatter step');
+  await walk('list-shuffled', 512);
+  if (await misses() <= 128) throw new Error(`scattered at 512: ${await misses()} misses`);
+  // The canvas really draws: a blank one would still pass every number above.
+  await page.waitForTimeout(1600);
+  const painted = await page.locator(`${r} [data-map]`).evaluate((c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const colours = new Set(); for (let i = 0; i < d.length; i += 4 * 7) colours.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return colours.size; });
+  if (painted < 3) throw new Error(`the memory map shows ${painted} colours`);
+  await debriefHidden(page, r);
+  for (const n of [64, 72]) { await walk('list-shuffled', n); await walk('list-ordered', n); }
+  await debriefShows(page, r);
+
+  // Growth: the pattern from CPython's source, and not doubling.
+  await page.click(`${r} [data-append="1"]`);
+  await expectText(page, `${r} [data-grow-line]`, /Length 1, capacity 4/);
+  await page.click(`${r} [data-append="100"]`);
+  await expectText(page, `${r} [data-jumps]`, /0, 4, 8, 16, 24, 32, 40, 52, 64, 76/);
+  await page.click(`${r} [data-grow-reset]`);
+  await page.click(`${r} [data-append="2000000"]`);
+  await expectText(page, `${r} [data-rule="cpython"]`, /2,141,028\s+92\s+8\.56/);
+  await expectText(page, `${r} [data-rule="doubling"]`, /1\.05/);
+
+  // Your machine: filled in with numbers, and judged by nothing. No ratio is checked.
+  await expectText(page, `${r} [data-machine-status]`, /Not run yet/);
+  await page.locator(`${r} [data-machine]`).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-machine-run]`);
+  await expectText(page, `${r} [data-machine-status]`, /^Done\. One run, on this device/, 180000);
+  const rows = await page.locator(`${r} [data-machine-rows] tr`).allInnerTexts();
+  if (rows.length !== 5 || !rows.every((t) => /\d+\.\d+\s+\d+\.\d+\s+(\d+\.\dx|too fast)/.test(t))) throw new Error(`machine rows: ${JSON.stringify(rows)}`);
+
+  const lab = mission('alg-lists-newest-first');
+  await page.locator(lab).scrollIntoViewIfNeeded();
+  await page.click(`${lab} [data-measure]`);
+  await expectText(page, `${lab} [data-shape]`, /quadratic/);
+  await setCode(page, lab, 'def newest_first(events):\n    out = []\n    for e in events:\n        out.append(e)\n    return out\n');
+  await page.click(`${lab} [data-measure]`);
+  await expectText(page, `${lab} [data-shape]`, /linear/);
+  await debriefHidden(page, lab);
+  await setCode(page, lab, 'def newest_first(events):\n    out = []\n    for e in events:\n        out.append(e)\n    out.reverse()\n    return out\n');
+  await page.click(`${lab} [data-measure]`);
+  await debriefShows(page, lab);
+});
+
+await scenario('alg-stacks-and-queues', '/learn/algorithms/stacks-and-queues/', async (page) => {
+  const sim = page.locator('[data-codelab]').first();
+  await sim.scrollIntoViewIfNeeded();
+  await sim.locator('[data-run]').click();
+  await page.waitForFunction(() => /oldest first: \(21, 39\)\s+newest first: \(60, 0\)/.test(document.querySelector('[data-codelab] [data-out]').textContent));
+
+  const b = mission('alg-stack-brackets');
+  await page.locator(b).scrollIntoViewIfNeeded();
+  await page.click(`${b} [data-run]`);
+  await expectText(page, `${b} [data-out]`, /True\s+True\s+True/);
+  await setCode(page, b, 'def balanced(text):\n    return True\n');
+  await page.click(`${b} [data-run]`);
+  await expectText(page, `${b} [data-status]`, /Finished/);
+  await debriefHidden(page, b);
+  await setCode(page, b, 'def balanced(text):\n    pairs = {")": "(", "]": "[", "}": "{"}\n    stack = []\n    for ch in text:\n        if ch in "([{":\n            stack.append(ch)\n        if ch in ")]}":\n            if len(stack) == 0 or stack.pop() != pairs[ch]:\n                return False\n    return len(stack) == 0\n');
+  await page.click(`${b} [data-run]`);
+  await debriefShows(page, b);
+
+  const rec = page.locator('[data-codelab]').nth(3);
+  await rec.scrollIntoViewIfNeeded();
+  await rec.locator('[data-run]').click();
+  await rec.locator('[data-status]', { hasText: 'RecursionError' }).waitFor({ timeout: 15000 });
+
+  const q = mission('alg-queue-parcel');
+  await page.locator(q).scrollIntoViewIfNeeded();
+  await page.click(`${q} [data-measure]`);
+  await expectText(page, `${q} [data-shape]`, /quadratic/);
+  await expectText(page, `${q} [data-growth-rows]`, /2x the input, [34]\.\dx the work/);
+  // The tempting fix is fast because it's a stack: wrong order, and not a pass.
+  const starter = await page.locator(`${q} [data-src]`).inputValue();
+  await setCode(page, q, starter.replaceAll('queue.pop(0)', 'queue.pop()'));
+  await page.click(`${q} [data-measure]`);
+  await expectText(page, `${q} [data-shape]`, /linear/);
+  await debriefHidden(page, q);
+  await setCode(page, q, 'def pass_the_parcel(players):\n    queue = []\n    for p in players:\n        queue.append(p)\n    head = 0\n    out = []\n    while head < len(queue):\n        queue.append(queue[head])\n        head += 1\n        if head < len(queue):\n            out.append(queue[head])\n            head += 1\n    return out\n');
+  await page.click(`${q} [data-measure]`);
+  await expectText(page, `${q} [data-shape]`, /linear/);
+  await debriefShows(page, q);
+});
+
+await scenario('midpoint-lab', '/learn/algorithms/searching/', async (page) => {
+  const c = mission('alg-search-halving');
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await page.click(`${c} [data-measure]`);
+  await expectText(page, `${c} [data-shape]`, /linear/);
+  await setCode(page, c, 'def find(items, target):\n    low = 0\n    high = len(items) - 1\n    while low <= high:\n        mid = (low + high) // 2\n        if items[mid] < target:\n            low = mid + 1\n        elif items[mid] > target:\n            high = mid - 1\n        else:\n            return mid\n    return -1\n\ndef worst(items):\n    return find(items, len(items))\n');
+  await page.click(`${c} [data-measure]`);
+  await expectText(page, `${c} [data-shape]`, /logarithmic/);
+  await debriefShows(page, c);
+
+  const r = '[data-midpoint]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} .widget-head`, /emulated/);
+  const go = async (n) => { await page.locator(`${r} [data-length]`).fill(String(n)); await page.click(`${r} [data-search]`); };
+  const done = () => page.locator(`${r} .m-steps li.done`).count();
+  await go(1000000);
+  await expectText(page, `${r} [data-result]`, /Found it at index 999,999/);
+  // A length no int can hold is refused by name, not clamped to something else.
+  await page.locator(`${r} [data-length]`).fill('3000000000');
+  await page.click(`${r} [data-search]`);
+  await expectText(page, `${r} [data-result]`, /Nothing was searched/);
+  await go(2147483647);
+  await expectText(page, `${r} [data-result]`, /Crashed: it tried to read index -/);
+  await expectText(page, `${r} [data-probes]`, /wrapped/);
+  // Bloch's number works. If the mission took it, it would teach the wrong answer.
+  await go(2 ** 30);
+  await expectText(page, `${r} [data-result]`, /Found it/);
+  if (await done() !== 2) throw new Error(`2^30 alone left ${await done()} steps done`);
+  await page.click(`${r} [data-adjust="1"]`);
+  await page.click(`${r} [data-search]`);
+  await expectText(page, `${r} [data-result]`, /Crashed: it tried to read index -1,073,741,824/);
+  if (await done() !== 3) throw new Error(`the shortest length left ${await done()} steps done`);
+  // Rarely hit, which is the point: no random target finds it.
+  await page.click(`${r} [data-random]`);
+  await expectText(page, `${r} [data-odds]`, /, 0 crashed/);
+  await page.selectOption(`${r} [data-model]`, 'int64');
+  await page.click(`${r} [data-search]`);
+  if (await done() !== 3) throw new Error('moving to 64-bit ticked the formula fix');
+  await page.selectOption(`${r} [data-model]`, 'int32');
+  await page.selectOption(`${r} [data-formula]`, 'diff');
+  await page.click(`${r} [data-search]`);
+  await expectText(page, `${r} [data-result]`, /Found it at index 1,073,741,824/);
+  await debriefHidden(page, r);
+  // The silent failure: no error, and a wrong answer.
+  await page.locator(`${r} [data-items]`).fill('3, x, 2');
+  await page.click(`${r} [data-lookup]`);
+  await expectText(page, `${r} [data-lookup-result]`, /"x" is not a whole number/);
+  await page.locator(`${r} [data-items]`).fill('3, 1, 2');
+  await page.click(`${r} [data-lookup]`);
+  await expectText(page, `${r} [data-lookup-result]`, /returned 3, which means "not there", but a scan finds 3 at index 0/);
+  await debriefShows(page, r);
+  await page.click(`${r} [data-sort]`);
+  await expectText(page, `${r} [data-lookup-result]`, /says it is at index 2/);
+});
+
+// ---- Algorithms: sorting, divide and conquer, hash tables, trees and heaps ----
+
+await scenario('killer-lab', '/learn/algorithms/sorting/', async (page) => {
+  const r = '[data-killer]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const set = (k, v) => page.selectOption(`${r} [data-k="${k}"]`, v);
+  const run = () => page.click(`${r} [data-run]`);
+  const count = (re) => expectText(page, `${r} [data-count]`, re);
+  // The failure case: replaying nothing is refused, and not reported as a cheap sort.
+  await set('input', 'replay'); await run();
+  await expectText(page, `${r} [data-status]`, /Nothing to replay yet/);
+  await set('input', 'sorted'); await run();
+  await count(/^499,500$/);
+  await expectText(page, `${r} [data-status]`, /times n lg n/);
+  await set('pivot', 'random'); await run();
+  await count(/^10,614$/);
+  // The McIlroy finding, both halves: live, then the same input replayed.
+  await set('input', 'adversary'); await run();
+  await count(/^498,502$/);
+  await set('input', 'replay');
+  await page.click(`${r} [data-new-seed]`); await run();
+  await count(/^10,345$/);
+  await page.fill(`${r} [data-k="seed"]`, '11'); await run();
+  await count(/^498,502$/);
+  // Repeated numbers: no attacker, no secret, and quadratic at any seed. The same
+  // file through a new seed has to stay bad, or the lesson's claim is wrong.
+  await set('input', 'equal'); await run();
+  await count(/^499,500$/);
+  await expectText(page, `${r} [data-status]`, /about 100% of what comparing every pair would cost/);
+  await page.click(`${r} [data-new-seed]`); await run();
+  await count(/^499,500$/);
+  await set('input', 'zeroOne'); await run();
+  await expectText(page, `${r} [data-status]`, /about 5\d% of what comparing every pair would cost/);
+  const zeroOneBars = await page.locator(`${r} [data-solid]`).getAttribute('d');
+  if (!zeroOneBars || zeroOneBars.length < 100) throw new Error(`zeros and ones drew nothing: ${zeroOneBars}`);
+  await page.fill(`${r} [data-k="seed"]`, '11');
+  // Pivot and seed mean nothing to sorted, and must not look as if they do.
+  await set('sort', 'python');
+  if (await page.locator(`${r} [data-pivot-wrap]`).isVisible()) throw new Error('pivot control still showing for sorted');
+  await set('input', 'adversary'); await run();
+  await count(/^999$/);
+  await expectText(page, `${r} .m-debrief`, /lightning/);
+  await expectText(page, `${r} [data-runs]`, /Python's sorted[\s\S]*adversary/);
+});
+
+await scenario('sort-labs', '/learn/algorithms/sorting/', async (page) => {
+  const select = '[data-codelab][data-grow="selection_sort"]', insert = '[data-codelab][data-grow="insertion_sort"]', nan = '[data-codelab][data-mission="cs-sort-nan"]';
+  await page.locator(select).scrollIntoViewIfNeeded();
+  await page.click(`${select} [data-measure]`);
+  await expectText(page, `${select} [data-shape]`, /quadratic/);
+  await page.locator(insert).scrollIntoViewIfNeeded();
+  await page.click(`${insert} [data-measure]`);
+  await expectText(page, `${insert} [data-shape]`, /linear/);
+  // The silent failure, on screen: the list comes back unsorted, with no error.
+  await page.locator(nan).scrollIntoViewIfNeeded();
+  await page.click(`${nan} [data-run]`);
+  await expectText(page, `${nan} [data-out]`, /\[3\.3, nan, 1\.1, 2\.2\]/);
+  await expectText(page, `${nan} [data-status]`, /Finished/);
+  await page.locator(`${nan} [data-src]`).fill('nan = float("nan")\ndef clean_sort(numbers):\n    return sorted([x for x in numbers if x == x])\nprint(clean_sort([3.3, nan, 1.1, 2.2]))\n');
+  await page.click(`${nan} [data-run]`);
+  await expectText(page, `${nan} [data-out]`, /\[1\.1, 2\.2, 3\.3\]/);
+  await expectText(page, `${nan} .m-debrief`, /never checks its answer/);
+});
+
+await scenario('dc-labs', '/learn/algorithms/divide-and-conquer/', async (page) => {
+  const m = '[data-codelab][data-mission="cs-dc-merge-sort"]', q = '[data-codelab][data-mission="cs-dc-quicksort"]';
+  await page.locator(m).scrollIntoViewIfNeeded();
+  await page.click(`${m} [data-run]`);
+  await expectText(page, `${m} [data-out]`, /\[1, 2, 5, 5, 6, 9\]/);
+  await page.click(`${m} [data-measure]`);
+  await expectText(page, `${m} [data-shape]`, /quadratic/);
+  // Sorted is not a merge sort: the step stays open.
+  await page.locator(`${m} [data-src]`).fill('def merge_sort(items):\n    return sorted(items)\n');
+  await page.click(`${m} [data-measure]`);
+  await expectText(page, `${m} [data-shape]`, /linear/);
+  if (await page.locator(`${m} .m-debrief`).isVisible()) throw new Error('sorted() finished the merge sort mission');
+  await page.locator(`${m} [data-src]`).fill('def merge(left, right):\n    out = []\n    i = 0\n    j = 0\n    while i < len(left) and j < len(right):\n        if right[j] < left[i]:\n            out.append(right[j])\n            j += 1\n        else:\n            out.append(left[i])\n            i += 1\n    return out + left[i:] + right[j:]\n\ndef merge_sort(items):\n    if len(items) <= 1:\n        return items\n    mid = len(items) // 2\n    return merge(merge_sort(items[:mid]), merge_sort(items[mid:]))\n');
+  await page.click(`${m} [data-measure]`);
+  await expectText(page, `${m} [data-shape]`, /n log n/);
+  await expectText(page, `${m} .m-debrief`, /T\(n\) = 2T\(n\/2\) \+ n/);
+
+  await page.locator(q).scrollIntoViewIfNeeded();
+  await page.click(`${q} [data-run]`);
+  await page.click(`${q} [data-measure]`);
+  await expectText(page, `${q} [data-shape]`, /quadratic/);
+  await expectText(page, `${q} [data-growth-rows]`, /did not finish/);
+  const src = await page.locator(`${q} [data-src]`).inputValue();
+  await page.locator(`${q} [data-src]`).fill(src.replace('pivot = items[0]', 'pivot = items[len(items) // 2]'));
+  await page.click(`${q} [data-measure]`);
+  await expectText(page, `${q} [data-shape]`, /n log n/);
+  await expectText(page, `${q} .m-debrief`, /splits into nothing and everything|sorted list splits/);
+});
+
+await scenario('flood-lab', '/learn/algorithms/hash-tables/', async (page) => {
+  const r = '[data-flood]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const set = (k, v) => page.selectOption(`${r} [data-f="${k}"]`, v);
+  const send = () => page.click(`${r} [data-send]`);
+  const checks = (re) => expectText(page, `${r} [data-checks]`, re);
+  await set('traffic', 'ordinary'); await send();
+  await checks(/^0$/);
+  await set('traffic', 'crafted'); await send();
+  await checks(/^8,393,791$/);
+  await expectText(page, `${r} [data-status]`, /flood reached the table/);
+  // The tempting fix, which changes every hash and no collision.
+  await set('defence', 'seeded'); await send();
+  await expectText(page, `${r} [data-status]`, /flood reached the table/);
+  await set('defence', 'keyed'); await send();
+  await checks(/^0$/);
+  await set('traffic', 'ints'); await send();
+  await checks(/^8,386,560$/);
+  await expectText(page, `${r} [data-status]`, /flood reached the table/);
+  await page.check(`${r} [data-f="intsAsStr"]`); await send();
+  await checks(/^0$/);
+  await page.uncheck(`${r} [data-f="intsAsStr"]`);
+  // The range check refuses those keys, and looks like the end of it.
+  await page.check(`${r} [data-f="rangeCheck"]`); await send();
+  await expectText(page, `${r} [data-accepted]`, /^0 of 4,096$/);
+  await expectText(page, `${r} [data-status]`, /says nothing about keys that do fit/);
+  // The failure this lab used to hide: zero checks, no shared hash, and a flood. It
+  // read as calm when calm only looked at equality checks.
+  await set('traffic', 'walk'); await send();
+  await expectText(page, `${r} [data-accepted]`, /^4,096$/);
+  await checks(/^0$/);
+  await expectText(page, `${r} [data-probes]`, /^2,300,319$/);
+  await expectText(page, `${r} [data-status]`, /This is a flood/);
+  const walkClass = await page.locator(`${r} [data-status]`).getAttribute('class');
+  if (!/\bbad\b/.test(walkClass)) throw new Error(`the walk attack rendered as "${walkClass}", not as a failure`);
+  const walkLine = await page.locator(`${r} [data-line]`).getAttribute('d');
+  if (!walkLine || walkLine.length < 100) throw new Error(`the walk drew no line: ${walkLine}`);
+  await page.check(`${r} [data-f="intsAsStr"]`); await send();
+  await checks(/^0$/);
+  await expectText(page, `${r} [data-status]`, /cheap for this request/);
+  await page.uncheck(`${r} [data-f="intsAsStr"]`); await page.uncheck(`${r} [data-f="rangeCheck"]`);
+  // The sketch never looked, and must not read as a pass.
+  await set('defence', 'trees'); await send();
+  await expectText(page, `${r} [data-probes]`, /not modelled/);
+  await expectText(page, `${r} [data-status]`, /^Not modelled/);
+  await set('traffic', 'crafted'); await set('defence', 'none');
+  await page.check(`${r} [data-f="cap"]`); await send();
+  await expectText(page, `${r} [data-accepted]`, /1,000 of 4,096/);
+  await expectText(page, `${r} [data-status]`, /Bounded, not fixed/);
+  await page.click(`${r} [data-lh="one"]`);
+  await expectText(page, `${r} [data-lh-text]`, /bucket 21/);
+  await expectText(page, `${r} .m-debrief`, /Ez and FY collide/);
+});
+
+await scenario('hash-lab', '/learn/algorithms/hash-tables/', async (page) => {
+  const r = '[data-codelab][data-mission="cs-hash-table"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-out]`, /longest bucket: 100/);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /quadratic/);
+  const src = await page.locator(`${r} [data-src]`).inputValue();
+  const hashed = src.replace('def h(key):\n    return len(key)\n', 'def h(key):\n    v = 5381\n    for c in key:\n        v = (v * 33 + ord(c)) % 2**32\n    return v\n');
+  // A better hash, and still no growth: the last step has to stay open.
+  await page.locator(`${r} [data-src]`).fill(hashed);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-status]`, /Finished/);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('a fixed table finished the hash table mission');
+  const grown = hashed
+    .replace('    table["count"] += 1\n', '    table["count"] += 1\n    if table["count"] > len(buckets) * 2 // 3:\n        grow(table)\n')
+    .replace('def put(table, key, value):', 'def grow(table):\n    old = table["buckets"]\n    table["buckets"] = [[] for _ in range(len(old) * 2)]\n    for bucket in old:\n        for pair in bucket:\n            table["buckets"][h(pair[0]) % len(table["buckets"])].append(pair)\n\ndef put(table, key, value):');
+  await page.locator(`${r} [data-src]`).fill(grown);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /linear/);
+  await expectText(page, `${r} .m-debrief`, /Two separate things/);
+  // Loud limit: the sandbox's hash() refuses strings by name.
+  const ints = '[data-codelab]:not([data-mission])';
+  await page.locator(ints).first().scrollIntoViewIfNeeded();
+  await page.locator(ints).first().locator('[data-run]').click();
+  await expectText(page, `${ints} [data-out]`, /0 0 0[\s\S]*1 1 1[\s\S]*-2/);
+  await page.locator(ints).first().locator('[data-src]').fill('print(hash("abc"))\n');
+  await page.locator(ints).first().locator('[data-run]').click();
+  await expectText(page, `${ints} [data-status]`, /Not your bug: real Python has hash\(\)/);
+});
+
+await scenario('tree-shaper', '/learn/algorithms/trees-and-heaps/', async (page) => {
+  const r = '[data-shaper]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const set = (k, v) => page.selectOption(`${r} [data-t="${k}"]`, v);
+  const grow = () => page.click(`${r} [data-grow]`);
+  const panel = (id) => `${r} [data-panel="${id}"] [data-num]`;
+  await set('order', 'sorted'); await grow();
+  await expectText(page, panel('bst'), /height 999, 499,500 comparisons/);
+  await expectText(page, panel('rb'), /height 16\b/);
+  await expectText(page, `${r} [data-status]`, /list wearing a tree/);
+  // A straight line drawn really has to be on screen, not only claimed in text.
+  const d = await page.locator(`${r} [data-panel="bst"] path`).getAttribute('d');
+  if (!d || d.split('M').length < 900) throw new Error('the plain tree was not drawn');
+  await set('order', 'shuffled'); await grow();
+  await expectText(page, panel('bst'), /height 19, 10,672 comparisons/);
+  await set('order', 'nearly'); await grow();
+  await expectText(page, panel('bst'), /height 971/);
+  await set('order', 'sorted'); await set('fanout', '100'); await grow();
+  await expectText(page, panel('bt'), /height 1, 2 node reads/);
+  // The outage, then the repair.
+  await page.uncheck(`${r} [data-rebalance]`);
+  await page.click(`${r} [data-replay]`);
+  await expectText(page, `${r} [data-events]`, /After 247 updates: height 81[\s\S]*Recovery starts[\s\S]*After 247 updates/);
+  await expectText(page, `${r} [data-outage-status]`, /fired 3 times/);
+  await page.check(`${r} [data-rebalance]`);
+  await page.click(`${r} [data-replay]`);
+  await expectText(page, `${r} [data-outage-status]`, /never fired/);
+  await expectText(page, `${r} .m-debrief`, /fictionalized/);
+});
+
+await scenario('heap-lab', '/learn/algorithms/trees-and-heaps/', async (page) => {
+  const r = '[data-codelab][data-mission="cs-heap-queue"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-run]`);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /quadratic/);
+  const src = await page.locator(`${r} [data-src]`).inputValue();
+  await page.locator(`${r} [data-src]`).fill(src.replace('    q = []\n    for x in items:\n        push(q, x)\n    out = []\n    while q:\n        out.append(pop_smallest(q))\n    return out\n', '    return sorted(items)\n'));
+  await page.click(`${r} [data-measure]`);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('sorted() finished the heap mission');
+  await page.locator(`${r} [data-src]`).fill('def push(q, x):\n    q.append(x)\n    i = len(q) - 1\n    while i > 0:\n        parent = (i - 1) // 2\n        if q[i] < q[parent]:\n            q[i], q[parent] = q[parent], q[i]\n            i = parent\n        else:\n            break\n\ndef pop_smallest(q):\n    top = q[0]\n    last = q.pop()\n    if q:\n        q[0] = last\n        i = 0\n        while True:\n            left = 2 * i + 1\n            right = 2 * i + 2\n            smallest = i\n            if left < len(q) and q[left] < q[smallest]:\n                smallest = left\n            if right < len(q) and q[right] < q[smallest]:\n                smallest = right\n            if smallest == i:\n                break\n            q[i], q[smallest] = q[smallest], q[i]\n            i = smallest\n    return top\n\ndef drain(items):\n    q = []\n    for x in items:\n        push(q, x)\n    out = []\n    while q:\n        out.append(pop_smallest(q))\n    return out\n');
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /n log n/);
+  await expectText(page, `${r} .m-debrief`, /every parent is no larger than its children/);
+  // The recursion limit is real here too, and the lab names it.
+  const chain = '[data-codelab]:not([data-mission])';
+  await page.locator(chain).first().scrollIntoViewIfNeeded();
+  await page.locator(chain).first().locator('[data-run]').click();
+  await expectText(page, `${chain} [data-status]`, /RecursionError/);
+  await expectText(page, `${chain} [data-out]`, /^499\s*$/);
+});
+
+// Algorithms trail: graphs to algorithms-and-people. Each drives the failure the
+// lesson is about, then the fix, then checks the mission really finished.
+const debriefShown = (page, r, re) => expectText(page, `${r} .m-debrief`, re);
+const typeRun = async (page, r, src) => {
+  await page.locator(`${r} [data-src]`).first().fill(src);
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-status]`, /Finished in|on line|Stopped|Not your bug/, 20000);
+};
+
+await scenario('network-lab-graphs', '/learn/algorithms/graphs/', async (page) => {
+  const r = '[data-netlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} [data-flood-status]`, /Nothing injected yet/);
+  // Running a quiet network must not read as a tested one.
+  await page.click(`${r} [data-tick="100"]`);
+  await expectText(page, `${r} [data-flood-status]`, /Nothing injected yet/);
+  await page.click(`${r} [data-inject]`);
+  await page.click(`${r} [data-tick="100"]`);
+  await expectText(page, `${r} [data-flood-status]`, /Still circulating after 100 ticks/);
+  await expectText(page, `${r} [data-rule-check]`, /40 is LATER than 8, 44 is LATER than 40, 8 is LATER than 44/);
+  // One restart is re-infected by its neighbours.
+  await page.selectOption(`${r} [data-imp]`, '2');
+  await page.click(`${r} [data-restart]`);
+  await page.click(`${r} [data-tick="10"]`);
+  await expectText(page, `${r} [data-flood-status]`, /Still circulating/);
+  // Restart-all clears it, and the page says that proves nothing.
+  await page.click(`${r} [data-restart-all]`);
+  await expectText(page, `${r} [data-flood-status]`, /proves nothing about the rule/);
+  // The same numbers in another order die out: the page must say so, not fail.
+  await page.click(`${r} [data-flood-reset]`);
+  await page.selectOption(`${r} [data-seqs]`, 'other');
+  await page.click(`${r} [data-inject]`);
+  await page.click(`${r} [data-tick="100"]`);
+  await expectText(page, `${r} [data-flood-status]`, /Died out by itself/);
+  // The fix ends it. Then the invented numbers break the fix.
+  await page.click(`${r} [data-flood-reset]`);
+  await page.selectOption(`${r} [data-seqs]`, 'real');
+  await page.check(`${r} [data-strict]`);
+  await page.click(`${r} [data-inject]`);
+  await page.click(`${r} [data-tick="100"]`);
+  await expectText(page, `${r} [data-flood-status]`, /Died out by itself/);
+  await expectText(page, `${r} [data-rule-check]`, /40 is not LATER than 8/);
+  await page.click(`${r} [data-flood-reset]`);
+  await page.selectOption(`${r} [data-seqs]`, 'invented');
+  await page.click(`${r} [data-inject]`);
+  await page.click(`${r} [data-tick="100"]`);
+  await expectText(page, `${r} [data-flood-status]`, /Still circulating after 100 ticks/);
+  // Route: same places, different order.
+  await page.click(`${r} [data-tab="route"]`);
+  await page.selectOption(`${r} [data-algo]`, 'bfs');
+  await page.click(`${r} [data-route-step]`);
+  await expectText(page, `${r} [data-route-detail]`, /Queue \(next out is first\): B, C/);
+  await page.click(`${r} [data-route-run]`);
+  await expectText(page, `${r} [data-route-status]`, /reached 5 of 7\. Cannot reach F, G from A/);
+  await page.selectOption(`${r} [data-algo]`, 'dfs');
+  await page.click(`${r} [data-route-run]`);
+  await expectText(page, `${r} [data-route-detail]`, /Visit order: A, C, E, D, B/);
+  await expectText(page, `${r} [data-reps]`, /14 list entries against 49 matrix cells/);
+  // Build: no cycle is fine, a cycle is refused, or carried on past.
+  await page.click(`${r} [data-tab="build"]`);
+  await page.click(`${r} [data-build]`);
+  await expectText(page, `${r} [data-build-status]`, /Everything comes after what it needs/);
+  await page.check(`${r} [data-cycle]`);
+  await page.click(`${r} [data-build]`);
+  await expectText(page, `${r} [data-build-status]`, /Refused\. These need each other/);
+  await page.selectOption(`${r} [data-mode]`, 'drop');
+  await page.click(`${r} [data-build]`);
+  await expectText(page, `${r} [data-build-status]`, /dropped "core needs app"/);
+  await debriefShown(page, r, /had a cycle in it/);
+  if (await page.locator(`${r} .m-steps li.done`).count() !== 6) throw new Error('expected all 6 steps done');
+});
+
+await scenario('network-lab-paths', '/learn/algorithms/shortest-paths/', async (page) => {
+  const r = '[data-netlab]', c = '[data-codelab][data-mission="alg-paths-dijkstra"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-route-run]`);
+  await expectText(page, `${r} [data-route-status]`, /no error\. Distance from s: s = 0, a = 2, b = 3, t = 3/);
+  await page.selectOption(`${r} [data-algo]`, 'bellman-ford');
+  await page.click(`${r} [data-route-run]`);
+  await expectText(page, `${r} [data-route-status]`, /a = 2, b = 3, t = 3/);
+  await page.fill(`${r} [data-weight]`, '-2');
+  await page.locator(`${r} [data-weight]`).dispatchEvent('change');
+  await page.selectOption(`${r} [data-algo]`, 'dijkstra');
+  await page.click(`${r} [data-route-run]`);
+  // The wrong answer, with no error: the status must read the same as a right one.
+  await expectText(page, `${r} [data-route-status]`, /Finished with no error\. Distance from s: s = 0, a = 2, b = 3, t = 3/);
+  await page.selectOption(`${r} [data-algo]`, 'bellman-ford');
+  await page.click(`${r} [data-route-run]`);
+  await expectText(page, `${r} [data-route-status]`, /a = 1, b = 3, t = 2/);
+  await debriefShown(page, r, /it is wrong: s to b to a to t is 2/);
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} [data-out]`, /^3\s*$/);
+  await typeRun(page, c, 'def shortest(edges, start, goal):\n    dist = {start: 0}\n    settled = set()\n    while True:\n        best = None\n        for node in dist:\n            if node not in settled and (best is None or dist[node] < dist[best]):\n                best = node\n        if best is None:\n            return dist.get(goal)\n        settled.add(best)\n        for a, b, length in edges:\n            if a == best:\n                if b not in dist or dist[a] + length < dist[b]:\n                    dist[b] = dist[a] + length\n                    settled.discard(b)\n\nprint(shortest([("s", "a", 2), ("s", "b", 3), ("b", "a", -2), ("a", "t", 1)], "s", "t"))\n');
+  await expectText(page, `${c} [data-out]`, /^2\s*$/);
+  await debriefShown(page, c, /One rule was the whole bug/);
+});
+
+await scenario('greedy-labs', '/learn/algorithms/greedy/', async (page) => {
+  const a = '[data-codelab][data-mission="alg-greedy-coins"]', b = '[data-codelab][data-mission="alg-greedy-classes"]';
+  await page.locator(a).scrollIntoViewIfNeeded();
+  await page.click(`${a} [data-run]`);
+  await expectText(page, `${a} [data-out]`, /2 2\s+3 2\s+None/);
+  const coins = await page.locator(`${a} [data-src]`).first().inputValue();
+  // A hard-coded answer for the one visible case must not finish the mission.
+  await typeRun(page, a, coins.replace('    return None\n\nprint(greedy', '    return 6\n\nprint(greedy'));
+  if (await page.locator(`${a} .m-debrief`).isVisible()) throw new Error('a hard-coded first_lie finished the mission');
+  await typeRun(page, a, coins.replace('    return None\n\nprint(greedy', '    for amount in range(1, 101):\n        if greedy(amount, coins) != fewest(amount, coins):\n            return amount\n    return None\n\nprint(greedy'));
+  await debriefShown(page, a, /right on every American amount/);
+  await page.locator(b).scrollIntoViewIfNeeded();
+  await page.click(`${b} [data-run]`);
+  await expectText(page, `${b} [data-out]`, /^1\s*$/);
+  const classes = await page.locator(`${b} [data-src]`).first().inputValue();
+  await typeRun(page, b, classes.replace('key=lambda c: c[0]', 'key=lambda c: c[1] - c[0]'));
+  if (await page.locator(`${b} .m-debrief`).isVisible()) throw new Error('shortest-first finished the mission');
+  await typeRun(page, b, classes.replace('key=lambda c: c[0]', 'key=lambda c: c[1]'));
+  await debriefShown(page, b, /only "ends earliest" is right/);
+  const mst = '[data-codelab]:not([data-mission])';
+  await page.locator(mst).first().scrollIntoViewIfNeeded();
+  await page.click(`${mst} [data-run]`);
+  await expectText(page, `${mst} [data-out]`, /^total 10/);
+});
+
+await scenario('dp-labs', '/learn/algorithms/dynamic-programming/', async (page) => {
+  const r = '[data-codelab][data-mission="alg-dp-fib"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /exponential or worse/);
+  await expectText(page, `${r} [data-growth-rows]`, /4 more input, [\d.]+x the work/);
+  const memo = 'memo = {}\n\ndef fib(n):\n    if n in memo:\n        return memo[n]\n    if n < 2:\n        return n\n    memo[n] = fib(n - 1) + fib(n - 2)\n    return memo[n]\n';
+  await page.locator(`${r} [data-src]`).first().fill(`${memo}\nprint(fib(0), fib(1), fib(2))\n`);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /linear/);
+  const loop = 'def fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n\nprint(len(str(fib(5000))))\n';
+  // A RecursionError from something else is not the memo hitting the stack. This
+  // used to finish the step, so the loop below would have finished the mission.
+  await typeRun(page, r, 'def f():\n    f()\n\nf()\n');
+  await expectText(page, `${r} [data-status]`, /RecursionError on line/);
+  await typeRun(page, r, loop);
+  await expectText(page, `${r} [data-out]`, /^1045\s*$/);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('an unrelated RecursionError finished the mission');
+  // The stack: memoised, from cold, and it still fails, with the real error's name.
+  await typeRun(page, r, `${memo}\nprint(fib(5000))\n`);
+  await expectText(page, `${r} [data-status]`, /RecursionError on line/);
+  await typeRun(page, r, loop);
+  await expectText(page, `${r} [data-out]`, /^1045\s*$/);
+  await debriefShown(page, r, /fixed the time and did nothing for the depth/);
+  // Stepping shows the stack the lesson talks about.
+  await page.click(`${r} [data-edit-btn]`).catch(() => {});
+  await page.locator(`${r} [data-src]`).first().fill('def fib(n):\n    if n < 2:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\nprint(fib(3))\n');
+  await page.click(`${r} [data-step]`);
+  for (let i = 0; i < 8; i++) await page.click(`${r} [data-step]`);
+  await expectText(page, `${r} [data-vars]`, /fib\(\)[\s\S]*fib\(\)/);
+  const m = '[data-codelab]:not([data-mission])';
+  await page.locator(m).first().scrollIntoViewIfNeeded();
+  await page.click(`${m} [data-run]`);
+  await expectText(page, `${m} [data-out]`, /k=160 plain 26243 remembering 643/, 30000);
+});
+
+await scenario('growth-labs', '/learn/algorithms/growth-classes/', async (page) => {
+  const r = '[data-codelab][data-mission="alg-growth-quicksort"]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-run]`);
+  await expectText(page, `${r} [data-out]`, /\[1, 1, 2, 3, 4, 5, 6, 9\]/);
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /quadratic/);
+  // A sorted check is the tempting shortcut: it measures well and must not pass.
+  await page.locator(`${r} [data-src]`).first().fill('def quicksort(items):\n    if items == sorted(items):\n        return items\n    pivot = items[0]\n    rest = items[1:]\n    return quicksort([x for x in rest if x < pivot]) + [pivot] + quicksort([x for x in rest if x >= pivot])\n');
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /Shape over these sizes/);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('a sorted check finished the mission');
+  // The built-in sorts correctly and isn't quadratic, and has no pivot in it. This used to pass.
+  await page.locator(`${r} [data-src]`).first().fill('def quicksort(items):\n    return sorted(items)\n');
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /linear/);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('return sorted(items) finished the mission');
+  await page.locator(`${r} [data-src]`).first().fill('def quicksort(items):\n    if len(items) < 2:\n        return items\n    mid = len(items) // 2\n    pivot = items[mid]\n    rest = items[:mid] + items[mid + 1:]\n    smaller = [x for x in rest if x < pivot]\n    larger = [x for x in rest if x >= pivot]\n    return quicksort(smaller) + [pivot] + quicksort(larger)\n');
+  await page.click(`${r} [data-measure]`);
+  await expectText(page, `${r} [data-shape]`, /n log n/);
+  await debriefShown(page, r, /moved the worst case rather than removing it/);
+  const s = '[data-codelab][data-grow="subsets"]', o = '[data-codelab][data-grow="orderings"]';
+  await page.locator(s).scrollIntoViewIfNeeded();
+  await page.click(`${s} [data-measure]`);
+  await expectText(page, `${s} [data-shape]`, /exponential or worse/, 20000);
+  await page.click(`${o} [data-measure]`);
+  await expectText(page, `${o} [data-shape]`, /exponential or worse/, 20000);
+  const f = '[data-codelab]:not([data-mission]):not([data-grow])';
+  await page.locator(f).first().scrollIntoViewIfNeeded();
+  await page.click(`${f} [data-run]`);
+  await expectText(page, `${f} [data-out]`, /best 1\s+worst 1000\s+average 500\.5\s+not there 1000/);
+});
+
+await scenario('people-labs', '/learn/algorithms/algorithms-and-people/', async (page) => {
+  const c = '[data-codelab][data-mission="alg-people-averaging"]';
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} [data-out]`, /^1615\.38/);
+  const src = await page.locator(`${c} [data-src]`).first().inputValue();
+  // "Nobody owes anything" clears the false debt and misses the real one.
+  await typeRun(page, c, 'def debt(income, on_benefit):\n    return 0.0\n\nprint(debt([1], [True]))\n');
+  if (await page.locator(`${c} .m-debrief`).isVisible()) throw new Error('returning zero finished the mission');
+  await typeRun(page, c, src.replace('    average = sum(income) / len(income)\n', '').replace('average > FREE', 'income[fortnight] > FREE').replace('(average - FREE)', '(income[fortnight] - FREE)'));
+  await expectText(page, `${c} [data-out]`, /^0\.0\s*$/);
+  await debriefShown(page, c, /confident number/);
+  const t = '[data-codelab]:not([data-mission])';
+  await page.locator(t).first().scrollIntoViewIfNeeded();
+  await page.click(`${t} [data-run]`);
+  await expectText(page, `${t} [data-out]`, /false positives 44\.8% vs 23\.5%[\s\S]*flagged but did not reoffend 37\.0% vs 40\.9%/);
+  const r = '[data-fairlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const slide = async (sel, v) => { await page.locator(`${r} ${sel}`).fill(String(v)); };
+  await slide('[data-ta]', 6); await slide('[data-tb]', 6);
+  await expectText(page, `${r} [data-status]`, /71 innocent people flagged in Group A, 185 in Group B/);
+  await expectText(page, `${r} [data-cell="fpr-gap"]`, /pts/);
+  // Nobody flagged is undefined, never "equal".
+  await slide('[data-ta]', 11); await slide('[data-tb]', 11);
+  await expectText(page, `${r} [data-cell="ppv-gap"]`, /undefined/);
+  await expectText(page, `${r} [data-cell="ppv-a"]`, /nobody flagged/);
+  // 5.1% and 5.4%: the false positives even out, and the predictive values come apart.
+  await slide('[data-ta]', 7); await slide('[data-tb]', 9);
+  await expectText(page, `${r} [data-cell="fpr-gap"]`, /^0\.2 pts/);
+  await expectText(page, `${r} [data-cell="ppv-gap"]`, /^15\.5 pts/);
+  await page.click(`${r} [data-search]`);
+  await expectText(page, `${r} [data-status]`, /Tried all 121 pairs\. None match on all three/);
+  await page.selectOption(`${r} [data-set]`, 'same');
+  // Everyone flagged makes the numbers match by making them useless. This used to finish the mission.
+  await slide('[data-ta]', 1); await slide('[data-tb]', 1);
+  await expectText(page, `${r} [data-status]`, /All three match/);
+  if (await page.locator(`${r} .m-debrief`).isVisible()) throw new Error('flagging everyone finished the fairness mission');
+  // Nobody flagged: the equation has no predictive value, so it must not claim to agree with the table.
+  await slide('[data-ta]', 11); await slide('[data-tb]', 11);
+  await expectText(page, `${r} [data-eq]`, /nothing to work from/);
+  await slide('[data-ta]', 5); await slide('[data-tb]', 5);
+  await expectText(page, `${r} [data-status]`, /All three match/);
+  await debriefShown(page, r, /Equal base rates only make it possible/);
+  await debriefShown(page, r, /a larger share of the innocent people/);
+  await expectText(page, `${r} [data-eq]`, /Chouldechova's equation[\s\S]*the same as the table/);
 });
 
 await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {

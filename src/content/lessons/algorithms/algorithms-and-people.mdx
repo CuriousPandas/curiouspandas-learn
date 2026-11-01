@@ -1,0 +1,236 @@
+---
+title: When an algorithm decides about a person
+summary: Australia's Robodebt scheme spread people's income evenly across the fortnights and raised debts on the result. Run that arithmetic, read both sides of the dispute over a sentencing score, and find out why some kinds of fairness can't all be had at once.
+minutes: 26
+xp: 60
+tiers: [browser]
+builds_on: [algorithms/what-is-an-algorithm]
+sources:
+  - title: Royal Commission into the Robodebt Scheme - Report (2023), full accessible PDF
+    url: https://robodebt.royalcommission.gov.au/system/files/2023-09/rrc-accessible-full-report.PDF
+  - title: ProPublica - Machine Bias (2016)
+    url: https://www.propublica.org/article/machine-bias-risk-assessments-in-criminal-sentencing
+  - title: ProPublica - How We Analyzed the COMPAS Recidivism Algorithm (2016)
+    url: https://www.propublica.org/article/how-we-analyzed-the-compas-recidivism-algorithm
+  - title: Northpointe - COMPAS Risk Scales, Demonstrating Accuracy Equity and Predictive Parity (2016), archived copy
+    url: https://web.archive.org/web/20170112064733/http://go.volarisgroup.com/rs/430-MBX-989/images/ProPublica_Commentary_Final_070616.pdf
+  - title: ProPublica - Technical Response to Northpointe (2016)
+    url: https://www.propublica.org/article/technical-response-to-northpointe
+  - title: Court Technology Bulletin (January 2017), reprinting the press release on Northpointe's rebrand to equivant
+    url: https://courttechbulletin.blogspot.com/2017/01/some-big-court-technology-corporate-news.html
+  - title: Flores, Bechtel and Lowenkamp - False Positives, False Negatives, and False Analyses (2016)
+    url: https://www.uscourts.gov/sites/default/files/80_2_6_0.pdf
+  - title: Alexandra Chouldechova - Fair prediction with disparate impact (2017)
+    url: https://arxiv.org/abs/1703.00056
+  - title: Alexandra Chouldechova - the short conference version of that paper, posted in October 2016
+    url: https://arxiv.org/abs/1610.07524
+  - title: Kleinberg, Mullainathan and Raghavan - Inherent Trade-Offs in the Fair Determination of Risk Scores (2016)
+    url: https://arxiv.org/abs/1609.05807
+  - title: Wisconsin Supreme Court - 2016 WI 68, archived copy of the court's PDF
+    url: https://web.archive.org/web/20180309042522id_/https://www.wicourts.gov/sc/opinion/DisplayDocument.pdf?content=pdf&seqNo=171690
+  - title: Obermeyer, Powers, Vogeli and Mullainathan - Dissecting racial bias in an algorithm used to manage the health of populations, Science (2019), abstract read via PubMed
+    url: https://doi.org/10.1126/science.aax2342
+  - title: Heidi Ledford - Millions affected by racial bias in health-care algorithm, Nature news (31 October 2019)
+    url: https://media.nature.com/original/magazine-assets/d41586-019-03228-6/d41586-019-03228-6.pdf
+  - title: GDPR, Article 22 (unofficial reprint at gdpr-info.eu)
+    url: https://gdpr-info.eu/art-22-gdpr/
+  - title: European Commission - Legal framework of EU data protection, for the GDPR's dates
+    url: https://commission.europa.eu/law/law-topic/data-protection/legal-framework-eu-data-protection_en
+  - title: CCRI - The Merge, Implications on the Electricity Consumption and Carbon Footprint of the Ethereum Network (2022)
+    url: https://carbon-ratings.com/eth-report-2022
+  - title: ethereum.org - Proof-of-stake versus proof-of-work
+    url: https://ethereum.org/en/developers/docs/consensus-mechanisms/pos/pos-vs-pow/
+  - title: ethereum.org - Ethereum's energy consumption
+    url: https://ethereum.org/en/energy-consumption/
+---
+
+In 2015, Australia's welfare agency started piloting a new way to find overpayments. It already had tax records showing what employers said they had paid each person over a year. It compared that with what the person had declared to the agency. If the two didn't match and the person didn't respond with something better, then, in the words of the Royal Commission that later investigated:
+
+> the basic premise was that the amount declared by the employer would be divided up evenly, and allocated into the number of fortnights included in the period being reviewed.
+
+Those even slices were compared with the income limit for each fortnight the person had been paid a benefit. If a slice was over the limit, the system took it as an overpayment and raised a debt. The scheme became known as Robodebt.
+
+That's a piece of arithmetic you could do in the margin of a newspaper, and here's why it matters so much. Welfare exists for the fortnights when you earn nothing. The Commission said the law worked by "actual fortnightly income", and "it could not safely be assumed that recipients earned precisely the same amounts each fortnight they worked or that they worked every fortnight". People's work comes in lumps. Spread a lump evenly, and income appears in the very weeks they had none.
+
+Run it. These are invented numbers, and the real scheme's rates and rules were more complicated. The person in this code earned good money for six fortnights, took no benefit in that time, then had no work at all for twenty fortnights and was on the benefit.
+
+<CodeLab mission="alg-people-averaging" rows={20} />
+
+## What it cost
+
+Here's what happened at scale, from the Commission's report.
+
+- The first data-matching measure covered "some 866,857 instances of possible overpayment". Under the older manual process, about 20,000 such files were reviewed each year, by staff who could ask employers for details.
+- Under the new one, people were given a figure "with the onus placed on them to provide details to contradict it", possibly years later.
+- A Federal Court declaration, in a case settled in 2019, said averaged income information wasn't capable of satisfying a decision-maker that a debt existed. The government stopped raising debts on that basis alone.
+- It then refunded "$746 million to some 381,000 affected individuals" and wrote off debts totalling $1.751 billion, a figure the report elsewhere says includes those refunds.
+
+The Commission's verdict: "Robodebt was a crude and cruel mechanism, neither fair nor legal, and it made many people feel like criminals."
+
+Look at what went wrong at the centre of this, because it isn't a coding mistake. The averaging ran as designed, and a test of that division would have passed. (The scheme had ordinary bugs as well. The report says "The system sometimes deleted details of previously declared income", and it records income wrongly counted twice. Those aren't the point here, and fixing them wouldn't have fixed this.) The fault was in what it was asked to compute, with a confident figure attached and the work of disproving it shifted onto the person with the least power to do so. Some people, the report says, "paid amounts they did not owe because they were not in a position, practically or psychologically, to demonstrate otherwise."
+
+<Callout kind="trap">
+"The computer says so" isn't a reason, and automating a decision doesn't make it more correct. It makes it faster and more consistent, including when it's wrong. And it was an explicit goal here: the Commission notes it was anticipated that most of the process would run online, with the aim of reducing human involvement on the agency's side.
+</Callout>
+
+## A disputed case: scoring defendants
+
+Robodebt isn't in dispute: a royal commission has reported, and the government paid. This next one is contested, so read both sides.
+
+COMPAS is a commercial score, from a company then called Northpointe (it rebranded as equivant in January 2017, so you'll see both names), used in some US courts to estimate whether a defendant will reoffend. In 2016, the news organisation ProPublica obtained scores for defendants in Broward County, Florida, and checked who was arrested again within two years.
+
+**ProPublica's finding.** Black defendants who did not reoffend were much more likely than white ones to have been labelled higher risk (45 percent against 23), and white defendants who did reoffend were more likely to have been labelled lower risk (48 percent against 28). Its headline was "Machine Bias". The score, it said, was "particularly likely to falsely flag black defendants as future criminals".
+
+**Northpointe's reply.** It said: "we strongly reject the conclusion that the COMPAS risk scales are racially biased against blacks." The company argued that ProPublica had used the wrong statistics, ones that "did not take into account the different base rates of recidivism for blacks and whites". Look at people the score labelled higher risk: the share who did not go on to reoffend was slightly *lower* for black defendants (37% against 41%). A high score meant about the same chance of reoffending either way. Its name for this is **predictive parity**. A separate paper by Flores and colleagues made a related argument, that a score should be judged by whether it means the same thing across groups.
+
+Northpointe's paper also makes a case that the table below can't show. It says the score was equally good in both groups at separating people who reoffended from people who didn't, which it calls **accuracy equity**, and its measure of that isn't in these counts. It also says ProPublica "failed to report" that the accuracy comparison at this cut-off was "inconclusive", because black defendants had a higher false-positive rate and also a higher true-positive rate (of those who did reoffend, the share flagged). And its summary lists "misspecified regression models" and "wrongly defined" terms among ProPublica's errors.
+
+**ProPublica's reply to the reply.** It stood by its conclusions. It said it had accounted for base rates, using a statistical test (a logistic regression) that adjusted for recidivism, criminal history, age and gender, and that this still found black defendants 45 percent more likely to get a higher score. Northpointe's paper calls that test misspecified, meaning built wrongly, and ProPublica's reply defends it. The documents we read stop there, in 2016.
+
+Here's the part of this that isn't a matter of opinion. Both headline numbers come from **one table**, ProPublica's own published counts. Run it.
+
+<CodeLab code={`# ProPublica's published counts, general recidivism, "Low" against "High".
+# "High" here means anything above Low: COMPAS's Medium and High together.
+black = {"fine_low": 990, "fine_high": 805, "wrong_low": 532, "wrong_high": 1369}
+white = {"fine_low": 1139, "fine_high": 349, "wrong_low": 461, "wrong_high": 505}
+
+def pct(top, bottom):
+    return f"{100 * top / bottom:.1f}%"
+
+def both(label, top, bottom):
+    print(label, pct(top(black), bottom(black)), "vs", pct(top(white), bottom(white)))
+
+# ProPublica's question: of people who did NOT reoffend, how many were flagged?
+both("false positives", lambda t: t["fine_high"], lambda t: t["fine_high"] + t["fine_low"])
+# And of people who DID reoffend, how many were missed?
+both("false negatives", lambda t: t["wrong_low"], lambda t: t["wrong_low"] + t["wrong_high"])
+# Northpointe's question: of people flagged, how many did not reoffend?
+both("flagged but did not reoffend", lambda t: t["fine_high"], lambda t: t["fine_high"] + t["wrong_high"])
+# And of people not flagged, how many did reoffend?
+both("not flagged but did reoffend", lambda t: t["wrong_low"], lambda t: t["wrong_low"] + t["fine_low"])
+# What ties them together:
+both("reoffended at all", lambda t: t["wrong_low"] + t["wrong_high"], lambda t: sum(t.values()))
+`} rows={20} />
+
+Both sets of numbers are right. They're answers to different questions: "of the people who didn't reoffend, who got flagged?" against "of the people flagged, who didn't reoffend?". The bottom line, the base rate, is what ties them together. In this data, about 51% against 39% were recorded as reoffending.
+
+In a paper first posted in 2016 and published in 2017, Alexandra Chouldechova showed why a gap in the error rates was bound to appear once a score means the same thing in both groups and the base rates differ. Her equation links the false-positive rate (FPR), the false-negative rate (FNR), the predictive value (PPV: of those flagged, the share really positive) and the base rate `p`:
+
+```text
+FPR = p / (1 - p) × (1 - PPV) / PPV × (1 - FNR)
+```
+
+It's school algebra, and it's true of any such table where the group has people of both kinds and at least one flagged person really is positive. (Otherwise it would divide by zero.) Look at what it forces. If the predictive value is the same for two groups, and the base rates `p` differ, then the error rates can't both be equal. In her words: "the criteria cannot all be simultaneously satisfied when recidivism prevalence differs across groups."
+
+One corner escapes, and it isn't a way out. If the predictive value is exactly 100%, nobody is wrongly flagged, so the false-positive rate is 0 in both groups and the false-negative rates are free to match. Flag 25 of the 50 positives in one group of 100, and 15 of the 30 positives in another, and flag no one else: all three match, on different base rates. That flag also misses half the people it's looking for.
+
+Kleinberg, Mullainathan and Raghavan posted a closely related result a few weeks before her first version, in September 2016. Theirs is about risk scores rather than one yes-or-no flag: their conditions can only all hold with perfect prediction or equal base rates.
+
+Now try to beat it. Everything here is invented, and the scores are arranged so that a score means exactly the same chance in both groups.
+
+<FairnessLab />
+
+So the arithmetic doesn't say who's right. It says that the two sides were asking for things that can't both be had, and someone has to choose. Chouldechova's own warning about this: "It is important to bear in mind that fairness itself—along with the notion of disparate impact—is a social and ethical concept, not a statistical one."
+
+Who pays for each kind of error? A false positive here might mean someone is held who wouldn't have reoffended. A false negative might mean someone released who then does. Those fall on different people, and no equation can weigh them for you.
+
+<Callout kind="real">
+There's more underneath this that the table can't see. "Reoffended" in this data means recorded as arrested again, which isn't the same as committing a crime, and Chouldechova's paper closes on the problem of biased data. Her result also doesn't say this tool's numbers were inevitable: it's about what can and can't be equal at once, and in this table the two predictive values are close (63% against 59%), not equal. The lab's flat chance per score is our invention, chosen to make the idea visible. It's not a claim about how COMPAS really behaves.
+</Callout>
+
+## Who can check?
+
+In 2016 the Wisconsin Supreme Court ruled on a defendant's challenge to the use of COMPAS at sentencing (2016 WI 68). It allowed Wisconsin's courts to consider the score, with limits: it can't be used "to determine whether an offender is incarcerated" or "to determine the severity of the sentence". And the court required a written warning to accompany it, which says, among other things:
+
+> The proprietary nature of COMPAS has been invoked to prevent disclosure of information relating to how factors are weighed or how risk scores are determined.
+
+> Because COMPAS risk assessment scores are based on group data, they are able to identify groups of high-risk offenders——not a particular high-risk individual.
+
+That's the transparency problem in the court's own words. A trade secret stood between the person and the method. ProPublica could only check the outcomes from outside.
+
+EU law takes a position of its own. It isn't a response to COMPAS: the European Commission says the General Data Protection Regulation (GDPR) entered into force on 24 May 2016, the month ProPublica published, and has applied since 25 May 2018. Its Article 22 says a person "shall have the right not to be subject to a decision based solely on automated processing" with legal or similarly significant effects. It has exceptions, and for some of those it requires at least a right "to obtain human intervention". Note the word *solely*: a person who only rubber-stamps the output raises a question this lesson can't settle. How much review counts is a legal argument, so don't take a lesson's word on your own case. We read this article in an unofficial reprint and didn't confirm its current legal status, so check the current text before relying on it.
+
+## The score that measured the wrong thing
+
+A third kind of failure comes from a published audit. In October 2019, Obermeyer and colleagues studied a commercial algorithm used by health systems to pick patients for extra care. According to the paper's abstract, read on PubMed:
+
+> At a given risk score, Black patients are considerably sicker than White patients, as evidenced by signs of uncontrolled illnesses.
+
+The cause wasn't in the arithmetic. "The bias arises because the algorithm predicts health care costs rather than illness, but unequal access to care means that we spend less money caring for Black patients than for White patients." Remedying this "would increase the percentage of Black patients receiving additional help from 17.7 to 46.5%."
+
+Spending is easy to measure and illness is hard, so one stood in for the other, and the abstract says cost appeared to be an effective proxy "by some measures of predictive accuracy". A **proxy** is a number you can get standing in for the one you want. Robodebt did this as well, using an annual total as a stand-in for what someone earned in a given fortnight. (We read this study's abstract, not the full paper, so that's as far as we'll take it.)
+
+The developer disputes the conclusion, though not the numbers. Nature's news report of 31 October 2019 says the company, Optum, repeated the analysis and got the same results. It also says that Optum considered the study's conclusion "misleading", and it quotes the company: "The cost model is just one of many data elements intended to be used to select patients for clinical engagement programs." The same report says the researchers and the company then looked for variables other than cost, and that the changes reduced the bias by 84%. We have Optum's statement only as Nature reports it, and an abstract can't settle how the score was used in practice.
+
+## Other costs: money and energy
+
+Inefficient algorithms have costs of their own, even when no one is judged by them. Every step in this trail ran on electricity and somebody's time. The GTA Online loader in [the counting-steps lesson](/learn/algorithms/counting-steps/) cost each player minutes per load, over a few lines nobody could see. (We don't have a measured total across all its players, so we won't give one.)
+
+Sometimes that cost is what the algorithm is *for*. Two ways of getting a network of strangers to agree on one record are:
+
+- **Proof of work.** Machines race to solve a puzzle that takes a lot of computing. Burning that energy is the point, because it's what makes rewriting history expensive. Making the puzzle cheaper would make the attack cheaper too.
+- **Proof of stake.** Participants lock up money they lose if they cheat, so the expense is money at risk. There's no race to run.
+
+Ethereum switched from the first to the second in 2022. A study by CCRI, commissioned by ConsenSys, a company in the Ethereum business, put the electricity saving at more than 99.988%. That number comes from interested parties, and the exact figures are slippery: ethereum.org's own pages give the old consumption as both 78 and 21 terawatt-hours a year, and they say estimates "can also vary widely between sources".
+
+The trade isn't free, and that same site says so: "Proof-of-stake is more complex than proof-of-work, which means there are more potential attack vectors to handle." And it notes centralisation concerns of its own, around a few large staking providers. Which is safer in the long run is still argued about. What isn't in dispute is that the choice of algorithm is what determined the energy bill.
+
+## Questions to ask
+
+No checklist makes an algorithm fair. These are the questions those cases were asking too late:
+
+1. **What is it really predicting or computing?** Is that the thing you care about, or a stand-in for it?
+2. **Who carries the error?** Which mistakes are possible, who pays for each, and do they fall evenly across groups?
+3. **Which fairness are you choosing?** If you can't have them all, say which and why, out loud.
+4. **Who can check it?** Can the person affected see why? Can anyone outside test it?
+5. **What happens when it's wrong?** Who has to prove what, how long does it take, and is there a person who can overrule it?
+6. **What does it cost to run?** In money, in energy, and in people's time.
+7. **Who hears when it fails?** The Robodebt report describes a tribunal ruling that averaging was unlawful and a draft legal advice saying the same, neither of which stopped it.
+
+Two planned lessons, not written yet, will pick this up: one on anonymity, about what happens to the data, including differential privacy, and one on fairness and explanation, about explaining a decision. The hash tables lesson, which is here now, shows an algorithm's choices becoming a security problem.
+
+<GoDeeper title="Where the equation comes from">
+Say a group has `N` people, of whom a share `p` are positive. Let `TP` be true positives (flagged and positive) and `FP` false positives (flagged and not).
+
+- `TP = (1 - FNR) · pN`, because of the positives, `1 - FNR` are caught.
+- `PPV = TP / (TP + FP)`, which rearranges to `FP = TP · (1 - PPV) / PPV`.
+- `FPR = FP / ((1 - p)N)`, since `1 - p` of the group are the negatives.
+
+Put them together, and `N` cancels:
+
+`FPR = p / (1 - p) · (1 - PPV) / PPV · (1 - FNR)`
+
+That's Chouldechova's equation, numbered (2.6) in the 2017 paper and (2.4) in the 2016 version. Nothing in it depends on how the score was built. So if two groups have equal `PPV`, strictly between 0 and 1, and unequal `p`, then to keep `FPR` equal, `FNR` must differ, and the other way round. At `PPV = 1` both sides are zero whatever `p` is, which is the corner above, and at `PPV = 0` the equation is undefined. Kleinberg, Mullainathan and Raghavan state a related impossibility for calibrated scores, and they show it only goes away with perfect prediction or equal base rates. Both papers are free to read.
+</GoDeeper>
+
+<Quiz
+  id="alg-people-1"
+  q="Set aside the scheme's ordinary bugs. What was wrong with the averaging itself, in the sense a test would catch?"
+  options={["It divided wrongly, and a unit test would have caught it", "Nothing: the division came out right. It computed the wrong thing, since the law asks what someone earned in each actual fortnight", "It rounded to the wrong number of cents"]}
+  answer={1}
+  explain="The division was fine, so a test of that arithmetic would pass. The report does record separate system errors, such as income counted twice, but the central fault was treating an average as if it were each fortnight's income, then making people disprove the result."
+/>
+
+<Quiz
+  id="alg-people-2"
+  q="ProPublica reports a 45% against 23% false-positive gap, and Northpointe reports similar predictive values for both groups. Given the same table, what follows?"
+  options={["One of them must have miscalculated", "Both figures can be correct, because they're different questions, and when base rates differ they can't all be equal at once", "It shows that the tool has no bias of any kind", "It shows ProPublica's claim of bias is proved"]}
+  answer={1}
+  explain="The arithmetic shows these aren't contradictory, and doesn't say which matters more. That's a question about who should bear which errors. Neither 'no bias' nor 'bias proved' follows from the equation alone, and the two sides' 2016 papers also disagree about other analyses."
+/>
+
+<Quiz
+  id="alg-people-3"
+  q="A health algorithm predicts spending very accurately and is used to decide who gets extra care. What should you check first?"
+  options={["Whether it could predict spending more accurately", "Whether spending is a fair stand-in for need, across the groups it will be used on", "Whether the vendor's code is written in a safe language"]}
+  answer={1}
+  explain="That's the gap Obermeyer and colleagues reported, and the developer disputes their conclusion, though not their numbers. Accurate prediction of a proxy can still give a badly unfair outcome if the proxy differs across groups, here because unequal access to care meant less was spent caring for Black patients."
+/>
+
+## What to remember
+
+- An algorithm can do exactly what it was designed to do and still do harm, because what it computes isn't what it's being used to decide.
+- Some fairness measures can't all hold at once when base rates differ, apart from corners such as a flag with no false positives at all. Choosing between them is a decision about people, not a calculation.
+- Read disputed findings as disputed. In the COMPAS case, each side's headline number is right.
+- Ask who can check the system, who carries its errors, and who has to prove what when it's wrong.
+- The cost of an algorithm includes the energy it burns and the time it takes from people.

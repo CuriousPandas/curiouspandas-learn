@@ -1,0 +1,207 @@
+---
+import '../styles/widgets.css';
+import { HEIGHT_LIMIT } from '../lib/cs/trees.ts';
+---
+<div class="widget card shaper" data-shaper>
+  <div class="widget-head">
+    <strong>Tree Shaper</strong>
+    <span class="pill info">real structures, every comparison counted. One stream of keys, four shapes.</span>
+  </div>
+  <div class="ts-grid">
+    <div class="ts-main">
+      <div class="controls">
+        <label>keys
+          <select data-t="n">
+            <option value="63">63</option>
+            <option value="255">255</option>
+            <option value="1000" selected>1,000</option>
+            <option value="4000">4,000</option>
+          </select>
+        </label>
+        <label>arriving
+          <select data-t="order">
+            <option value="sorted">sorted</option>
+            <option value="shuffled">shuffled</option>
+            <option value="nearly">nearly sorted</option>
+          </select>
+        </label>
+        <label>B-tree fanout
+          <select data-t="fanout">
+            <option value="4">4</option>
+            <option value="16">16</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <button class="btn small primary" type="button" data-grow>Grow</button>
+        <button class="btn small" type="button" data-reset>Reset lab</button>
+      </div>
+      <p class="ts-status" data-status role="status">Nothing grown yet.</p>
+      <div class="ts-panels">
+        <section class="ts-panel" data-panel="bst">
+          <h4>Plain binary tree</h4>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Shape of the plain binary search tree"><path class="ts-edge" d="" /></svg>
+          <p class="ts-num" data-num></p>
+        </section>
+        <section class="ts-panel" data-panel="rb">
+          <h4>Red-black tree</h4>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Shape of the red-black tree"><path class="ts-edge" d="" /></svg>
+          <p class="ts-num" data-num></p>
+        </section>
+        <section class="ts-panel" data-panel="bt">
+          <h4>B-tree</h4>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Nodes at each level of the B-tree"><path class="ts-edge ts-fill" d="" /></svg>
+          <p class="ts-num" data-num></p>
+        </section>
+        <section class="ts-panel" data-panel="heap">
+          <h4>Binary heap</h4>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Shape of the binary heap"><path class="ts-edge" d="" /></svg>
+          <p class="ts-num" data-num></p>
+        </section>
+      </div>
+      <p class="muted ts-note">All four are drawn to one vertical scale, so a tall tree makes the others look flat. That is the point.</p>
+      <section class="ts-outage">
+        <h4>Replay the outage <span class="muted">after Sen &amp; Tarjan's account, which they call "fictionalized". The update log and the recovery step are our own illustration: their paper gives neither.</span></h4>
+        <div class="controls">
+          <label class="ts-tick"><input type="checkbox" data-rebalance checked /> rebalance after deletes</label>
+          <label class="ts-tick"><input type="checkbox" data-rebuild /> recovery rebuilds from the live keys, instead of replaying the log</label>
+          <button class="btn small primary" type="button" data-replay>Replay the updates</button>
+        </div>
+        <p class="ts-status" data-outage-status role="status">Height limit: {HEIGHT_LIMIT}. Not run yet.</p>
+        <ol class="ts-events" data-events aria-label="What happened"></ol>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { SHAPER_MISSION, HEIGHT_LIMIT, replayOutage, shapeRun, logCeil, type Order, type Shape, type ShaperRun } from '../lib/cs/trees.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-shaper]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    let state = SHAPER_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), SHAPER_MISSION, () => state, () => {});
+    const t = (k: string) => q<HTMLSelectElement>(`[data-t="${k}"]`);
+    const panel = (id: string) => q(`[data-panel="${id}"]`);
+
+    function edges(s: Shape, n: number, scale: number): string {
+      let d = '';
+      const X = (x: number) => ((x + 0.5) * 100) / Math.max(1, n), Y = (y: number) => 2 + (96 * y) / Math.max(1, scale);
+      for (const [x1, y1, x2, y2] of s.edges) d += `M${X(x1).toFixed(2)} ${Y(y1).toFixed(2)}L${X(x2).toFixed(2)} ${Y(y2).toFixed(2)}`;
+      return d;
+    }
+
+    function heapEdges(n: number, scale: number): string {
+      let d = '';
+      const place = (i: number): [number, number] => {
+        const level = Math.floor(Math.log2(i + 1)), first = 2 ** level - 1;
+        return [((i - first + 0.5) * 100) / 2 ** level, 2 + (96 * level) / Math.max(1, scale)];
+      };
+      for (let i = 1; i < n; i++) {
+        const [x, y] = place(i), [px, py] = place((i - 1) >> 1);
+        d += `M${px.toFixed(2)} ${py.toFixed(2)}L${x.toFixed(2)} ${y.toFixed(2)}`;
+      }
+      return d;
+    }
+
+    // Each level is a bar as wide as its share of the bottom level. Drawing every
+    // node of a wide B-tree would be a smear.
+    function levelBars(levels: number[], scale: number): string {
+      const widest = Math.max(...levels), rowH = 96 / Math.max(1, scale);
+      return levels.map((c, i) => {
+        const w = Math.max(2, (96 * c) / widest), y = 2 + i * rowH, h = Math.max(1.5, Math.min(rowH * 0.6, 8));
+        return `M${50 - w / 2} ${y.toFixed(2)}h${w.toFixed(2)}v${h.toFixed(2)}h${(-w).toFixed(2)}Z`;
+      }).join('');
+    }
+
+    function draw(r: ShaperRun) {
+      const scale = Math.max(r.bst.height, r.rb.height, r.bt.height, r.heap.height, 1);
+      panel('bst').querySelector('path')!.setAttribute('d', edges(r.bst.shape, r.n, scale));
+      panel('rb').querySelector('path')!.setAttribute('d', edges(r.rb.shape, r.n, scale));
+      panel('bt').querySelector('path')!.setAttribute('d', levelBars(r.bt.levels, scale));
+      panel('heap').querySelector('path')!.setAttribute('d', heapEdges(r.n, scale));
+      panel('bst').querySelector('[data-num]')!.textContent = `height ${fmt(r.bst.height)}, ${fmt(r.bst.comparisons)} comparisons`;
+      panel('rb').querySelector('[data-num]')!.textContent = `height ${fmt(r.rb.height)}, ${fmt(r.rb.comparisons)} comparisons`;
+      panel('bt').querySelector('[data-num]')!.textContent = `height ${fmt(r.bt.height)}, ${r.bt.reads} node reads per lookup, ${fmt(r.bt.comparisons)} comparisons`;
+      panel('heap').querySelector('[data-num]')!.textContent = `height ${fmt(r.heap.height)}, ${fmt(r.heap.comparisons)} comparisons to fill. It answers "smallest?", not "is 42 here?"`;
+    }
+
+    function grow() {
+      const r = shapeRun(Number(t('n').value), t('order').value as Order, Number(t('fanout').value));
+      state.runs.push(r);
+      draw(r);
+      const status = q('[data-status]');
+      const worst = r.n * (r.n - 1) / 2;
+      if (r.bst.height > r.n / 4) {
+        status.textContent = `The plain tree is ${fmt(r.bst.height)} levels deep for ${fmt(r.n)} keys: a list wearing a tree's name. It spent ${(100 * r.bst.comparisons / worst).toFixed(1)}% of every possible comparison.`;
+        status.className = 'ts-status bad';
+      } else {
+        status.textContent = `The plain tree is ${fmt(r.bst.height)} levels deep, where the shortest possible is ${logCeil(r.n + 1, 2) - 1}. Shuffled arrivals did the balancing, by luck.`;
+        status.className = 'ts-status ok';
+      }
+      refresh();
+    }
+
+    function replay() {
+      const rebalance = q<HTMLInputElement>('[data-rebalance]').checked, rebuild = q<HTMLInputElement>('[data-rebuild]').checked;
+      const r = replayOutage(rebalance, rebuild);
+      state.replays.push(r);
+      const status = q('[data-outage-status]'), trip = r.events.find((e) => e.kind === 'trip');
+      const items = r.events.map((e) => {
+        if (e.kind === 'trip') return el('li', { class: 'bad' }, `After ${fmt(e.ops)} updates: height ${e.height}, over the limit of ${HEIGHT_LIMIT}, with only ${fmt(e.live)} keys in the tree. Error raised.`);
+        if (e.kind === 'recover') return el('li', {}, 'Recovery starts: it replays the update log into an empty tree.');
+        return el('li', { class: 'ok' }, `Rebuilt from the ${fmt(e.live)} live keys: height ${e.height}. The log's history is gone from the shape.`);
+      });
+      if (r.outage) items.push(el('li', { class: 'bad' }, 'Stopped here by the lab. Nothing in the loop would ever end it.'));
+      q('[data-events]').replaceChildren(...items);
+      if (r.outage && trip) { status.textContent = `The check fired ${r.trips} times at the same place. It was right every time, and that did not help.`; status.className = 'ts-status bad'; }
+      else if (r.trips) { status.textContent = `The check fired once, and the rebuild left a tree of height ${r.finalHeight}. The missing delete repair is still missing, so it will drift again.`; status.className = 'ts-status warn'; }
+      else { status.textContent = `All ${fmt(r.ops)} updates applied. Tallest the tree ever got: ${r.maxHeight}, holding ${fmt(r.live)} keys at the end. The check never fired.`; status.className = 'ts-status ok'; }
+      refresh();
+    }
+
+    q('[data-grow]').addEventListener('click', grow);
+    q('[data-replay]').addEventListener('click', replay);
+    q('[data-reset]').addEventListener('click', () => {
+      state = SHAPER_MISSION.setup();
+      for (const id of ['bst', 'rb', 'bt', 'heap']) { panel(id).querySelector('path')!.setAttribute('d', ''); panel(id).querySelector('[data-num]')!.textContent = ''; }
+      q('[data-status]').textContent = 'Lab reset. Nothing grown yet.';
+      q('[data-status]').className = 'ts-status';
+      q('[data-events]').replaceChildren();
+      q('[data-outage-status]').textContent = `Height limit: ${HEIGHT_LIMIT}. Not run yet.`;
+      q('[data-outage-status]').className = 'ts-status';
+      refresh();
+    });
+  }
+</script>
+
+<style is:global>
+  .shaper .ts-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 980px) { .shaper .ts-grid { grid-template-columns: minmax(0, 1fr) 290px; } }
+  .shaper .ts-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .shaper .controls label { min-width: 0; }
+  .shaper .controls select { max-width: 100%; min-width: 0; }
+  .shaper .ts-status { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); }
+  .shaper .ts-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .shaper .ts-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .shaper .ts-status.bad { background: var(--berry-soft); color: var(--berry); }
+  /* Two by two, not auto-fit: three across left the heap alone on a second row. */
+  .shaper .ts-panels { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 520px) { .shaper .ts-panels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .shaper .controls .ts-tick { flex-wrap: nowrap; align-items: flex-start; }
+  .shaper .ts-panel { border: 1px solid var(--line); border-radius: 10px; padding: 8px; min-width: 0; }
+  .shaper h4 { margin: 0 0 6px; font-size: 0.92rem; }
+  .shaper h4 .muted { font-weight: 400; font-size: 0.82rem; }
+  .shaper .ts-panel svg { display: block; width: 100%; height: 150px; background: var(--bg-2); border-radius: 8px; }
+  .shaper .ts-edge { stroke: var(--bamboo); fill: none; stroke-width: 0.9; vector-effect: non-scaling-stroke; }
+  .shaper .ts-fill { fill: var(--bamboo); stroke: none; }
+  .shaper .ts-num { margin: 6px 0 0; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+  .shaper .ts-note { margin: 0; font-size: 0.82rem; }
+  .shaper .ts-outage { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .shaper .ts-events { margin: 0; padding-left: 20px; font-size: 0.88rem; display: grid; gap: 3px; }
+  .shaper .ts-events li.bad { color: var(--berry); }
+  .shaper .ts-events li.ok { color: var(--bamboo); }
+</style>

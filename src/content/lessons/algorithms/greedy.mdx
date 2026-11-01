@@ -1,0 +1,145 @@
+---
+title: Greedy choices, and when they lie
+summary: A computer scientist showed the US could save coins by swapping the dime for an 18-cent piece, and the habit every cashier uses would stop working. Learn when taking the best-looking step is provably right, when it lies, and how to tell the difference.
+minutes: 20
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/shortest-paths]
+sources:
+  - title: Jeffrey Shallit - What This Country Needs is an 18¢ Piece (paper dated 2002)
+    url: https://cs.uwaterloo.ca/~shallit/Papers/change2.pdf
+  - title: Jeff Erickson - Algorithms, chapter 4, Greedy Algorithms (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/04-greedy.pdf
+  - title: Jeff Erickson - Algorithms, chapter 3, on why greed is tempting (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/03-dynprog.pdf
+  - title: Jeff Erickson - Algorithms, chapter 7, Minimum Spanning Trees (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/07-mst.pdf
+  - title: E. W. Dijkstra - A Note on Two Problems in Connexion with Graphs (1959), free scan on a Cornell course page
+    url: https://courses.cs.cornell.edu/cs2110/2017sp/online/shortestPath/1959dijkstra.pdf
+---
+
+To give someone 30 cents in American coins, you don't think about it. You hand over the biggest coin that fits, a quarter, then the biggest that fits what's left, a nickel. Two coins, and nobody could do better. That's a **greedy algorithm**: at each step take whatever looks best right now, and never go back.
+
+In a paper dated November 2002, Jeffrey Shallit asked what the best set of four coins would be. Suppose every amount from 0 to 99 cents is equally likely. Then American coins (1, 5, 10, 25) need 4.7 coins on average. The best possible sets need only 3.89, and one of them is just a small change: get rid of the dime, and mint an **18-cent piece**. That's his title, and it's a neat result. It's also a trap, which he points out himself.
+
+Try 36 cents with coins of 1, 5, 18 and 25. The cashier's habit gives 25 + 5 + 5 + 1, four coins. The right answer is 18 + 18, two.
+
+This site ran every amount from 0 to 99. On American coins the habit is never wrong. On the 18-cent system, it's wrong for **37 of the 100 amounts**, starting at 28 cents, and cashiers using the habit would average 4.58 coins, not the promised 3.89. Nearly the whole saving depends on doing something much harder than reaching for the biggest coin.
+
+Nothing about the method changed. Same loop, different coins, and it went from always right to often wrong. So how are you supposed to know which one you've got?
+
+## Catch one lying
+
+Erickson's textbook has a strong opinion about this, which he suggests you tattoo on your hand:
+
+> Greedy algorithms never work!
+> Use dynamic programming instead!
+
+Then he adds: "What, never? No, never! What, never? Well. . . hardly ever." (That's a joke on a Gilbert and Sullivan song. And he goes on to teach the cases where they do work.)
+
+Here's a way to test it yourself. The lab holds a greedy change-maker and a function that always finds the true minimum, using a method the next lesson explains. Your job is to write the function that catches the first amount where they disagree.
+
+<CodeLab mission="alg-greedy-coins" rows={24} />
+
+<Callout kind="trap">
+Trying examples can catch a greedy algorithm being wrong. It can't show one being right. Your `first_lie` found nothing on American coins, up to 100. That's evidence about those hundred amounts, and that's all. Greedy on American coins is right at every amount, but that takes an argument, and a loop can't give you one.
+</Callout>
+
+## A problem where greedy is provably right
+
+Here's a different problem. A department runs a lot of classes on one day, each with a start and a finish, and you want to attend as many as possible. Two that overlap can't both be chosen. (Erickson's version counts a class starting exactly when another ends as a clash. Ours lets you make it, and the argument below works either way.)
+
+There are plenty of greedy rules you could try:
+
+- Take the class that **starts earliest**. It feels like not wasting the morning.
+- Take the **shortest** class. It uses up the least time.
+- Take the class that **ends earliest**. It leaves the most of the day free.
+
+All three sound sensible. Find out which survive.
+
+<CodeLab mission="alg-greedy-classes" rows={14} />
+
+Only one is right, and we don't have to take a test run's word for it. Here's why, in plain words.
+
+Take any best possible timetable. If it doesn't start with the class that ends earliest (call it `f`), look at its first class, `g`. `f` ends no later than `g` does, and everything else on that timetable starts after `g` ends. So everything else also starts after `f` ends. Swap `g` out, put `f` in, and nothing clashes. The timetable is the same size, so it's still a best one, and now it begins with the greedy choice.
+
+Now forget `f` and everything clashing with it, and you have a smaller version of the same problem. Do the same thing again. Step by step, any best timetable turns into the greedy one without losing a class, so the greedy one is a best one.
+
+This is called an **exchange argument**, and it's the standard way to prove a greedy algorithm: assume there's a better answer, find the first place it differs from yours, and show you can swap in your choice without making it worse. If you can't write that swap, you don't have a proof. The other two rules fail exactly there.
+
+<Callout kind="real">
+This site's tests hold "ends earliest" to a search of every possible subset, on 300 random timetables, using real Python: it was never wrong, while the other two rules were often wrong. That's a check that the code matches the proof. The proof is what covers all the timetables nobody tried.
+</Callout>
+
+## Dijkstra's other problem
+
+The last lesson said Dijkstra's paper has two problems, and that Problem 1 isn't shortest paths: "Construct the tree of minimum total length between the n nodes." Today we'd call it a **minimum spanning tree**: connect everything together, using the cheapest set of links, with no loops. Think of the cheapest cabling that reaches every building.
+
+His method is greedy. Start with any one node. Repeatedly take the cheapest link that reaches something new. Erickson traces this algorithm to Vojtěch Jarník, before Dijkstra's paper, and says it was found again by several people, Dijkstra last among those he lists. It usually gets called Prim's algorithm, which is another case of Stigler's Law at work. This greedy rule is provably right too, by another exchange argument. This site's tests compare the program below with every possible spanning tree of its graph.
+
+<CodeLab code={`links = [("A", "B", 7), ("A", "C", 3), ("B", "C", 1), ("B", "D", 6),
+         ("C", "D", 9), ("C", "E", 4), ("D", "E", 2)]
+
+def cheapest_network(links, start):
+    reached = {start}
+    chosen = []
+    while True:
+        # Dijkstra's step 1: the shortest link that reaches something new.
+        best = None
+        for a, b, cost in links:
+            if (a in reached) != (b in reached):
+                if best is None or cost < best[2]:
+                    best = (a, b, cost)
+        if best is None:
+            return chosen
+        chosen.append(best)
+        reached.add(best[0])
+        reached.add(best[1])
+
+network = cheapest_network(links, "A")
+print("total", sum([cost for a, b, cost in network]))
+print(network)
+`} />
+
+Compare that to the Dijkstra you fixed last lesson. It's nearly the same loop. One picks "the nearest node to the start", the other "the cheapest link to anywhere". So shortest paths are greedy too. Being greedy isn't on its own why they need non-negative lengths, though, because the spanning tree method above stays right with negative costs. Add the same amount to every link and every spanning tree's total goes up equally, since they all have the same number of links, so the cheapest stays the cheapest. Paths don't work that way. A path's length adds up as you go, so a later negative edge can undercut a choice you've already made final.
+
+<GoDeeper title="The exchange argument as a proof, and when greed is guaranteed">
+Erickson's proof, for the timetable problem. **Lemma:** at least one maximal conflict-free schedule includes the class that finishes first. Let `f` finish first, and `X` be a maximal schedule without `f`. Let `g` be the first class in `X` to finish. Since `f` finishes before `g`, `f` can't conflict with anything in `X` apart from `g`. So `X` with `g` replaced by `f` is conflict-free, and the same size.
+
+**Theorem:** the greedy schedule is optimal. By the lemma, some optimal schedule contains `f`. What's left of it must be an optimal schedule for the classes that start after `f` finishes. By induction, greedy finds one of those.
+
+For a minimum spanning tree with distinct costs, Erickson's "safe edge" lemma does the same job: the cheapest edge leaving any set of reached nodes is in the tree. If it weren't, adding it would make a loop, the loop has to leave the set by another, more expensive edge, and swapping them makes a cheaper tree.
+
+Coins are subtler. Shallit's paper reports that whether greedy is optimal for a given coin set, at every amount, can be decided efficiently, which he credits to Pearson as a surprising result. Chapters 4 and 7 of Erickson's free book are the next step.
+</GoDeeper>
+
+<Quiz
+  id="alg-greedy-1"
+  q="A greedy change-maker is right on every amount you try with coins of 1, 5, 10 and 25. What have you established?"
+  options={["That greedy is correct for any coins", "That it's right on those amounts with those coins, and nothing about other coins", "That it's correct everywhere, since four coins is a typical example"]}
+  answer={1}
+  explain="Add an 18-cent coin and 36 cents goes wrong. Whether greedy works depends on the coins, so a good test run on one set says nothing about another."
+/>
+
+<Quiz
+  id="alg-greedy-2"
+  q="Why does 'take the class that ends earliest' come with a proof when 'take the shortest class' doesn't?"
+  options={["Short classes are rarer", "Swapping any best timetable's first class for the one that ends earliest can't cause a clash, and no such swap exists for the shortest class", "It finishes in less time"]}
+  answer={1}
+  explain="A short class in the middle of the day can clash with two others, so swapping it in can cost you a class. The one that ends earliest can only ever clash with one class in the timetable, the one it replaces."
+/>
+
+<Quiz
+  id="alg-greedy-3"
+  q="What's the same about Dijkstra's shortest path and his minimum spanning tree?"
+  options={["They give the same tree", "Both repeatedly take the best-looking next step and never reconsider it, so both are greedy and each needs its own reason to be right", "Both use a priority queue in the 1959 paper"]}
+  answer={1}
+  explain="They use nearly the same loop, and they optimise different things, which gives different trees. Neither used a priority queue in 1959. The shortest path version breaks on negative edges because a path's length adds up, so a later edge can undercut a step already made final. The spanning tree version has no such problem."
+/>
+
+## What to remember
+
+- A greedy algorithm takes the best-looking step and never goes back. That makes it fast, and tempting.
+- Tests can catch a greedy algorithm being wrong. Only an argument can show it's right.
+- The usual argument is an exchange: any best answer can be changed into yours, one swap at a time, without getting worse.
+- The same rule can be right on one input set and wrong on another, as the coins show.

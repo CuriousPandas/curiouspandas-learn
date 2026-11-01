@@ -1,0 +1,204 @@
+---
+import '../styles/widgets.css';
+import { FORMULAS, MAX_LENGTH, MODELS } from '../lib/cs/midpoint.ts';
+---
+<div class="widget card midpoint" data-midpoint>
+  <div class="widget-head">
+    <strong>Midpoint Lab</strong>
+    <span class="pill info">32-bit wrap is emulated by this page: JavaScript and Python numbers do not wrap at 32 bits on their own</span>
+  </div>
+  <div class="mp-grid">
+    <div class="mp-main">
+      <section class="mp-panel">
+        <h4>A virtual array <span class="muted">nothing is allocated: a[i] is just i</span></h4>
+        <div class="controls mp-len">
+          <label>array length <input type="number" data-length min="1" max={MAX_LENGTH} step="1" value="1000000" inputmode="numeric" /></label>
+          <button class="btn small" type="button" data-adjust="half">÷ 2</button>
+          <button class="btn small" type="button" data-adjust="-1">- 1</button>
+          <button class="btn small" type="button" data-adjust="1">+ 1</button>
+          <button class="btn small" type="button" data-adjust="double">× 2</button>
+        </div>
+        <label class="mp-slider">or drag <input type="range" data-slider min="1" max={MAX_LENGTH} step="1" value="1000000" aria-label="Array length" /></label>
+        <div class="controls">
+          <label>integers
+            <select data-model>{MODELS.map((m) => <option value={m.id}>{m.label}</option>)}</select>
+          </label>
+          <label>midpoint
+            <select data-formula>{FORMULAS.map((f) => <option value={f.id}>{f.label}</option>)}</select>
+          </label>
+          <label>look for
+            <select data-target>
+              <option value="last">the last element</option>
+              <option value="first">the first element</option>
+            </select>
+          </label>
+        </div>
+        <div class="controls mp-go">
+          <button class="btn small primary" type="button" data-search>Search</button>
+          <button class="btn small" type="button" data-random>Try 1,000 random targets</button>
+        </div>
+        <p class="mp-result" data-result role="status">Not run yet.</p>
+        <p class="mp-odds" data-odds></p>
+        <div class="mp-scroll" tabindex="0" aria-label="Each step of the search">
+          <table class="mp-table">
+            <thead><tr><th scope="col">low</th><th scope="col">high</th><th scope="col" data-sum-head>sum, as the int holds it</th><th scope="col">mid</th></tr></thead>
+            <tbody data-probes><tr><td colspan="4" class="muted">Press Search to see each step.</td></tr></tbody>
+          </table>
+        </div>
+        <h5>Your tries</h5>
+        <ol class="mp-tries" data-tries><li class="muted">None yet.</li></ol>
+      </section>
+
+      <section class="mp-panel">
+        <h4>Unsorted input <span class="pill">same answers as Python's bisect_left, checked by this site's tests</span></h4>
+        <p class="mp-note">Binary search trusts that the list is sorted. It never checks. Type a list, and compare what the search says with what a scan of every item says.</p>
+        <div class="controls">
+          <label class="mp-items">list <input type="text" data-items value="3, 1, 2" spellcheck="false" autocomplete="off" /></label>
+          <label>look for <input type="number" data-find value="3" step="1" /></label>
+          <button class="btn small primary" type="button" data-lookup>Search it</button>
+          <button class="btn small" type="button" data-sort>Sort the list first</button>
+        </div>
+        <p class="mp-result" data-lookup-result role="status">Not run yet.</p>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { MIDPOINT_MISSION, MAX_LENGTH, MODELS, FORMULAS, lookup, parseItems, randomTargets, search, targetValue, type Formula, type IntModel, type Target } from '../lib/cs/midpoint.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-midpoint]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = MIDPOINT_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), MIDPOINT_MISSION, () => state, () => {});
+    const lengthInput = q<HTMLInputElement>('[data-length]'), slider = q<HTMLInputElement>('[data-slider]');
+    const model = q<HTMLSelectElement>('[data-model]'), formula = q<HTMLSelectElement>('[data-formula]'), target = q<HTMLSelectElement>('[data-target]');
+    const result = q('[data-result]'), odds = q('[data-odds]');
+
+    const setResult = (node: HTMLElement, text: string, kind: string) => { node.textContent = text; node.className = `mp-result ${kind}`; };
+
+    // A typo must not quietly search some other length than the one on screen.
+    function readLength(): number | null {
+      const n = Number(lengthInput.value);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_LENGTH) {
+        setResult(result, `The length has to be a whole number from 1 to ${fmt(MAX_LENGTH)}, the largest number a 32-bit int can hold. Nothing was searched.`, 'warn');
+        return null;
+      }
+      return n;
+    }
+    const setLength = (n: number) => { const v = Math.min(MAX_LENGTH, Math.max(1, Math.round(n))); lengthInput.value = String(v); slider.value = String(v); };
+    slider.addEventListener('input', () => { lengthInput.value = slider.value; });
+    lengthInput.addEventListener('input', () => { const n = Number(lengthInput.value); if (Number.isInteger(n) && n >= 1 && n <= MAX_LENGTH) slider.value = lengthInput.value; });
+    root.querySelectorAll<HTMLButtonElement>('[data-adjust]').forEach((b) => b.addEventListener('click', () => {
+      const n = readLength();
+      if (n === null) return;
+      const a = b.dataset.adjust!;
+      setLength(a === 'half' ? Math.floor(n / 2) : a === 'double' ? n * 2 : n + Number(a));
+    }));
+
+    const labelOf = (list: { id: string; label: string }[], id: string) => list.find((x) => x.id === id)!.label;
+
+    function showProbes(r: ReturnType<typeof search>) {
+      q('[data-probes]').replaceChildren(...r.probes.map((p) => {
+        const bad = p.mid < 0 || p.mid >= r.length;
+        return el('tr', bad ? { class: 'bad' } : {}, el('td', {}, fmt(p.low)), el('td', {}, fmt(p.high)), el('td', p.wrapped ? { class: 'wrapped' } : {}, `${fmt(p.sum)}${p.wrapped ? ' (wrapped)' : ''}`), el('td', {}, fmt(p.mid)));
+      }));
+      // The last row is the one that matters: the crash, or the read that found it.
+      // With 31 rows it would otherwise sit out of sight below the fold of this box.
+      const box = q('.mp-scroll');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    q('[data-search]').addEventListener('click', () => {
+      const n = readLength();
+      if (n === null) return;
+      const m = model.value as IntModel, f = formula.value as Formula, t = target.value as Target;
+      const r = search(n, targetValue(n, t), m, f);
+      state.runs.push({ ...r, model: m, formula: f, targetKind: t });
+      odds.textContent = '';
+      // The low + (high - low) / 2 formula never adds them, so "sum" would be a false label.
+      q('[data-sum-head]').textContent = f === 'diff' ? 'high - low, as the int holds it' : 'sum, as the int holds it';
+      showProbes(r);
+      if (r.status === 'found') setResult(result, `Found it at index ${fmt(r.index)}, after ${r.reads} read${r.reads === 1 ? '' : 's'} of an array of ${fmt(n)}.`, 'ok');
+      else if (r.status === 'out-of-bounds') setResult(result, `Crashed: it tried to read index ${fmt(r.index)}, which is not in the array. Java throws ArrayIndexOutOfBoundsException here, and C reads whatever is at that address.`, 'bad');
+      else setResult(result, `Not found, after ${r.reads} reads.`, 'warn');
+      const tries = q('[data-tries]');
+      tries.querySelector('.muted')?.remove();
+      const verdict = r.status === 'out-of-bounds' ? 'crashed' : r.status;
+      tries.prepend(el('li', r.status === 'out-of-bounds' ? { class: 'bad' } : {}, `${fmt(n)}: ${verdict}, ${labelOf(FORMULAS, f)}, ${labelOf(MODELS, m).replace(/ \(.*/, '')}, ${t} element`));
+      while (tries.children.length > 8) tries.lastElementChild!.remove();
+      refresh();
+    });
+
+    q('[data-random]').addEventListener('click', () => {
+      const n = readLength();
+      if (n === null) return;
+      const crashes = randomTargets(n, 1000, model.value as IntModel, formula.value as Formula);
+      odds.textContent = `Of 1,000 random targets in an array of ${fmt(n)}, ${fmt(crashes)} crashed.${crashes === 0 ? ' That is not the same as "it cannot crash".' : ''}`;
+    });
+
+    // ---- unsorted input ---------------------------------------------------
+    const items = q<HTMLInputElement>('[data-items]'), find = q<HTMLInputElement>('[data-find]'), lookupResult = q('[data-lookup-result]');
+    const doLookup = () => {
+      const parsed = parseItems(items.value), x = Number(find.value);
+      if ('error' in parsed) { setResult(lookupResult, parsed.error, 'warn'); return; }
+      if (!Number.isInteger(x) || find.value.trim() === '') { setResult(lookupResult, 'The number to look for has to be a whole number.', 'warn'); return; }
+      const u = lookup(parsed.items, x);
+      state.unsorted.push(u);
+      const says = u.found ? `says it is at index ${u.index}` : `returned ${u.index}, which means "not there"`;
+      const truth = u.present ? `a scan finds ${x} at index ${parsed.items.indexOf(x)}` : `a scan agrees: ${x} is not in the list`;
+      const list = u.sorted ? 'The list is sorted.' : 'The list is not sorted.';
+      if (u.present && !u.found) setResult(lookupResult, `bisect_left ${says}, but ${truth}. No error, no warning. ${list}`, 'bad');
+      else if (!u.sorted) setResult(lookupResult, `bisect_left ${says}, and ${truth}. That answer is luck, not a guarantee. ${list}`, 'warn');
+      else setResult(lookupResult, `bisect_left ${says}, and ${truth}. ${list}`, 'ok');
+      refresh();
+    };
+    q('[data-lookup]').addEventListener('click', doLookup);
+    q('[data-sort]').addEventListener('click', () => {
+      const parsed = parseItems(items.value);
+      if ('error' in parsed) { setResult(lookupResult, parsed.error, 'warn'); return; }
+      items.value = [...parsed.items].sort((a, b) => a - b).join(', ');
+      doLookup();
+    });
+
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .midpoint .mp-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .midpoint .mp-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .midpoint .mp-main { min-width: 0; display: grid; gap: 12px; align-content: start; }
+  .midpoint .mp-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; display: grid; gap: 8px; }
+  .midpoint h4 { margin: 0; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .midpoint h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .midpoint h4 .pill { white-space: normal; }
+  .midpoint h5 { margin: 4px 0 0; font-size: 0.86rem; }
+  .midpoint h5 .muted { font-weight: 400; }
+  .midpoint .mp-note { margin: 0; font-size: 0.86rem; color: var(--ink-2); }
+  .midpoint input[type="number"], .midpoint input[type="text"] { font: inherit; font-variant-numeric: tabular-nums; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); min-width: 0; }
+  .midpoint [data-length] { width: 12em; max-width: 100%; }
+  .midpoint [data-find] { width: 6em; }
+  .midpoint .mp-items { flex: 1 1 12em; min-width: 0; }
+  .midpoint .mp-items input { flex: 1; width: 100%; font-family: var(--mono); }
+  .midpoint .mp-slider { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--ink-2); }
+  .midpoint .mp-slider input { flex: 1; min-width: 0; accent-color: var(--bamboo); }
+  .midpoint .mp-result { margin: 0; font-size: 0.92rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .midpoint .mp-result.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .midpoint .mp-result.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .midpoint .mp-result.bad { background: var(--berry-soft); color: var(--berry); }
+  .midpoint .mp-odds { margin: 0; font-size: 0.88rem; }
+  .midpoint .mp-odds:empty { display: none; }
+  .midpoint .mp-scroll { overflow: auto; max-height: 260px; }
+  .midpoint .mp-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; font-variant-numeric: tabular-nums; margin: 0; }
+  .midpoint .mp-table th, .midpoint .mp-table td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .midpoint .mp-table th { font-weight: 600; white-space: normal; }
+  .midpoint .mp-table tr.bad td { color: var(--berry); font-weight: 650; }
+  .midpoint .mp-table td.wrapped { color: var(--berry); font-weight: 650; }
+  .midpoint .mp-tries { margin: 0; padding-left: 18px; font-size: 0.82rem; display: grid; gap: 2px; overflow-wrap: anywhere; }
+  .midpoint .mp-tries li.bad { color: var(--berry); }
+</style>

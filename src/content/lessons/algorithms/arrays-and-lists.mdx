@@ -1,0 +1,202 @@
+---
+title: Arrays, linked lists and the cost of inserting
+summary: Linux asked the CPU to fetch the next list item early, and it made builds slower. Learn how an array and a linked list really sit in memory, what inserting costs in each, why a cache changes the answer big-O gives you, and why Python's list doesn't double.
+minutes: 20
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/counting-steps]
+sources:
+  - title: Jonathan Corbet - The problem with prefetch, LWN (2011)
+    url: https://lwn.net/Articles/444336/
+  - title: Bjarne Stroustrup - Software Development for Infrastructure, IEEE Computer (2012)
+    url: https://www.stroustrup.com/Software-for-infrastructure.pdf
+  - title: Peter Norvig - Teach Yourself Programming in Ten Years (approximate timings)
+    url: https://norvig.com/21-days.html
+  - title: CPython source - listobject.c, the list growth rule
+    url: https://raw.githubusercontent.com/python/cpython/main/Objects/listobject.c
+  - title: Python documentation - collections.deque
+    url: https://docs.python.org/3/library/collections.html
+  - title: Pat Morin - Open Data Structures, chapters 2 and 3 (free, CC BY)
+    url: https://opendatastructures.org/ods-python/2_1_ArrayStack_Fast_Stack_O.html
+  - title: Ulrich Drepper - What Every Programmer Should Know About Memory (free PDF, long and aimed well above this lesson)
+    url: https://people.freebsd.org/~lstewart/articles/cpumemory.pdf
+---
+
+The Linux kernel has a macro for walking a linked list, and it included a small optimisation: while handling one item, ask the CPU to start fetching the next one. As LWN's Jonathan Corbet put it in 2011: "Linked lists are known to be cache-unfriendly data structures, so it makes sense that this type of optimization can help to speed things up."
+
+Then, on the next line: "Except that it doesn't - at least, not on x86 processors."
+
+Linus Torvalds profiled a kernel build, and the prefetch instructions came out at the top. It turned out that "simply removing the prefetch() calls made the build go faster." Andi Kleen had already sent a patch to remove them the previous September, and it "fell through the cracks". Ingo Molnar then measured them and found a loss of about 0.5%, which is small. He wrote: "So the conclusion is: prefetches are absolutely toxic, even if the NULL ones are excluded."
+
+This isn't an outage. It's a quiet failure, and it's quiet for a reason worth keeping: an optimisation that does nothing, or does slight harm, looks exactly like one that works. LWN gives two reasons for this one. These lists were mostly short, so many prefetches were of the null pointer, the empty address that marks the end of a list, and Ingo measured each of those at about 20 processor cycles. Removing just those helped, and it was still slower than no prefetch at all. The other reason is that the hardware had got better at guessing what to fetch than the code was. To see why any of this matters, you need to know how these structures sit in memory.
+
+## Two ways to keep a list
+
+Memory is one long row of numbered slots. Everything in a program has to be placed along it, and there are two classic ways to keep a list of things.
+
+An **array** puts the items side by side:
+
+```text
+address:   100   101   102   103
+value:   [  10 ][  20 ][  30 ][  40 ]
+```
+
+A **linked list** puts each item wherever there's room, and each one stores where the next one is. A small bundle of named values like that is called a **record**. This record, a value and an address, is called a **node**.
+
+```text
+address:   100          340          215          502
+value:   [ 10 | 340 ]  [ 20 | 215 ]  [ 30 | 502 ]  [ 40 | none ]
+```
+
+Here's what that shape does to the cost of each job, with `n` items in the list:
+
+| Job | Array | Linked list | Why |
+|---|---|---|---|
+| Read item number `i` | `O(1)` | `O(i)` | An array does one sum: start + i. A list has to walk there |
+| Add at the front | `O(n)` | `O(1)` | An array moves everything along. A list changes one address |
+| Add at the back | Usually `O(1)` | `O(1)` if it remembers its last node | An array has to move when it runs out of room |
+| Insert in the middle | `O(n)` | `O(1)`, once you've walked to the place | Finding the place is the catch |
+
+`O(1)` and `O(n)` are the big-O shapes from [the last lesson](/learn/algorithms/counting-steps/): the work doesn't grow, and the work grows in step with the data.
+
+## Try it: the front of the line
+
+This function keeps a timeline with the newest event first, by inserting each new event at the front. Python's list is an array of a kind, as you'll see further down, so every insert moves everything already there.
+
+<CodeLab mission="alg-lists-newest-first" grow="newest_first" sizes="200,400,800,1600" />
+
+A linked list makes the front cheap, so here's one, built out of nothing but two-item lists: `[value, next node]`. Press **Run** and read the printed line, which shows the nesting. Then press **Step** and watch `node` move along in the Variables panel. Each step of the walk follows one address.
+
+<CodeLab code={`def add_front(head, value):
+    return [value, head]
+
+def last_value(head):
+    node = head
+    while node[1] is not None:
+        node = node[1]
+    return node[0]
+
+head = None
+for x in [30, 20, 10]:
+    head = add_front(head, x)
+
+print(head)
+print(last_value(head))
+`} />
+
+Adding to the front took one step, however long the list was. Finding the last value took a walk through all of it.
+
+## What big-O can't see
+
+So a linked list wins on inserts. That's what the table says, and it's the answer many of us were taught. In 2012 Bjarne Stroustrup, who created C++, tested it with a simple job: generate `N` random integers and insert each one into a sequence at its proper place in numerical order. Then remove them one at a time, from random positions.
+
+He asks at what size a linked list beats an array. "If we naively apply complexity theory, that answer will be something like," he writes, and the answer he gives is "Is this a trick question? A list, of course!" Then he ran it. "When I ran the experiment on my 8-Gbyte laptop, I found N to be much larger than 500,000." That `N` is how large the sequence could get with the array, a C++ vector, still in the lead.
+
+He was careful about the test: "In an attempt at fairness, I didn't use a binary search to speed up insertion into the vector." Both versions walked the same number of elements to find the place. Those are his numbers from his laptop, with no published data behind them, so take them as a strong example and not a law.
+
+Why would it go that way? Every insert has to walk to its place, and the walk is where the time goes. His explanation has two parts: list nodes are larger, and "they're scattered in memory".
+
+Being scattered matters because of the **cache**. Main memory is far slower than the CPU, so the CPU keeps a small, very fast copy of what it has just used. When it reads one value it fetches a whole block around it, called a **cache line**. So reading the next item in an array is often free, because it arrived with the last one. Peter Norvig's rough figures for a typical PC show the size of the gap (L1 is the smallest and fastest part of the cache):
+
+| Operation | Approximate time |
+|---|---|
+| Fetch from L1 cache memory | 0.5 nanosec |
+| Fetch from main memory | 100 nanosec |
+
+That's a factor of 200. These are his round numbers and not a measurement, but one thing doesn't depend on the details: to the machine, reading the next item in a line and jumping across memory are very different costs. To big-O, they're both one step.
+
+Here's the same walk, measured for this trail. Node 24 on one Windows laptop, with the same number of steps through one array of next-addresses, once in memory order and once as a single shuffled cycle. Only the layout changes:
+
+| Elements | Memory | In order (ns per step) | Shuffled (ns per step) | Ratio |
+|---|---|---|---|---|
+| 1,000 | 4 KB | 2.44 | 2.66 | 1.1x |
+| 10,000 | 40 KB | 2.55 | 3.51 | 1.4x |
+| 100,000 | 400 KB | 2.53 | 13.3 | 5.3x |
+| 1,000,000 | 4 MB | 2.58 | 38.7 | 15x |
+| 4,000,000 | 16 MB | 2.40 | 98.5 | 41x |
+| 16,000,000 | 64 MB | 2.54 | 118 | 46x |
+| 64,000,000 | 256 MB | 2.50 | 139 | 56x |
+
+Both columns are `O(n)`. The in-order walk doesn't fit in the caches either, and it barely notices: each fetched line carries the next few items, and the CPU sees the pattern and fetches ahead. The shuffled walk gets neither, so it ends up 56 times slower. That's one machine on one day, and yours will differ.
+
+## Try it: the Layout Lab
+
+The first panel is a small cache you can see into, with small made-up sizes so you can reach its limit. The second panel lets you grow a Python list. The third runs that same walk on your device. The first two are checked by tests on this site, the third is yours and nobody checks it.
+
+<LayoutLab />
+
+<Callout kind="real" title="Why this lab isn't Python">
+A Python list can't show you contiguity, which means items sitting next to each other. It holds pointers: its slots are side by side, but each one only says where the object lives, and that object can be anywhere. Stroustrup draws this for a vector of points, where each entry points off to a separate object, and says the layout "is found in a language that doesn't emphasize compact representation, such as Java or Python".
+
+Python's `array` module can do it, because it stores raw whole numbers side by side. We ran this same walk over one in plain Python, on one laptop, and got 1.1x at 1,000 elements and about 2.2x at 16 million, where the table above shows 46x. Each step costs about 70 ns of interpreter work whichever way it walks, and that drowns most of the effect. So the widget above is written in TypeScript, the language this site's pages are built with, and walks an `Int32Array`, JavaScript's raw array of whole numbers.
+
+The code lab has the same limit from the other side. Its steps are counts, and it knows nothing about caches, so in that lab a linked list walk looks as cheap as an array's. Treat the step counter as the count of the work, not the time it takes.
+</Callout>
+
+## Running out of room
+
+An array has one more cost. It sits in one block, so when it fills up, the program has to find a bigger block and copy everything across. To make that rare, it asks for spare room: its **capacity** is how many items fit before the next move, and its **length** is how many it actually holds.
+
+Many write-ups say Python's list doubles when it fills up. It doesn't. This is the rule, from CPython's source:
+
+```c
+new_allocated = ((size_t)newsize + (newsize >> 3) + 6) & ~(size_t)3;
+```
+
+`size_t` is C's type for sizes, and `& ~(size_t)3` rounds the result down to a multiple of 4. `newsize >> 3` is an eighth of the size, so a long list grows by about 1/8 and not by half or double. The same file gives the pattern: "The growth pattern is:  0, 4, 8, 16, 24, 32, 40, 52, 64, 76, ...". We measured that with `sys.getsizeof` over 2,000,000 appends on Python 3.11.9, and the rule matched at all 92 resizes. A test on this site repeats the comparison.
+
+<Callout kind="trap">
+Older write-ups show `0, 4, 8, 16, 25, 35, 46, 58, 72, 88`. That was correct up to Python 3.8. The pattern changed in 3.9, and plenty of tutorials still show the old one. It's a small example of why a number needs a version next to it.
+</Callout>
+
+What does that choice cost? This table counts the copies, assuming every resize moves every item. **That's an upper bound:** CPython calls `realloc`, C's function for asking to make a block bigger, and it may grow the block in place. Nothing in ordinary Python says when it did. Reaching into the list with `ctypes`, a module for reading raw memory, shows it: over 2,000,000 appends, about 50 of the 92 resizes moved the list on Windows (Python 3.11.9, about 8.2 real copies per append), and 25 to 30 did on Linux (Python 3.12.3, between 4 and 5). Those are a few runs of a bare loop, and they vary. Slack is the unused room as a share of the length.
+
+| Growth rule | Copies per append at 2,000,000 | Copies per append at 10,000,000 | Slack at 10,000,000 |
+|---|---|---|---|
+| CPython, about 1.125x | 8.56 | 8.91 | 11.4% |
+| Grow by half, 1.5x | 2.36 | 2.39 | 19.6% |
+| Doubling | 1.05 | 1.68 | 67.8% |
+
+None of them wins on everything. On average, Python pays more copying for less wasted memory, and a single size can't show that, because slack depends on where `n` falls. Across long lists, doubling's slack swings between almost nothing and 100%, while CPython's stays at or under about 12.5%. 10,000,000 happens to be a bad size for doubling: at 2,000,000, doubling has 4.9% against CPython's 7.1%, and the lab above shows you both. The cost of an append stays constant on average under all three rules, because the moves get rarer as they get bigger.
+
+<Callout kind="real">
+Python's documentation warns about the front of a list directly. Lists "incur O(n) memory movement costs for pop(0) and insert(0, v) operations". That's the slot-moving you measured in the lab. The next lesson deals with it.
+</Callout>
+
+<GoDeeper title="Why an average append stays constant">
+This is **amortised analysis**: charging a rare big cost across all the cheap operations around it. *Open Data Structures*, Lemma 2.1, shows that starting from empty, any sequence of `m` add and remove calls on a doubling array spends `O(m)` in total on resizing.
+
+The general form, which is this site's own derivation and isn't quoted from a book: with growth factor `r > 1`, the copies form a geometric series that stays below `n·r/(r-1)`. That's under `2n` for doubling and under `9n` for `r = 9/8`. The measurements fit both, and a test checks them. So Python's list is still constant per append, and its constant is about six times worse, between four and nine depending on where `n` falls.
+</GoDeeper>
+
+<Quiz
+  id="alg-lists-1"
+  q="Why does reading item number 500,000 take one step in an array, and a long walk in a linked list?"
+  options={["An array sorts its items, so it can find them quickly", "Array items are side by side, so the address is just start plus 500,000. A list only knows where the next node is", "Linked lists are stored on disk"]}
+  answer={1}
+  explain="One sum gives an array's address. A linked list holds no such pattern, because a node can be anywhere, and each one only knows the next."
+/>
+
+<Quiz
+  id="alg-lists-2"
+  q="Two walks take the same number of steps through the same data, and big-O calls both O(n). One takes 56 times as long. How can both of those be true?"
+  options={["One of the measurements must be wrong", "Big-O counts steps and hides the constant. Where each step lands in memory decides whether it hits the cache", "The slower one secretly takes more steps"]}
+  answer={1}
+  explain="Same count, different cost per step. Once the data no longer fits in the cache, each scattered read can be a trip to main memory. It's also why you measure on your own machine: that 56x is one laptop's, and the shape is what carries over."
+/>
+
+<Quiz
+  id="alg-lists-3"
+  q="A tutorial says Python's list capacities go 0, 4, 8, 16, 25, 35. You check with sys.getsizeof on Python 3.12 and see 0, 4, 8, 16, 24, 32. What happened?"
+  options={["Your Python is broken", "The tutorial's numbers are from before the pattern changed in Python 3.9", "The list only grows like that on Windows"]}
+  answer={1}
+  explain="Both are real, for different versions. The rule changed in 3.9, so the older pattern lives on in older write-ups. Measuring is what told you."
+/>
+
+## What to remember
+
+- An array is one block: reading anything is one sum, and inserting near the front moves everything after it.
+- A linked list is scattered: adding at a known place is cheap, and getting to that place is a walk.
+- Big-O counts steps, and memory charges different prices for them. Walking in order is cheap, and jumping around is not.
+- Python's list grows by about 1/8, and holds pointers. Check a number's version before you believe it.
+- Measure on real data before you trust the textbook's choice, and before you trust an optimisation.

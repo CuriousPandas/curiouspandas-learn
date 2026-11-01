@@ -3,6 +3,7 @@
 // learner that real Python doesn't have it either.
 
 import type { PyProgram } from './vm.ts';
+import { listsort } from './listsort.ts';
 import {
   EXCEPTION_NAMES, MAX_SEQ, PyBound, PyBuiltin, PyClass, PyDict, PyFunction, PyInstance, PyIter, PyList, PyRaise, PyRange, PySet, PySuper, PyTuple, PyView, T,
   binop, compare, dictSet, eq, format, hashKey, hooks, intFloorDiv, intMod, makeExc, raise, repr, setAdd, str, strLen, tname, toFloat, truthy, typeOf, fixed, type Val,
@@ -35,6 +36,22 @@ function parseIntText(text: string, base: number): bigint | undefined {
     out = out * B + BigInt(d);
   }
   return neg ? -out : out;
+}
+
+// The rule in Python's docs on hashing numeric types: a float hashes as the exact
+// fraction it holds, modulo 2**61 - 1, so 1.0 and 1 agree as == requires. Leaves
+// NaN out: its hash depends on the object's identity, and this sandbox's floats have none.
+function floatHash(v: number): bigint {
+  if (!Number.isFinite(v)) return v > 0 ? 314159n : -314159n;
+  const P = (1n << 61n) - 1n, view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, Math.abs(v));
+  const bits = view.getBigUint64(0), biased = Number(bits >> 52n);
+  const mant = biased === 0 ? bits & ((1n << 52n) - 1n) : (bits & ((1n << 52n) - 1n)) | (1n << 52n);
+  // 2**61 is 1 modulo P, so a power of two reduces by taking its exponent modulo 61.
+  const e = (biased === 0 ? 1 : biased) - 1075;
+  const h = (mant * (1n << BigInt(((e % 61) + 61) % 61))) % P;
+  const signed = v < 0 ? -h : h;
+  return signed === -1n ? -2n : signed;
 }
 
 function ctor(name: string, fn: (a: Val[], kw: Map<string, Val>) => Val) { T[name].ctor = fn; return T[name]; }
@@ -175,17 +192,14 @@ export function builtins(vm: PyProgram): Map<string, Val> {
   });
   const sortItems = (items: Val[], kw: Map<string, Val>) => {
     for (const k of kw.keys()) if (k !== 'key' && k !== 'reverse') raise('TypeError', `sort() got an unexpected keyword argument '${k}'`);
+    vm.sortCalls++;
     const key = kw.get('key') ?? null, rev = truthy(kw.get('reverse') ?? false);
-    const keyed = items.map((v) => ({ v, k: key === null ? v : vm.callValue(key, [v]) }));
-    // Both directions use only <, as Python does, so a class needs just __lt__.
-    // Comparing (b, a) for reverse rather than negating keeps equal items in
-    // their original order, the stability Python's docs promise.
-    keyed.sort((x, y) => {
-      vm.charge(1);
-      if (rev) return compare('<', y.k, x.k) ? -1 : compare('<', x.k, y.k) ? 1 : 0;
-      return compare('<', x.k, y.k) ? -1 : compare('<', y.k, x.k) ? 1 : 0;
-    });
-    return keyed.map((e) => e.v);
+    const out = [...items];
+    const keys = key === null ? out : out.map((v) => vm.callValue(key, [v]));
+    // CPython's own algorithm, comparing only with <, so a class needs just
+    // __lt__ and a counting __lt__ reports the count real Python reports.
+    listsort(keys, key === null ? null : out, (x, y) => { vm.charge(1); return compare('<', x, y); }, rev);
+    return out;
   };
   def('sorted', (a, kw) => { argc('sorted', a, 1); return new PyList(sortItems(vm.toList(a[0]), kw)); });
   vm.sortItems = sortItems;
@@ -289,6 +303,7 @@ export function builtins(vm: PyProgram): Map<string, Val> {
     hashKey(a[0]);
     if (typeof a[0] === 'bigint') { const m = (1n << 61n) - 1n; const h = a[0] < 0n ? -((-a[0]) % m) : a[0] % m; return h === -1n ? -2n : h; }
     if (typeof a[0] === 'boolean') return a[0] ? 1n : 0n;
+    if (typeof a[0] === 'number' && !Number.isNaN(a[0])) return floatHash(a[0]);
     return raise('SandboxLimit', "real Python has hash() on this type, and for strings it changes on every run; write your own hash function here");
   });
   def('round', (a, kw) => {

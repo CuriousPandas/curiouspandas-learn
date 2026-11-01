@@ -1,0 +1,219 @@
+---
+title: "Graphs: the shape of nearly everything"
+summary: In 1980 three routing updates circled the ARPANET until it stopped working, because "later than" had a loop in it. Learn what a graph is, walk one two ways, put tasks in a safe order, and find the cycle a tool may refuse, or mention once and build anyway.
+minutes: 22
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/stacks-and-queues]
+sources:
+  - title: Eric Rosen - RFC 789, Vulnerabilities of Network Control Protocols (1981)
+    url: https://www.rfc-editor.org/rfc/rfc789.txt
+  - title: Python docs - graphlib, including CycleError
+    url: https://docs.python.org/3/library/graphlib.html
+  - title: GNU make 3.79.1 manual, error messages (the current manual was unreachable)
+    url: https://ftp.gnu.org/old-gnu/Manuals/make-3.79.1/html_chapter/make_16.html
+  - title: GNU make source, src/remake.c (GitHub mirror, read and never run)
+    url: https://raw.githubusercontent.com/mirror/make/master/src/remake.c
+  - title: Jeff Erickson - Algorithms, chapters 5 and 6 (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/06-dfs.pdf
+  - title: MIT OpenCourseWare - 6.006, lecture notes 9 to 14 (free)
+    url: https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes/
+---
+
+"On October 27, 1980, there was an unusual occurrence on the ARPANET." That's how Eric Rosen opens his report, and it's an understatement. For several hours, almost no router on the network could talk reliably to any other. A router was called an IMP. Restarting one did nothing, because as soon as it was connected again it fell over the same way.
+
+When the team read core dumps from several IMPs, most of the buffers, and in some cases all of them, held a routing update, and all of those came from one IMP, which was off the network at the time. They carried only three sequence numbers, queued in the same order over and over: 8, 40, 44, 8, 40, 44.
+
+An IMP accepts an update only if it's newer than the last one it saw from that source, then passes it on to all its neighbours. "Newer" was a rule called LATER, built for numbers that wrap round from 63 back to 0. Update n is LATER than update m if either:
+
+```text
+n > m, and n - m <= 32
+n < m, and m - n > 32
+```
+
+So 44 is LATER than 40. 40 is LATER than 8. And 8 is LATER than 44, because 44 - 8 is more than 32. Rosen again: "Since each update is LATER than one of the others, a cycle is formed which keeps the three updates floating around the network indefinitely."
+
+Draw an arrow from each number to the one it beats. The arrows go round in a circle:
+
+<Diagram
+  id="alg-graphs-later"
+  title="The rule that looked like an order"
+  desc="Three sequence numbers with arrows between them. 44 is LATER than 40, 40 is LATER than 8, and 8 is LATER than 44, so the arrows form a closed loop and no number is newest."
+  nodes={[
+    { id: 'a', label: '44', sub: '101100 in binary', x: 0, y: 0, kind: 'info' },
+    { id: 'b', label: '40', sub: '101000 in binary', x: 1, y: 0, kind: 'info' },
+    { id: 'c', label: '8', sub: '001000 in binary', x: 1, y: 1, kind: 'bad' },
+  ]}
+  edges={[
+    { from: 'a', to: 'b', label: 'LATER than' },
+    { from: 'b', to: 'c', label: 'LATER than' },
+    { from: 'c', to: 'a', label: 'LATER than' },
+  ]}
+/>
+
+An order can't go round in a circle. If A beats B and B beats C, then C shouldn't beat A. LATER could, so each IMP always had a newer update to accept, however long it ran.
+
+Nobody had to attack anything. Rosen thinks a hardware fault dropped bits from a single update: in binary 44 is `101100`, 40 is `101000` and 8 is `001000`, and each differs from the next by one bit. He presents that as what the evidence "suggests", not as something proved. The team's first guess, a malformed update making the routing process use too much CPU, was "on the right track" but "not quite correct", in his words. "The routing code was working correctly, and the routes that were generated were correct and consistent." The routes were fine. The thing that failed was the order those updates were meant to arrive in.
+
+<Callout kind="trap">
+This outage gets retold as a shortest-path bug. RFC 789 never mentions Dijkstra or shortest paths, and it says the routing code was working. The failure was in how updates spread, and in a comparison that wasn't a true ordering.
+</Callout>
+
+## What a graph is
+
+That picture of three arrows is a **graph**: some things, called **nodes**, and some connections between them, called **edges**. It's a small idea that fits a lot of problems. Routers and links. Web pages and hyperlinks. Tasks and what they depend on. Every time something is connected to something else, you can ask graph questions: can I get from here to there? What's the shortest way? Is there a loop?
+
+Edges come in a few kinds. They can be **directed**, one way only, like "needs" or "is LATER than". Or **undirected**, like a road or a cable. They can carry a number, called a **weight**: a length, a cost, a delay.
+
+To work with a graph, a program has to hold it somehow. There are two standard ways, and you'll see both in the lab:
+
+- An **adjacency list** keeps, for each node, a list of its neighbours. It's small when there are few edges. Finding your neighbours is instant.
+- An **adjacency matrix** is a grid with a row and a column per node, and a mark where an edge exists. It answers "is there an edge from A to B?" in one lookup. It always takes one cell for every pair, so 1,000 nodes cost a million cells even with a dozen edges.
+
+Most real graphs have few edges for their size, which is why the list is the usual choice.
+
+## Walking a graph
+
+Nearly every graph algorithm starts by visiting nodes in some order without going round in circles. Keep a pile of nodes waiting to be visited, and a record of nodes you've already seen. Take one, mark it as seen, add its neighbours to the pile, and repeat.
+
+The whole difference between the two classic walks is which one you take next:
+
+- With a **queue**, first in first out, you get **breadth-first search** (BFS). It visits everything one edge away, then everything two edges away, so it finds the route with the fewest edges.
+- With a **stack**, last in first out, you get **depth-first search** (DFS). It runs as far as it can down one route before coming back.
+
+Either way, you visit every node you can reach once, which answers the plainest graph question there is. **Reachability** asks: what can I get to from here? Whatever the walk didn't visit, you can't reach.
+
+Flooding, the way the ARPANET spread its updates, is this walk with no central list: each node sends on what it accepts. Its "already seen" check was LATER. That's why a broken LATER did so much damage: it broke the one thing that stops a walk going round forever.
+
+## Try it
+
+This is the Network Lab. The **Flood** tab replays the failure. The map and the buffer sizes are invented for the lab, and RFC 789 doesn't give those. The LATER rule, the forward-to-everyone step and the three numbers are Rosen's.
+
+<NetworkLab />
+
+<Callout kind="real">
+In the lab, the order the three numbers arrive in decides everything. Put out 44, 40, 8 instead and they die out within ten ticks, because a rejected update goes no further. That's the lab's model and not a measured fact about 1980, but it fits the report: Rosen calls the failure freakish and says it was the first of its kind in a year and a half of running this routing algorithm.
+</Callout>
+
+Here's the walk itself, in real Python. It holds the graph as an adjacency list, using a dict. Change `waiting.pop(0)` to `waiting.pop()` and you've turned the queue into a stack, and a breadth-first search into a depth-first one. Then try starting from `"F"`.
+
+<CodeLab code={`roads = {
+    "A": ["B", "C"],
+    "B": ["A", "C", "D"],
+    "C": ["A", "B", "E"],
+    "D": ["B", "E"],
+    "E": ["C", "D"],
+    "F": ["G"],
+    "G": ["F"],
+}
+
+def walk(graph, start):
+    seen = set()
+    order = []
+    waiting = [start]
+    while waiting:
+        node = waiting.pop(0)
+        if node in seen:
+            continue
+        seen.add(node)
+        order.append(node)
+        for neighbour in graph[node]:
+            if neighbour not in seen:
+                waiting.append(neighbour)
+    return order
+
+print(walk(roads, "A"))
+print("Reachable from A:", sorted(walk(roads, "A")))
+`} />
+
+## Putting tasks in order
+
+Now give the edges a meaning you've met. `app` needs `lib`, `lib` needs `core`. In what order do you build them? An order where everything comes after what it needs is called a **topological sort**. Build tools, package managers and spreadsheets all depend on one.
+
+The neat way to get one is a depth-first walk. Before you finish a node, finish everything it needs. The order in which nodes finish is a safe build order.
+
+<CodeLab code={`needs = {
+    "app": ["lib", "log"],
+    "lib": ["core"],
+    "log": ["core"],
+    "core": [],
+}
+
+def build_order(needs):
+    done = []
+    started = set()
+    def visit(thing):
+        if thing in started:
+            return
+        started.add(thing)
+        for other in needs[thing]:
+            visit(other)
+        done.append(thing)
+    for thing in needs:
+        visit(thing)
+    return done
+
+print(build_order(needs))
+`} />
+
+Now add `"app"` to what `core` needs and run it again. It prints an order with no error at all, and `core` comes before the thing it now needs. That code has the same quiet flaw as the ARPANET's rule. It has no way to say that a cycle exists.
+
+A cycle means there's no correct answer. Python's `graphlib` says so outright: "A complete topological ordering is possible if and only if the graph has no directed cycles". It raises a `CycleError` and builds nothing. GNU make takes the other road. Its manual says the message "means that make detected a loop in the dependency graph", and its source code prints `circular %s <- %s dependency dropped`, drops that dependency and carries on. That's the same graph problem, with one tool that refuses and one that prints a line and carries on. The lab's **Build** tab shows both.
+
+<Callout kind="real">
+make wasn't installed where this lesson was written. The lab's make behaviour is modelled from reading its source code, and make itself was never run. So this lesson can't tell you what exit status make gives you, or how it behaves with its newer warning settings. Try it yourself: put a loop in a small Makefile and read what comes out. What's checked here is `graphlib`: this site's tests compare the lab with it on 302 graphs, 300 of them random.
+</Callout>
+
+## Was the fix a fix?
+
+Rosen's fix is one character: change `<=` to `<` in the first line of LATER. With it, 40 is no longer LATER than 8, since they're exactly 32 apart, and the cycle in the dump is gone. But he doesn't oversell it: "We will implement this fix, but it cannot be guaranteed that no related problems will ever arise."
+
+He was right to be careful. This site checked every combination of the 64 numbers:
+
+| Under each rule | With `<=` | With `<` |
+|---|---|---|
+| Sets of three numbers that form a cycle | 10,912 | 9,920 |
+| Of those, sets you can reach by dropping one bit twice | 160 | 0 |
+
+So the fix removes every cycle of the kind he found, and thousands of other cycles are still there. 0, 20 and 40 still chase each other forever. The lab lets you inject those, and that's the mission's sharpest step. Sequence numbers that wrap round can't be a true order, so the design depends on numbers far apart never being around at the same time. What failed in 1980 was that assumption, when a fault broke it.
+
+Rosen's bigger conclusion wasn't about the rule at all. A high priority process had run wild and nothing noticed. "It took us no more than an hour to figure out how to restore the network; several additional hours were required because it took so long for us to gain control of the misbehaving IMPs". They were controlling the network through the network.
+
+<GoDeeper title="Cost of a walk, and why a topological order exists">
+A walk over an adjacency list costs `O(V + E)`, where `V` is the number of nodes and `E` the number of edges. Each node is taken once, and each edge is looked at once from each end it can be followed from. Over a matrix it costs `O(V²)`, because finding one node's neighbours means reading its whole row.
+
+A directed graph has a topological order exactly when it has no cycle. One direction is easy: on a cycle, each node must come after the one before it, all the way round, which is impossible. For the other, Erickson shows that "the reversal of any postordering of G is a topological ordering of G", where a postordering is the order in which a depth-first walk finishes its nodes. Our code doesn't need to reverse it, because its arrows mean "needs" rather than "comes before", which flips them.
+
+That's his chapter 6, and his book is free.
+</GoDeeper>
+
+<Quiz
+  id="alg-graphs-1"
+  q="RFC 789's IMPs were restarted one at a time and each fell over again. Why?"
+  options={["The restart didn't clear the routing tables", "The restarted IMP immediately got the bad updates again from its neighbours, which had not been restarted", "The routing code was calculating wrong routes"]}
+  answer={1}
+  explain="Restarting does clear an IMP's tables, and the routes were fine. But its neighbours were still passing the updates round, so it caught them again. Rosen notes that restarting all of them at once would have cleared it instantly."
+/>
+
+<Quiz
+  id="alg-graphs-2"
+  q="You swap the queue in a breadth-first search for a stack. What changes?"
+  options={["The set of nodes it can reach", "The order it visits them in, and it no longer finds the route with the fewest edges", "Nothing, because they're both walks"]}
+  answer={1}
+  explain="Both reach the same nodes, since reachability doesn't depend on order. A queue visits one edge away, then two, which is why it finds the fewest edges. A stack charges off down one route and gives no such promise."
+/>
+
+<Quiz
+  id="alg-graphs-3"
+  q="A build tool finishes and reports success on a dependency graph with a cycle in it. What does that success tell you?"
+  options={["The cycle didn't matter", "Nothing good. No order can satisfy every dependency, so something was built without something it needs", "The tool found a clever order that satisfies them all"]}
+  answer={1}
+  explain="With a cycle, no correct order exists at all. A tool that carries on has dropped an edge, and one line of warning is easy to miss. Loud refusal is more annoying and much safer."
+/>
+
+## What to remember
+
+- Things and connections make a graph, and that one shape covers routes, dependencies and links.
+- A queue gives breadth-first and a stack gives depth-first. The rest of the walk is the same.
+- Before you trust a "newer than" or "comes before", check it can't go round in a circle.
+- A cycle means no correct order exists, so a tool that builds anyway has dropped something, whether or not you noticed the line it printed.

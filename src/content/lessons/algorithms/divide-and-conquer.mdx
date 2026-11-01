@@ -1,0 +1,161 @@
+---
+title: Split it, solve it, stitch it back
+summary: Halving a problem can turn a year of work into a minute, but only if putting the halves back together is cheap. Build merge sort and quicksort in the code lab, watch one line break each of them, and measure the fix.
+minutes: 22
+xp: 55
+tiers: [browser]
+builds_on: [algorithms/sorting]
+sources:
+  - title: Joshua Bloch - Extra, Extra - Read All About It Nearly All Binary Searches and Mergesorts are Broken (2006)
+    url: https://research.google/blog/extra-extra-read-all-about-it-nearly-all-binary-searches-and-mergesorts-are-broken/
+  - title: MIT OpenCourseWare - 6.006, recitation 3, on merge sort and the master theorem (free)
+    url: https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/resources/mit6_006s20_r03/
+  - title: Sedgewick & Wayne - Mergesort, section 2.2 (free booksite)
+    url: https://algs4.cs.princeton.edu/22mergesort/
+  - title: Sedgewick & Wayne - Quicksort, section 2.3 (free booksite)
+    url: https://algs4.cs.princeton.edu/23quicksort/
+  - title: Jeff Erickson - Algorithms, chapter 1, Recursion (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/01-recursion.pdf
+---
+
+In 2006, Joshua Bloch wrote up a bug in the line of code that decides where to split a list in half. He'd written it into Java's library himself. "It was reported to Sun recently when it broke someone's program, after lying in wait for nine years or so." The line added two positions together and divided by two, and on a list of about a billion items the sum overflowed.
+
+The searching lesson tells that story. What matters here is a sentence near the end of his post: "The binary-search bug applies equally to mergesort, and to other divide-and-conquer algorithms."
+
+So here's the family that bug belongs to. It's one of the most useful ideas in computing, the arithmetic of it can be checked with a pencil, and its failures are quiet.
+
+## The idea
+
+**Divide and conquer** has three steps:
+
+1. **Split** the problem into smaller problems of the same kind.
+2. **Solve** each one, the same way, until they're small enough to answer directly. That smallest case is the **base case**.
+3. **Stitch** the answers together.
+
+Compare it with **brute force**, which does the obvious exhaustive work. To sort a million items by comparing every pair takes `n(n-1)/2`, which is 499,999,500,000 comparisons. Merge sort needs at most `n log₂ n`, which is 19,931,569. At a million comparisons a second, that's about 5.8 days against 20 seconds.
+
+## Why it's n log n
+
+Picture merge sort on 8 items as a tree of work:
+
+```text
+level 0:  [ 8 items ]                         merging costs about 8
+level 1:  [ 4 ] [ 4 ]                         merging costs about 4 + 4
+level 2:  [ 2 ] [ 2 ] [ 2 ] [ 2 ]             merging costs about 2 + 2 + 2 + 2
+level 3:  [1][1][1][1][1][1][1][1]            base case: nothing to do
+```
+
+Each level costs about `n`, because all of the pieces on it add up to the whole list. And there are `log₂ n` levels, because that's how many times you can halve `n` before reaching 1. So the total is about `n × log₂ n`.
+
+The number of levels is what makes it so cheap. A billion items is only 30 levels deep.
+
+That reasoning has a condition hidden in it, though. **Each level costs about `n` only if the stitching is cheap.** Here's what happens when it isn't.
+
+## Merge sort that isn't
+
+This merge sort has the right split, the right recursion and the right answers. **Run** it, then **Measure growth**.
+
+<CodeLab mission="cs-dc-merge-sort" grow="merge_sort" sizes="200,400,800,1600" />
+
+It's the same trap as `x in seen` from [the counting-steps lesson](/learn/algorithms/counting-steps/). `pop(0)` looks like one small step, but every remaining item has to move along by one. So each merge became quadratic in its own size, and the top level alone now grows like `n²`. The levels below add about as much again, and the recursion's cleverness doesn't save you.
+
+<Callout kind="trap">
+A divide-and-conquer algorithm is only as fast as its stitching. If you ever see a recursive split with a slow step inside, the fix isn't in the recursion. Look at what each level does. Measuring growth finds this in seconds, and reading the code usually doesn't.
+</Callout>
+
+Merge sort's fixed version uses at most `n log₂ n` comparisons on any input, which is what makes it the safe choice: it has no bad inputs. It pays for that in memory, since merging needs a place to put the result. MIT's notes say it plainly: it "is not in-place". Sorting with no second list is called **in place**.
+
+## Quicksort does its work first
+
+Merge sort splits without looking, and does the real work on the way back up. Quicksort is the other way round. It does the work before it recurses, by dividing the items around a pivot, and then has nothing left to stitch: smaller items, then equal items, then larger items are already in order. Keeping the equal items in a group of their own is called **three-way partitioning**. It's why a file of one repeated number, which wrecks the quicksort in [the sorting lesson's lab](/learn/algorithms/sorting/), costs this version a single pass.
+
+<CodeLab mission="cs-dc-quicksort" grow="quick_sort" sizes="100,200,400,800,1600" />
+
+The lab's lists are already sorted, so a first-item pivot splits them into nothing and everything. Each level removes one item, so there are `n` levels instead of `log₂ n`, and they each cost about `n`. That's `n²`, and it's also why sizes over the page's step limit show as "did not finish".
+
+The depth is a problem of its own. Every level is a function call waiting for the one below it, and calls take space. So:
+
+| Algorithm | How deep the recursion goes on 1,000,000 items |
+|---|---|
+| Merge sort | about 20 levels |
+| Quicksort with a good pivot | a few dozen levels |
+| Quicksort with a bad pivot on sorted input | up to 1,000,000 levels |
+
+Real Python stops that with an error, by default at a depth of about 1,000. The first-pivot version above sorts 900 sorted items and raises `RecursionError` on 1,100.
+
+The middle-item fix handles sorted input. It isn't a cure. On the organ-pipe input from the sorting lesson, the same middle-item rule costs 250,000 comparisons for 1,000 items, and that's with nobody attacking. Random pivots are the textbook answer, for the reasons and with the limits [the sorting lesson](/learn/algorithms/sorting/) measured. Libraries such as C++'s and .NET's add a guaranteed fallback, which that lesson also covers.
+
+<Callout kind="real">
+The lab's step counts include everything a line does, so they differ from the comparison counts in the sorting lesson. The shape is what they share. Also, the page has a step limit that real Python doesn't. In this lab the size that shows as "did not finish" is 1,600, and real Python wouldn't finish that one either, for a different reason: it stops at the recursion limit. A quicksort can also avoid deep recursion by recursing into the smaller side and looping on the larger one, which keeps the depth to about `log₂ n`, since each call gets at most half the items. Merge sort can be written without recursion too, merging runs of 1, then 2, then 4, and Sedgewick and Wayne give that version. Recursion is a way of thinking about these algorithms. It isn't required for running them.
+</Callout>
+
+## Not every split needs both halves
+
+Binary search is divide and conquer with a nice twist: it splits in half and throws one half away. Nothing needs stitching. So instead of `n` work on each level, it does one comparison per level, and the total is `log₂ n`. This is sometimes called **decrease and conquer**.
+
+The three shapes come from just two questions: how many halves do you keep, and how much does each level cost?
+
+| Algorithm | Halves kept | Work per call | Total |
+|---|---|---|---|
+| Binary search | 1 | constant | `log₂ n` |
+| Find the largest item, by splitting | 2 | constant | `n` |
+| Merge sort | 2 | `n` | `n log₂ n` |
+
+The middle row is a good reminder that splitting isn't magic. There, every item still has to be looked at, so splitting achieves nothing that a plain loop wouldn't. A problem has to have some wasted work in it for dividing to remove.
+
+<GoDeeper title="The master theorem">
+Recurrences like these have a general solution. This statement follows MIT 6.006's recitation 3.
+
+Take `T(n) = a·T(n/b) + f(n)` with `T(1) = Θ(1)`, where `a ≥ 1`, `b > 1`, and `f` is asymptotically non-negative. (`Θ` means bounded above and below by the same shape, up to constant factors. `Ω`, below, means bounded below by that shape, and `ε` is a fixed positive number, which can be small.) Compare `f(n)` with `n^(log_b a)`, the number of leaves in the recursion tree:
+
+| Case | Condition on `f(n)` | Solution |
+|---|---|---|
+| 1 | `f(n) = O(n^(log_b a − ε))` for some constant `ε > 0` | `T(n) = Θ(n^(log_b a))` |
+| 2 | `f(n) = Θ(n^(log_b a) · log^k n)` for some constant `k ≥ 0` | `T(n) = Θ(n^(log_b a) · log^(k+1) n)` |
+| 3 | `f(n) = Ω(n^(log_b a + ε))` for some constant `ε > 0`, **and** `a·f(n/b) < c·f(n)` for some constant `0 < c < 1` | `T(n) = Θ(f(n))` |
+
+In words: in case 1 the leaves dominate, in case 3 the root dominates, and in case 2 the work spreads evenly over the `log n` levels. Case 3's second condition is easy to forget and it's part of the theorem.
+
+Worked through:
+
+| Recurrence | Example | `log_b a` | Case | Result |
+|---|---|---|---|---|
+| `T(n) = T(n/2) + 1` | binary search | 0 | 2, with `k = 0` | `Θ(log n)` |
+| `T(n) = 2T(n/2) + 1` | largest item, by splitting | 1 | 1 | `Θ(n)` |
+| `T(n) = 2T(n/2) + n` | merge sort | 1 | 2, with `k = 0` | `Θ(n log n)` |
+| `T(n) = 2T(n/2) + n²` | a costly combine | 1 | 3, since `2(n/2)² = n²/2`, so any `c` between 1/2 and 1 works | `Θ(n²)` |
+
+Two limits are worth knowing. It has gaps: `T(n) = 2T(n/2) + n / log n` fits none of the cases, because `n / log n` is smaller than `n` but not smaller by a power of `n`, and case 2 needs `k ≥ 0`. And it needs subproblems of a fixed fraction, so it says nothing directly about quicksort, whose split depends on the pivot. Sedgewick and Wayne give quicksort's own results: about `2 n ln n` compares on average and about `n²/2` at worst.
+</GoDeeper>
+
+<Quiz
+  id="alg-dc-1"
+  q="A colleague's recursive sort splits the list in half correctly, and yet measuring it shows the work quadruples when the input doubles. Where should they look first?"
+  options={["At the recursion: it must be recursing too deep", "At the step that combines the halves: a hidden scan there, such as pop(0) on a list, makes every level cost much more than n", "At the machine: recursion is slow in Python"]}
+  answer={1}
+  explain="There are only about log₂ n levels when the split is even, so the total is that times the cost per level. If a level's stitching is quadratic in its size, the top level alone grows like n², and that swamps everything else."
+/>
+
+<Quiz
+  id="alg-dc-2"
+  q="Why does a first-item pivot do so badly on a list that's already sorted?"
+  options={["Sorted lists have too many equal items", "The first item is the smallest, so one side of each split is empty: every level removes one item, and there are n levels instead of about log₂ n", "Comparing numbers in order is slower"]}
+  answer={1}
+  explain="The speed of divide and conquer comes from halving. When the split is nothing and everything, nothing halves. You get n levels costing about n each, and in real Python, deep recursion raises RecursionError at around 1,000 levels."
+/>
+
+<Quiz
+  id="alg-dc-3"
+  q="Binary search and merge sort both split a list in half. Why is one log n and the other n log n?"
+  options={["Binary search keeps only one half and does constant work per level; merge sort keeps both halves and does about n work per level", "Binary search is written with a loop, and loops are faster than recursion", "Merge sort splits into more than two pieces"]}
+  answer={0}
+  explain="Same number of levels, about log₂ n, and very different work on each. Binary search throws half the list away at each step, while merge sort has to touch all of it on every level."
+/>
+
+## What to remember
+
+- Divide and conquer: split, solve the same problem on the pieces, stitch the answers together.
+- Levels times cost per level gives the total. Even splits give about `log₂ n` levels.
+- The cost per level is where these algorithms go wrong. A slow stitch undoes everything, with no error.
+- An uneven split gives `n` levels instead of `log₂ n`, and that costs you both time and call depth.
+- Splitting only helps if it removes work. If every item still has to be examined, a plain loop does the same job.

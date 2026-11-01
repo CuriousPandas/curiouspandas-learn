@@ -1,0 +1,138 @@
+---
+title: Shortest paths, and how a map app answers
+summary: Everybody knows Dijkstra's algorithm breaks on negative edges. His paper never mentions them, and the answer depends on which version you mean. Run both, watch one go quietly wrong, fix it, and see what real routing software publishes about itself.
+minutes: 22
+xp: 50
+tiers: [browser]
+builds_on: [algorithms/graphs, algorithms/trees-and-heaps]
+sources:
+  - title: E. W. Dijkstra - A Note on Two Problems in Connexion with Graphs (1959), free scan on a Cornell course page
+    url: https://courses.cs.cornell.edu/cs2110/2017sp/online/shortestPath/1959dijkstra.pdf
+  - title: The same paper at Springer (paywalled, the publisher's copy)
+    url: https://link.springer.com/article/10.1007/BF01386390
+  - title: An interview with Edsger W. Dijkstra, Communications of the ACM (2010)
+    url: https://cacm.acm.org/opinion/an-interview-with-edsger-w-dijkstra/
+  - title: Jeff Erickson - Algorithms, chapter 8 (free book)
+    url: https://jeffe.cs.illinois.edu/teaching/algorithms/book/08-sssp.pdf
+  - title: RFC 2328 - OSPF version 2
+    url: https://www.rfc-editor.org/rfc/rfc2328.txt
+  - title: Open Source Routing Machine - README
+    url: https://raw.githubusercontent.com/Project-OSRM/osrm-backend/master/README.md
+  - title: Python docs - heapq, including its priority queue notes
+    url: https://docs.python.org/3/library/heapq.html
+  - title: MIT OpenCourseWare - 6.006, lecture notes 11 to 14 (free)
+    url: https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/pages/lecture-notes/
+---
+
+Ask a programmer what they know about Dijkstra's algorithm and you'll hear three things. It uses a priority queue. It finds the shortest route from one place to everywhere else. It breaks on negative edges.
+
+Now read the paper. It's three pages long, published in 1959, and called "A Note on Two Problems in Connexion with Graphs". It has no priority queue in it. It stops as soon as it reaches the place you asked for. It says only that "the length of each branch is given", with no word about those lengths being positive. And shortest paths are the *second* problem in it. Problem 1 is something else, which the next lesson comes back to: "Construct the tree of minimum total length between the n nodes."
+
+Problem 2 is the one that made him famous: "Find the path of minimum total length between two given nodes P and Q." And he later said how long it took: "It is the algorithm for the shortest path, which I designed in about 20 minutes." The credit is less tidy. Jeff Erickson's textbook says it was first "published" in 1957, in a project report by a team led by Michael Leyzorek, that Dijkstra found it independently, and that it's named after him "in full accordance with Stigler's Law", which says a discovery is rarely named after the person who made it first. (Erickson's scare quotes are there because a project report barely counts. We didn't read the report itself.)
+
+So where does the rule about negative edges come from? It's a real rule, hidden in one phrase from the paper.
+
+## The idea
+
+You can't get to a node without passing through the nodes before it. So if you already know the shortest way to the nearby places, you can extend from those to find the next-nearest. Dijkstra's sentence: "the minimal paths from P to the other nodes are constructed in order of increasing length until Q is reached."
+
+The method keeps two things: the best distance found so far for each node, and a set of nodes that are finished, which we'll call **settled**.
+
+1. Start with distance 0 at the start node.
+2. Of the nodes you've reached and haven't settled, take the nearest. His paper finds it with a plain scan. Settle it.
+3. For each edge out of it, check whether going that way gives a shorter route to the far end. If so, write that down.
+4. Repeat until you reach the goal.
+
+Settling a node means promising that you've found its shortest route and won't look again. Is that promise safe? Everything left to explore is at least as far away as the node you just took. If every edge adds length, no route through those can come back shorter. So the promise rests on "in order of increasing length", and that rests on edges never subtracting. The paper doesn't state the condition, and the method quietly needs it.
+
+## Watch it break
+
+Here's a small graph with four nodes. Start with every length positive, so that both algorithms should agree. Then change one length to -2 and see whether anything tells you something went wrong.
+
+<NetworkLab tabs="route" graph="negative" variant="paths" />
+
+The check here is **Bellman-Ford**, a much blunter algorithm. It goes over every edge, again and again, improving whatever it can, and never promises anything along the way. It's slower, and because it makes no assumption about signs, it's a good way to check an answer.
+
+<Callout kind="trap">
+The wrong answer gets printed like any other. No exception, no warning, and a number that looks entirely reasonable. Nothing crashes, so a test that only checks for errors can't catch it. You catch it by comparing against something that works differently, or by adding up a route by hand.
+</Callout>
+
+## "Fails on negative edges" depends on the version
+
+The folk rule isn't quite right, and Erickson's textbook is careful about why. There are two versions:
+
+- **The textbook version**, which never looks at a settled node again. It "does not correctly compute shortest paths in graphs with negative edges." That's the one you just broke.
+- **A version that re-opens a node** whenever an edge improves it. Take away the promise, and it's right on any graph that has no **negative cycle**, a loop whose lengths add up to less than zero. (With one of those, you could go round forever getting "shorter", so no shortest path exists.)
+
+So why isn't everyone using the second? Erickson argues it deserves the name more, on the grounds that "a correct algorithm that is sometimes (and in practice, rarely) slow is better than a fast algorithm that doesn't always work!" But with negative edges, its worst case is exponential. This site built the family of graphs from his figure and counted: 14 stages, which is just 29 nodes, took **49,149** improvements, and each extra stage about doubled it. Bellman-Ford took under 100 on the same graph. On graphs where nothing is negative, the second version settles each node once and is as fast as the first.
+
+Now do the fix yourself. This is his paper's method, with the scan and no priority queue, in real Python. Find the rule that makes it wrong, and remove it.
+
+<CodeLab mission="alg-paths-dijkstra" rows={24} />
+
+## Where the priority queue came from
+
+That scan reads every reached node, each time round the loop. With `V` nodes that's about `V²` steps. Erickson notes that papers from the 1950s never mention priority queues, and that the idea of using one here came from Donald Johnson in 1977.
+
+A **priority queue** is a structure built for one question: which item is smallest? The trees and heaps lesson builds one, called a heap. It answers in about `log V` steps, so on a road map, where each junction has only a few roads, you do far less work.
+
+How much less? This site counted a full search of a square grid of 201 by 201, with every road the same length, visiting all 40,401 junctions. The scan in the code above made 826,966,801 checks, because it reads every node it has reached, finished or not. A tidier scan that reads only the unfinished ones made 10,866,601. A binary heap made 363,749 comparisons: about 30 times fewer than the tidier scan, and over 2,000 times fewer than ours. These are counts, not seconds, and they're why a Python Dijkstra on a map like this would use a heap.
+
+But the scan isn't always worse. Erickson points out that on a graph where nearly every pair of nodes is connected, the original beats the binary heap version. The old method still has a place.
+
+<Callout kind="real">
+This page's Python has no `import`, so `heapq` isn't available here. The code above scans because Dijkstra's paper does, and the rule it breaks has nothing to do with how the next node is found. In real Python, you would use `heapq`. It can't change the priority of an item already inside it, and its docs suggest marking the old entry as removed instead. So a Python Dijkstra pushes the same node several times and skips the stale copies when they come out. It looks like a bug and it isn't. This site's tests run the lab against a real `heapq` version on 400 random graphs.
+</Callout>
+
+## So how does a map app answer?
+
+You now know the core idea, and also a limit. Dijkstra's method doesn't know where the goal is. It spreads out in all directions, in order of distance, until it happens to reach it. This site ran it on a square grid of 201 by 201 with every road the same length, starting in the middle, for a goal 50 steps to the east. It settled about **5,000** nodes to find a route of 50 steps. Now picture a real map with millions of junctions, and a trip across a country.
+
+What Google or Apple actually run isn't something this lesson can tell you. We have no primary source for it, so we won't guess. Here's what we can check, because the people involved publish it:
+
+- **Inside the internet**, OSPF is a routing protocol used by real networks, and its standard names the method: "Using the Dijkstra algorithm, a tree is formed from this subset of the link state database."
+- **On open maps**, the Open Source Routing Machine is a real route planner whose README says "There are two pre-processing pipelines available:" Contraction Hierarchies and Multi-Level Dijkstra. **Pre-processing** is the key word. It does a lot of work once, ahead of time, on the map, so that each later query can skip nearly all of it.
+
+That's the general move: when you get asked the same kind of question many times, pay once up front. It trades storage and preparation time for speed at the moment of asking, and the next few lessons keep coming back to that trade.
+
+A map also forces a choice the algorithm doesn't make for you. What's "length"? Metres, minutes, tolls? Each gives a different shortest path on the same roads, and all of them are correct answers to the question you asked. Make sure it's the question you meant.
+
+<GoDeeper title="Why the textbook version is correct, and what it costs">
+Erickson's theorem: if `G` has no negative edges, then when the algorithm ends, `dist(v)` is the length of the shortest path from `s` to `v`, for every `v`.
+
+The core of the proof: when you settle `u`, suppose some shorter route to `u` existed. It has to leave the settled set somewhere, at an edge into some unsettled `y`. Everything after `y` adds length, so `y` is no further than that route, and so it's nearer than `u`. Then the algorithm would have taken `y` first. That's a contradiction, and the step "everything after `y` adds length" is exactly what a negative edge breaks.
+
+With a binary heap it takes `O(E log V)` time. Dijkstra's scan takes `O(V²)`. Bellman-Ford takes `O(VE)`, and it can also detect a negative cycle: if anything still improves after `V - 1` rounds, there is one. That's chapter 8 of his free book.
+</GoDeeper>
+
+<Quiz
+  id="alg-paths-1"
+  q="What does Dijkstra's 1959 paper say about negative lengths?"
+  options={["It rules them out in its first sentence", "Nothing: it says only that the length of each branch is given, and the method quietly assumes they don't subtract", "It proves the method works for them"]}
+  answer={1}
+  explain="The rule is real, and it's implied by 'in order of increasing length', not stated. That's why reading the original is worth doing: the folk version adds a condition, and moves the credit, and adds a priority queue."
+/>
+
+<Quiz
+  id="alg-paths-2"
+  q="Your route planner gives a wrong distance on a graph with a negative edge, with no error. Which change makes it right, assuming no negative cycle?"
+  options={["Use a faster priority queue", "Let a node be reconsidered whenever a shorter way to it turns up, instead of settling it for good", "Add a large constant to every edge so that all of them are positive"]}
+  answer={1}
+  explain="The promise never to look again is the bug. Adding a constant is the classic false fix: it favours routes with fewer edges, because each edge gets the bonus, so it changes which route is shortest."
+/>
+
+<Quiz
+  id="alg-paths-3"
+  q="What can you honestly say about how Google Maps finds a route?"
+  options={["It runs Dijkstra's algorithm", "It runs A*, as everybody knows", "Without a primary source you can't say, though open-source planners do publish theirs and the common idea is preparing the map in advance"]}
+  answer={2}
+  explain="Plenty of confident claims exist, and few have a source behind them. OSRM's README does publish its methods, and OSPF's standard does name Dijkstra. Say what you can check."
+/>
+
+## What to remember
+
+- Dijkstra's method visits nodes in order of distance, and it promises never to look at a finished node again.
+- That promise is only safe if edges can't subtract. Break it and you get a wrong answer with no error.
+- Whether "it fails on negative edges" depends on the version: re-opening nodes stays right and can get exponentially slow.
+- Check a surprising number against something that works a different way.
+- When the same question is asked again and again, do the work once in advance.

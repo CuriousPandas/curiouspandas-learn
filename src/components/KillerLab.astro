@@ -1,0 +1,220 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card killer" data-killer>
+  <div class="widget-head">
+    <strong>Killer Lab</strong>
+    <span class="pill info">real algorithms, every comparison counted. The counts match real Python, checked in CI.</span>
+  </div>
+  <div class="kl-grid">
+    <div class="kl-main">
+      <div class="controls">
+        <label>sort
+          <select data-k="sort">
+            <option value="quick">Quicksort</option>
+            <option value="selection">Selection sort</option>
+            <option value="insertion">Insertion sort</option>
+            <option value="merge">Merge sort</option>
+            <option value="python">Python's sorted</option>
+          </select>
+        </label>
+        <label data-pivot-wrap>pivot
+          <select data-k="pivot">
+            <option value="first">first item</option>
+            <option value="middle">middle item</option>
+            <option value="random">random item</option>
+            <option value="median3">median of three</option>
+          </select>
+        </label>
+        <label>input
+          <select data-k="input">
+            <option value="sorted">already sorted</option>
+            <option value="shuffled">shuffled</option>
+            <option value="organ">organ pipe: up, then down</option>
+            <option value="equal">all the same number</option>
+            <option value="zeroOne">random zeros and ones</option>
+            <option value="adversary">the adversary</option>
+            <option value="replay">replay the saved input</option>
+          </select>
+        </label>
+        <label>n
+          <select data-k="n">
+            <option value="500">500</option>
+            <option value="1000" selected>1,000</option>
+            <option value="2000">2,000</option>
+          </select>
+        </label>
+        <label data-seed-wrap>seed
+          <input type="number" data-k="seed" value="11" min="0" max="999999" />
+        </label>
+        <button class="btn small" type="button" data-new-seed>New seed</button>
+        <button class="btn small primary" type="button" data-run>Run</button>
+        <button class="btn small" type="button" data-reset>Reset lab</button>
+      </div>
+      <p class="kl-status" data-status role="status">Not run yet.</p>
+      <div class="stats">
+        <div class="stat">comparisons<b data-count>0</b></div>
+        <div class="stat">the floor, ⌈log₂ n!⌉<b data-floor>0</b></div>
+        <div class="stat">n(n-1)/2<b data-worst>0</b></div>
+      </div>
+      <div class="kl-bar" aria-hidden="true"><span class="kl-fill" data-fill></span></div>
+      <p class="kl-scale muted">The bar's full width is n(n-1)/2, the cost of comparing every pair.</p>
+      <figure class="kl-fig">
+        <svg data-svg viewBox="0 0 120 60" preserveAspectRatio="none" role="img" aria-label="The input, drawn as a bar per item">
+          <path data-solid class="kl-solid" d="" />
+          <path data-gas class="kl-gas" d="" />
+        </svg>
+        <figcaption class="muted" data-caption>The input appears here, one bar per item.</figcaption>
+      </figure>
+      <div class="kl-table" tabindex="0" role="region" aria-label="Runs so far">
+        <table>
+          <thead><tr><th scope="col">Sort</th><th scope="col">Input</th><th scope="col">n</th><th scope="col">Comparisons</th><th scope="col">÷ n²</th></tr></thead>
+          <tbody data-runs></tbody>
+        </table>
+      </div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { KILLER_MISSION, PIVOT_LABELS, SORT_LABELS, sample, nLgN, fixedInput, type Config, type InputName, type Pivot, type SortName, type SortRun } from '../lib/cs/sorting.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const INPUT_LABELS: Record<InputName, string> = { sorted: 'sorted', shuffled: 'shuffled', organ: 'organ pipe', equal: 'all the same', zeroOne: 'zeros and ones', adversary: 'adversary', replay: 'replay' };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-killer]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    let state = KILLER_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), KILLER_MISSION, () => state, () => {});
+    const field = (k: string) => q<HTMLInputElement>(`[data-k="${k}"]`);
+    let timer = 0;
+
+    const config = (): Config => ({
+      sort: field('sort').value as SortName,
+      pivot: field('pivot').value as Pivot,
+      input: field('input').value as InputName,
+      n: Number(field('n').value),
+      seed: Number(field('seed').value) || 0,
+    });
+
+    // The pivot and seed only mean anything for quicksort. Leaving them live for
+    // the other sorts would suggest that changing them did something.
+    function syncControls() {
+      const quick = field('sort').value === 'quick';
+      q('[data-pivot-wrap]').hidden = !quick;
+      const random = quick && field('pivot').value === 'random';
+      const seededFile = field('input').value === 'shuffled' || field('input').value === 'zeroOne';
+      q('[data-seed-wrap]').hidden = !(random || seededFile);
+      q('[data-new-seed]').hidden = !(random || seededFile);
+    }
+
+    // One path per kind of bar, updated in place: re-creating elements mid-animation
+    // drops clicks in WebKit.
+    function draw(values: number[], gas: number | null) {
+      const pts = sample(values), top = Math.max(1, ...pts), w = 120 / pts.length;
+      let solid = '', cloud = '';
+      pts.forEach((v, i) => {
+        const x = (i + 0.5) * w, h = 58 * (v / top) + 2;
+        const seg = `M${x.toFixed(2)} 60V${(60 - h).toFixed(2)}`;
+        if (gas !== null && v === gas) cloud += seg; else solid += seg;
+      });
+      q('[data-solid]').setAttribute('d', solid);
+      q('[data-gas]').setAttribute('d', cloud);
+      q('[data-solid]').setAttribute('stroke-width', String(Math.max(0.3, w * 0.7)));
+      q('[data-gas]').setAttribute('stroke-width', String(Math.max(0.3, w * 0.7)));
+    }
+
+    function showInput(c: Config, r: SortRun) {
+      if (timer) { clearInterval(timer); timer = 0; }
+      const cap = q('[data-caption]');
+      if (r.frames) {
+        const gas = c.n - 1, frames = r.frames;
+        cap.textContent = 'The input the adversary built. Pale bars are still gas: items with no value until the sort forces one.';
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches || frames.length < 3) { draw(frames.at(-1)!, gas); return; }
+        let f = 0;
+        timer = window.setInterval(() => {
+          draw(frames[f], gas);
+          if (++f >= frames.length) { clearInterval(timer); timer = 0; }
+        }, 45);
+        return;
+      }
+      if (c.input === 'replay' && r.builtAgainst) { draw(r.builtAgainst.values, null); cap.textContent = 'The saved input, now just a list of numbers. Nothing is answering the comparisons any more.'; return; }
+      if (c.input === 'adversary' || c.input === 'replay') return;
+      draw(fixedInput(c.input, c.n, c.seed), null);
+      cap.textContent = `The input: ${INPUT_LABELS[c.input]}, one bar per item.`;
+    }
+
+    function row(r: SortRun) {
+      const name = r.sort === 'quick' ? `Quicksort, ${PIVOT_LABELS[r.pivot]}${r.pivot === 'random' ? ` (seed ${r.seed})` : ''}` : SORT_LABELS[r.sort];
+      const input = r.input === 'replay' && r.builtAgainst ? `replay, built with seed ${r.builtAgainst.seed}` : INPUT_LABELS[r.input];
+      return el('tr', {}, el('td', {}, name), el('td', {}, input), el('td', {}, fmt(r.n)), el('td', {}, fmt(r.comparisons)), el('td', {}, (r.comparisons / (r.n * r.n)).toFixed(3)));
+    }
+
+    function run() {
+      const c = config(), status = q('[data-status]');
+      const r = state.lab.run(c);
+      if ('refused' in r) { status.textContent = r.refused; status.className = 'kl-status warn'; return; }
+      q('[data-count]').textContent = fmt(r.comparisons);
+      q('[data-floor]').textContent = fmt(r.floor);
+      q('[data-worst]').textContent = fmt(r.worst);
+      q('[data-fill]').style.width = `${Math.min(100, (100 * r.comparisons) / r.worst).toFixed(2)}%`;
+      const times = r.comparisons / nLgN(r.n);
+      status.textContent = times > 5
+        ? `${fmt(r.comparisons)} comparisons: ${times.toFixed(0)} times n lg n, about ${(100 * r.comparisons / r.worst).toFixed(0)}% of what comparing every pair would cost.`
+        : `${fmt(r.comparisons)} comparisons: ${times.toFixed(2)} times n lg n.`;
+      status.className = `kl-status ${times > 5 ? 'bad' : 'ok'}`;
+      if (!r.ordered) { status.textContent += ' The result was not in order, so ignore this count.'; status.className = 'kl-status bad'; }
+      q('[data-runs]').prepend(row(r));
+      const rows = q('[data-runs]').children;
+      while (rows.length > 6) rows[rows.length - 1].remove();
+      showInput(c, r);
+      refresh();
+    }
+
+    q('[data-run]').addEventListener('click', run);
+    q('[data-new-seed]').addEventListener('click', () => { field('seed').value = String((Number(field('seed').value) || 0) + 1); });
+    for (const k of ['sort', 'pivot', 'input']) field(k).addEventListener('change', syncControls);
+    q('[data-reset]').addEventListener('click', () => {
+      if (timer) { clearInterval(timer); timer = 0; }
+      state = KILLER_MISSION.setup();
+      q('[data-runs]').replaceChildren();
+      q('[data-solid]').setAttribute('d', ''); q('[data-gas]').setAttribute('d', '');
+      for (const s of ['[data-count]', '[data-floor]', '[data-worst]']) q(s).textContent = '0';
+      q('[data-fill]').style.width = '0';
+      q('[data-caption]').textContent = 'The input appears here, one bar per item.';
+      q('[data-status]').textContent = 'Lab reset. The saved input is gone.';
+      q('[data-status]').className = 'kl-status';
+      refresh();
+    });
+    syncControls();
+  }
+</script>
+
+<style is:global>
+  .killer .kl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 980px) { .killer .kl-grid { grid-template-columns: minmax(0, 1fr) 290px; } }
+  .killer .kl-main { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .killer .controls label { min-width: 0; }
+  .killer .controls label[hidden], .killer .controls button[hidden] { display: none; }
+  .killer .controls select { max-width: 100%; min-width: 0; }
+  .killer .controls input[type="number"] { width: 6.5em; }
+  .killer .kl-status { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); }
+  .killer .kl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .killer .kl-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .killer .kl-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .killer .stats { margin: 0; }
+  .killer .kl-bar { height: 12px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
+  .killer .kl-fill { display: block; height: 100%; width: 0; min-width: 2px; background: var(--berry); }
+  .killer .kl-scale { margin: 0; font-size: 0.82rem; }
+  .killer .kl-fig { margin: 0; }
+  .killer .kl-fig svg { display: block; width: 100%; height: 130px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; }
+  .killer .kl-fig figcaption { font-size: 0.82rem; margin-top: 4px; }
+  .killer .kl-solid { stroke: var(--bamboo); fill: none; }
+  .killer .kl-gas { stroke: var(--line-2); fill: none; }
+  .killer .kl-table { overflow-x: auto; }
+  /* The lesson body makes every table display: block so wide ones scroll. Here that stops width: 100% sharing out the columns, and the last column gets cut off. */
+  .widget.killer .kl-table table { display: table; width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  .killer .kl-table th, .killer .kl-table td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
+</style>

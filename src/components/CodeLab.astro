@@ -250,7 +250,10 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
         q('[data-growth]').hidden = false;
         q('[data-growth-rows]').replaceChildren(...points.map((p, i) => {
           const prev = points[i - 1];
-          const ratio = p.ops === null ? 'over this page\'s limit' : prev?.ops ? `${(p.n / prev.n).toFixed(0)}x the input, ${(p.ops / prev.ops).toFixed(1)}x the work` : 'first size';
+          // Sizes a fixed amount apart are how exponential work shows itself, and
+          // rounding 15/10 to "2x the input" would misstate exactly that.
+          const grew = prev ? (Number.isInteger(p.n / prev.n) ? `${p.n / prev.n}x the input` : `${fmt(p.n - prev.n)} more input`) : '';
+          const ratio = p.ops === null ? 'over this page\'s limit' : prev?.ops ? `${grew}, ${(p.ops / prev.ops).toFixed(1)}x the work` : 'first size';
           return el('tr', {}, el('td', {}, fmt(p.n)), el('td', {}, p.ops === null ? 'did not finish' : fmt(p.ops)), el('td', {}, ratio));
         }));
         q('[data-shape]').textContent = shape === 'unknown' ? 'Not enough sizes finished to name a shape.' : `Shape over these sizes: ${shape}.`;
