@@ -353,7 +353,11 @@ const label: Record<string, string> = { flood: 'Flood', route: 'Route', build: '
   /* Global, prefixed: nearly everything in here is created by the script. */
   .netlab .nl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 1000px) { .netlab .nl-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
-  .netlab .nl-main { min-width: 0; display: grid; gap: 10px; align-content: start; }
+  /* An explicit track: an auto one grows to fit its widest child, and Linux's wider
+     fonts made a select push the whole page 4 px sideways on a 375 px iPhone. */
+  .netlab .nl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .netlab .nl-main > * { min-width: 0; }
+  .netlab .controls label, .netlab select { max-width: 100%; }
   .netlab section[hidden] { display: none; }
   .netlab .nl-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
   .netlab [role="tab"][aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
