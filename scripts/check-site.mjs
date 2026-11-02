@@ -2564,6 +2564,13 @@ await scenario('prog-stop-counts', '/learn/programming/loops/', async (page) => 
   // The step's own hint says to press Stop, and pressing it used to tick nothing.
   const r = mission('prog-loop-stuck');
   await page.locator(r).scrollIntoViewIfNeeded();
+  // A quiet loop, not the lesson's starter. The starter prints on every pass, so it
+  // fills the output limit in about 20 ms and in WebKit it stopped itself before this
+  // click arrived. That's correct behaviour, but it isn't the Stop button.
+  await page.locator(`${r} [data-src]`).fill('n = 5
+while n > 0:
+    n - 1
+');
   await progRun(page, r);
   await page.waitForFunction((sel) => /[1-9][\d,]* steps/.test(document.querySelector(`${sel} [data-steps]`).textContent) && document.querySelector(`${sel} [data-run]`).textContent === 'Stop', r, { timeout: 15000 });
   await progRun(page, r);
