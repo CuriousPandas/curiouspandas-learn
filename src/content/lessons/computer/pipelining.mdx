@@ -1,0 +1,168 @@
+---
+title: Pipelines, hazards and the branch it guessed
+summary: Sorting an array made a loop about six times faster, with the same values and the same work. Learn how a CPU does several instructions at once, what goes wrong when one needs what another hasn't finished, why it guesses at branches, and cut cycles from a program without changing its answer.
+minutes: 24
+xp: 65
+tiers: [browser]
+builds_on: [computer/toy-cpu]
+sources:
+  - title: Stack Overflow - Why is conditional processing of a sorted array faster than of an unsorted array? (2012, code and timings by the asker, answer by Mysticial)
+    url: https://stackoverflow.com/questions/11227809/why-is-conditional-processing-of-a-sorted-array-faster-than-of-an-unsorted-array
+  - title: The RISC-V Instruction Set Manual, Volume I, version 20240411 (free)
+    url: https://github.com/riscv/riscv-isa-manual/releases/download/20240411/unpriv-isa-asciidoc.pdf
+  - title: Tang, Sethumadhavan and Stolfo - CLKSCREW (USENIX Security 2017), on pipelines and flip-flops
+    url: https://www.usenix.org/system/files/conference/usenixsecurity17/sec17-tang.pdf
+  - title: Ulrich Drepper - What Every Programmer Should Know About Memory (2007, free PDF)
+    url: https://people.freebsd.org/~lstewart/articles/cpumemory.pdf
+---
+
+In June 2012 someone asked a question on Stack Overflow whose top answer now has over 35,000 votes. They had a C++ program that adds up the values in a big array, but only those of 128 or more. "In this C++ code, sorting the data (before the timed region) makes the primary loop ~6x faster". They measured 11.54 seconds without the sort and 1.93 seconds with it. It's the same loop over the same values, and it gets the same total. Sorting is only a change of order.
+
+The top answer came five minutes later, and its first line was "You are a victim of branch prediction fail."
+
+To follow that, you need one more idea about how a CPU runs. The last lesson's machine finished one instruction before starting the next. Most real CPUs don't work that way.
+
+## An assembly line for instructions
+
+The work of an instruction splits into stages. The classic textbook version has five:
+
+| Stage | Name | What happens |
+|---|---|---|
+| IF | Instruction fetch | Read the instruction at `pc` |
+| ID | Instruction decode | Work out what it says, and read its registers |
+| EX | Execute | The ALU does its sum |
+| MEM | Memory | Load or store, if it's that kind of instruction |
+| WB | Write back | Write the result to a register |
+
+If you put a row of flip-flops between each stage, you can start a new instruction on every clock tick, while older ones move along. The instruction still takes five ticks, and one finishes on every tick, like an assembly line. That's a **pipeline**. The CLKSCREW paper from the clocks lesson says it in passing: "These back-to-back flip-flops are building blocks for pipelines, which are pervasive throughout digital chips and are used to achieve higher performance."
+
+```text
+cycle:           1   2   3   4   5   6   7
+addi t0, ...     IF  ID  EX  ME  WB
+addi t1, ...         IF  ID  EX  ME  WB
+addi t2, ...             IF  ID  EX  ME  WB
+```
+
+With `n` independent instructions that's `n + 4` cycles, so close to one instruction per cycle. The number to watch is **CPI**, cycles per instruction.
+
+Instructions in a real program aren't independent, though, and everything difficult about pipelines comes from that. A situation where the next instruction can't safely go ahead in its turn is called a **hazard**.
+
+## Data hazards: reading what isn't written yet
+
+Look at the chart above and imagine the second line reads `t0`. It reads its registers in ID, in cycle 3. The first line doesn't write `t0` until WB, in cycle 5. Done naively, it reads the old value. Here's what that looks like when nothing protects against it:
+
+```text
+li t0, 5           t0 =  5
+addi t1, t0, 1     t1 =  6, but reads the old t0: t1 = 1
+addi t2, t1, 1     t2 =  7, but reads the old t1: t2 = 1
+addi a0, t2, 1     a0 =  8, but reads the old t2: a0 = 1
+```
+
+You'll see this for real in the lab, with its **Run with no hazard handling at all** button. It gives the wrong answer, with no error. So a pipeline has two defences.
+
+**Stalling.** Hold the instruction back until the value is ready, and let the gap travel down the pipeline as a bubble that does nothing. Every answer comes out right, at the cost of cycles. The chain above takes 15 cycles this way, against 9 if nothing had to wait, for a CPI of 3.
+
+**Forwarding.** The answer actually exists at the end of EX, long before WB. So add wires that hand it straight to the next instruction's EX. That chain goes back to 9 cycles with no stalls at all. Forwarding is why the code you write usually doesn't pay for using a result on the very next line.
+
+One case still has to wait. A load's value doesn't exist until the end of MEM, one stage too late for the next instruction's EX. Using a loaded value on the very next line costs one stall, even with forwarding, and that's called a **load-use hazard**. Put any other instruction between them and the stall is gone.
+
+There's a third kind of hazard, a **structural** one, when two instructions want the same piece of hardware at once. This model avoids it by assuming that fetching and data access never compete for memory.
+
+## Control hazards: which instruction comes next?
+
+The other problem is branches. To fetch on every tick, the pipeline has to know the next `pc` right away. A branch's answer isn't known until EX, two stages later, and by then two more instructions have already been fetched, and they may be the wrong ones.
+
+Waiting for every branch would cost two cycles every time. So instead, CPUs guess.
+
+- **Guess not taken:** carry on with the next line. When the branch turns out to be taken, throw away the two fetched instructions, which is called a **flush**, and pay two cycles.
+- **Remember the last outcome:** keep one bit per branch. A loop's branch goes the same way nearly every time, so this gets most of them right.
+- **A counter with a middle:** keep two bits per branch, counting from 0 to 3. Taken pushes it up, not taken pushes it down, and it guesses taken in the top half. Once it's sure, at either end, one surprise doesn't flip the guess. Near the middle one does, so a branch that keeps alternating can fool it every time.
+
+In this model a right guess costs nothing, because what was fetched was right all along. The instructions behind it are **speculative** until the branch is settled.
+
+The manual's own commentary shows how far this is assumed: its advice on jumps talks about "push the return address onto a return-address stack", a hardware predictor just for `ret`. And now the Stack Overflow answer makes sense. In a sorted array, the branch `data[i] >= 128` goes one way for a long stretch and then the other way for the rest, so a predictor is almost always right. In a shuffled array it's a coin toss.
+
+## Try it
+
+This is a model, and a simple one. It has five stages and one instruction fetched per cycle. Memory always answers in one cycle, with no caches, and a wrong guess always costs two cycles. A predictor that guesses "taken" knows the target at once. Jumps always cost two. It isn't any real CPU. Its cycle counts are exact and it runs the real instructions from the machine you've been programming, and a separate simulator in Python checks them.
+
+<CpuPipelineLab />
+
+Here's what the loop program gives on its 256 values, with forwarding on:
+
+| Branch handling | Wrong guesses or waits, shuffled | Cycles, shuffled | Wrong guesses or waits, sorted | Cycles, sorted |
+|---|---|---|---|---|
+| No guessing | 512 | 2,704 | 512 | 2,704 |
+| Always guess not taken | 376 | 2,432 | 376 | 2,432 |
+| One bit | 128 | 1,936 | 4 | 1,688 |
+| Two bits | 129 | 1,938 | 5 | 1,690 |
+
+Three things in that table are worth a look. A fixed guess can't tell sorted data from shuffled, so its row stays the same. In the last two rows the shuffled data costs 26 to 32 times the wrong guesses. And two bits are one guess worse than one bit here: the extra bit doesn't help with a coin toss. It helps on a branch that goes one way nearly always, and the "loop inside a loop" program in the lab shows that, with 34 wrong guesses for one bit against 19 for two.
+
+## Why the real number is bigger, and sometimes nothing
+
+The model's gap is small: 1,938 cycles against 1,690 is a factor of about 1.15. The asker's was about 6. That's a real difference, and it isn't a bug in either one.
+
+A wrong guess here throws away two instructions, because this pipeline is short. The answer on that page puts it this way: "Modern processors are complicated and have long pipelines." The longer the pipeline, the more work a wrong guess throws away. This site won't quote a figure for any particular CPU, because that takes a vendor's documentation, and it changes between generations. What you can do is measure.
+
+| Who measured | What | Shuffled | Sorted | Ratio |
+|---|---|---|---|---|
+| The asker, 2012 | C++ | 11.54 s | 1.93 s | about 6x |
+| Mysticial, 2012, Core i7 920, Visual Studio 2010 | C++ | 11.777 s | 2.352 s | about 5x |
+| Mysticial, 2012 | Java | 10.93 s | 5.64 s | about 1.9x |
+| This site, 2026-11-01, Xeon E5-2695 v3, Node 24, first three runs | JavaScript | 8.09 to 8.54 ns per value | 3.53 to 3.56 ns per value | about 2.3x |
+| This site, later the same day, same CPU model, Node 24, six more runs of the **your machine** panel's loop | JavaScript | 6.27 to 6.75 ns per value | 1.71 to 1.86 ns per value | 3.5x to 3.7x |
+
+Each row is one machine and one compiler, on one day. Our own two rows disagree by more than half again, on the same kind of machine on the same day. Three of the six later runs had eight other memory-heavy programs running alongside, and they barely moved the ratio. We have no record of what made the first set's sorted run so much slower, so all we can say is that it moved. The same answer gives a warning you should keep: with "GCC 4.6.1 with -O3 or -ftree-vectorize on x64", the compiler removed the branch altogether, "so there is no difference between the sorted and unsorted data - both are fast." So the famous result isn't a law about sorted arrays. It's about a branch that the machine actually has to guess. A newer compiler, or your browser's engine, may give you a different ratio, including about 1x. The **your machine** panel in the lab runs it where you are, and it's not checked against anything.
+
+<Callout kind="real" title="Real CPUs go much further">
+The ideas here are the base of what real CPUs do, and then they do far more. They fetch several instructions per cycle and run them in whatever order their inputs are ready, then finish them in order. That's **out-of-order execution**, and doing many at once like this is called **instruction-level parallelism**. Drepper's paper mentions the same family of ideas when he says that "Today's processors all use internal pipelines of different lengths". The contract from [the fetch, decode, execute lesson](/learn/computer/toy-cpu/) still holds: results come out as if each instruction ran in turn, and the instruction set doesn't tell you which of these a chip does.
+
+Removing a stall doesn't always save the time this table shows either. In this model memory always takes one cycle, and the next lesson is about what happens when it doesn't.
+
+This model can't show one real hazard at all. Run the patching program from that same lesson here, and with forwarding on it reports `a0` as 42 in 12 cycles, because it only times what the machine already did. A real five-stage pipeline would already have fetched the next instruction by the time the store lands, so it could run the old bits. The manual has an instruction for this, `FENCE.I`, which "provides explicit synchronization between writes to instruction memory and instruction fetches on the same hart" (a hart is a hardware thread).
+</Callout>
+
+<GoDeeper title="CPI, and the one equation behind performance">
+The time a program takes is three numbers multiplied:
+
+```text
+time = instructions x cycles per instruction x time per cycle
+```
+
+Each is pulled by something different. A compiler changes the first. Hazards, stalls and wrong guesses change the second. And the clock lesson's limit sets the third: a cycle has to be long enough for the slowest stage, which is why splitting the work into more stages can give a faster clock, and also why those stages have to be even. Doubling a pipeline's length doesn't double the speed, because the wrong guesses cost more, and the flip-flops between stages take time too.
+
+Use it on your own results. The reorder program takes 14 cycles for 8 instructions, a CPI of 1.75. After reordering it takes 12, a CPI of 1.5, and the time falls by a seventh with the same instructions on the same clock. With two nops in place of the stalls it stays at 14 cycles and takes 10 instructions, a CPI of 1.4, so the CPI looks better while the time is no better at all. CPI on its own can mislead, so check the time.
+</GoDeeper>
+
+<Quiz
+  id="comp-pipe-1"
+  q="In the 5-stage model with forwarding on, why does adding an instruction between a load and the instruction that uses its value remove the stall, and why doesn't a nop save any time?"
+  options={["A nop makes the load faster", "The value is ready one cycle later than the next instruction's EX. Any instruction in between fills that cycle. A nop fills it with nothing, so the total stays the same", "Forwarding only works when there's a nop"]}
+  answer={1}
+  explain="The wait is real either way. Moving a useful instruction into the gap gets work done in that cycle. A nop uses it for nothing, which is why the mission wanted a reorder and not padding."
+/>
+
+<Quiz
+  id="comp-pipe-2"
+  q="Two runs of the same program over the same values take the same number of instructions. One has far more wrong branch guesses. What differs?"
+  options={["The order of the data, which changes how predictable each branch is", "The answer it computes", "The number of branches it runs"]}
+  answer={0}
+  explain="Same instructions, same branches, same total. Only the pattern of taken and not taken changed. That's why instruction counts can't see this, and neither can big-O, which only counts how the steps grow."
+/>
+
+<Quiz
+  id="comp-pipe-3"
+  q="Someone compiles the famous sorted-array program with a newer compiler and sees no difference between sorted and shuffled. What's the most likely explanation?"
+  options={["Branch prediction no longer exists", "The compiler replaced the branch with an instruction that doesn't need a guess, so there's nothing to predict", "The sort stopped working"]}
+  answer={1}
+  explain="That's what the answer reports for GCC with -O3: it generated a conditional move. The lesson of the example is about branches the machine really has to guess, and a compiler can remove some of them."
+/>
+
+## What to remember
+
+- A pipeline starts an instruction each cycle by splitting the work into stages. Each one still takes all the stages.
+- Hazards are the price. Without stalls or forwarding, an instruction reads old values and the answer is quietly wrong.
+- Stalls and forwarding change the time and not the answer, for a program that doesn't overwrite its own instructions.
+- A branch isn't settled until late, so CPUs guess, and a wrong guess throws away work. Predictable branches are cheap, and random ones aren't.
+- A model gives you exact counts for its own assumptions, and only a measurement tells you about a real machine.

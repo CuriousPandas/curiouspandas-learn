@@ -1,0 +1,175 @@
+---
+title: Negative numbers and the overflow that wraps
+summary: A Boeing 787 had to be switched off every so often, and an Ariane 5 stopped its own guidance, both because a number outgrew its bits. Learn how fixed-width integers hold negatives, what happens at the edge, and why a check alone doesn't save you.
+minutes: 18
+xp: 50
+tiers: [browser]
+builds_on: [computer/bits-and-bases]
+sources:
+  - title: FAA - Airworthiness Directive 2015-09-07, Boeing 787 generator control units (Federal Register, 2015)
+    url: https://www.govinfo.gov/content/pkg/FR-2015-05-01/html/2015-10066.htm
+  - title: ESA - Ariane 5 Flight 501 Failure, report by the Inquiry Board (1996)
+    url: https://esamultimedia.esa.int/docs/esa-x-1819eng.pdf
+  - title: Python documentation - Built-in types (integers have unlimited precision)
+    url: https://docs.python.org/3/library/stdtypes.html
+  - title: The Java Language Specification, section 15.18.2 (integer addition overflow)
+    url: https://docs.oracle.com/javase/specs/jls/se21/html/jls-15.html
+  - title: cppreference - C arithmetic operators (overflow)
+    url: https://en.cppreference.com/w/c/language/operator_arithmetic
+  - title: Linux man-pages - time(2)
+    url: https://man7.org/linux/man-pages/man2/time.2.html
+  - title: Linux man-pages - time_t(3type)
+    url: https://man7.org/linux/man-pages/man3/time_t.3type.html
+---
+
+In 2015 the US Federal Aviation Administration told every operator of the Boeing 787 to switch the plane's electrical power off from time to time. The reason, from the directive: "a Model 787 airplane that has been powered continuously for 248 days can lose all alternating current (AC) electrical power due to the generator control units (GCUs) simultaneously going into failsafe mode. This condition is caused by a software counter internal to the GCUs that will overflow after 248 days of continuous power."
+
+Boeing had found it in laboratory testing, not in the air. The directive is about what could happen: if all four main units had been powered up together, they'd all fail together, "regardless of flight phase".
+
+A counter only overflows if it has a fixed number of bits, and 248 days is a suspiciously particular number. Run this:
+
+<CodeLab code={`ticks = 2 ** 31            # The first count that won't fit in a signed 32-bit integer.
+seconds = ticks / 100      # If it counted hundredths of a second.
+print(seconds / 86400)     # 86400 seconds in a day.
+
+# Another reading of the same number: unsigned, so 2 ** 32 counts, at 200 ticks a second.
+print(2 ** 32 / 200 / 86400)
+`} />
+
+The first line fits a 32-bit signed counter ticking 100 times a second. **That's our arithmetic, and the directive doesn't state the counter's width or its tick,** so it's a plausible fit and not a finding. The directive itself is a stopgap: it says Boeing was "currently developing a GCU software upgrade", and in the meantime the fix was to switch the power off before the counter got there.
+
+If that reading is right, why 2³¹ and not 2³²? Because in a signed counter, one of the 32 bits goes on being able to say "negative". The arithmetic can't settle it, though: the second line is an unsigned 32-bit counter ticking 200 times a second, and it reaches the same 248.55 days. This lesson is how signed numbers work, and what happens when you run out.
+
+## Three ways to write a negative number
+
+A computer's integer is a fixed row of bits. Suppose it's 8 bits, so 256 patterns. We have to choose which patterns mean negative numbers. Three schemes have been used in real machines, and the Bit Lab shows all three at once.
+
+**Sign and magnitude** is what you'd invent first: the top bit is the sign, and the rest is the size, so `10000101` is -5. It has two zeros, `00000000` and `10000000`, and it needs its own rules for adding, since -3 + 5 isn't the sum of those patterns.
+
+**One's complement** makes a negative by flipping every bit, so -5 is `11111010`. Still two zeros.
+
+**Two's complement** is what essentially every machine you'll use does for integers. The rule is short: **the top bit is worth minus what it would normally be worth.** In 8 bits, the places are -128, 64, 32, 16, 8, 4, 2, 1. So:
+
+| Bits | Worked out | Value |
+|---|---|---|
+| `00000101` | 4 + 1 | 5 |
+| `11111111` | -128 + 64 + 32 + 16 + 8 + 4 + 2 + 1 | -1 |
+| `11111011` | -128 + 64 + 32 + 16 + 8 + 2 + 1 | -5 |
+| `10000000` | -128 | -128 |
+| `01111111` | 64 + 32 + 16 + 8 + 4 + 2 + 1 | 127 |
+
+To negate a number, flip every bit and add 1. It has one zero, and it has a property that's a large part of its appeal: **adding needs no special rule for signs.** The circuit that adds two positive numbers also adds negatives, and gets the right answer. You'll see why below, and you can wire that circuit yourself in [Build an adder from gates](/learn/computer/adder/).
+
+<BitLab signed mission="comp-neg-wrap" />
+
+## What you just saw at the edge
+
+A signed n-bit integer runs from -2ⁿ⁻¹ to 2ⁿ⁻¹ - 1. Here are the usual sizes, and it's worth recognising these numbers on sight, because they turn up in bug reports:
+
+| Bits | Smallest | Largest |
+|---|---|---|
+| 8 | -128 | 127 |
+| 16 | -32,768 | 32,767 |
+| 32 | -2,147,483,648 | 2,147,483,647 |
+| 64 | -9,223,372,036,854,775,808 | 9,223,372,036,854,775,807 |
+
+There's one more negative than positive, because 0 uses up a slot on the positive side. So the most negative number has no opposite, as you just saw. `abs()` of it can't be represented, and in a language with fixed-width integers that's a real source of bugs.
+
+And past the top, it **wraps**: 127 + 1 is -128, and no error is raised. Go back to the 787. If that counter was the signed one, a value that had been counting up for 248 days would have become a large negative number. If it was the unsigned one, it would have gone back to 0. All the directive says about what follows is that the units go into failsafe mode.
+
+The next failure is a different kind, and a common telling of it gets this wrong.
+
+## Ariane 5: it didn't wrap
+
+Here's what the inquiry board found about why the measuring unit, the SRI, failed. It was doing "a data conversion from 64-bit floating point to 16-bit signed integer value. The floating point number which was converted had a value greater than what could be represented by a 16-bit signed integer. This resulted in an Operand Error."
+
+So there was no wrap: the processor noticed the value didn't fit, and raised an error. (A floating-point number is the kind with a fractional part, and it's [the next lesson](/learn/computer/floating-point/).) The value was `BH`, a measure of horizontal movement. Ariane 5's early flight path "differs from that of Ariane 4 and results in considerably higher horizontal velocity values", and the software came from Ariane 4.
+
+Four things then lined up, and each is its own lesson:
+
+1. **The conversion wasn't guarded.** Seven variables had been judged at risk, protection was added to four, and three were left. "It has been stated to the Board that not all the conversions were protected because a maximum workload target of 80% had been set for the SRI computer." The reasoning for BH, that it was limited or had margin, "turned out to be faulty". And the board found "no evidence that any trajectory data were used to analyse the behaviour of the unprotected variables".
+2. **The code didn't need to be running.** That function "computes meaningful results only before lift-off. As soon as the launcher lifts off, this function serves no purpose."
+3. **The error handling stopped the computer.** The specification said that on any exception, the failure be reported and "finally, the SRI processor should be shut down." The board: "It was the decision to cease the processor operation which finally proved fatal."
+4. **The backup was identical.** There were two SRIs, for reliability, "with identical hardware and software". The backup had already "ceased to function during the previous data cycle (72 milliseconds period) for the same reason as SRI 2." A copy protects you from a part breaking at random, and identical software fails identically.
+
+Then came the bit pattern [you read about in the first lesson](/learn/computer/bits-and-bases/), read as if it were flight data.
+
+## Write the check yourself
+
+Python's ints never overflow, so to see this you have to make Python behave like hardware. The next lab does that: it's emulation, and it says so in the code.
+
+<CodeLab mission="comp-neg-emulate" />
+
+<Callout kind="trap" title="A check isn't a fix">
+`fits` tells you the value won't fit. It doesn't tell you what to do, and Ariane's actual problem was that answer. Stop the computer? That's what it did. Clip the value to 32,767? Then it's quietly wrong instead of loudly wrong. The board's own recommendation R3 was "Do not allow any sensor, such as the inertial reference system, to stop sending best effort data", and its R1 was to switch that function off after lift-off, so the code that could fail wasn't running. That's the board's view of this rocket, in 1996. In another system, stopping may be the safe choice: a payment should fail rather than guess. Deciding is the work, and it has to happen before the value arrives.
+</Callout>
+
+## What real languages do at the edge
+
+The same overflow means different things depending on where you write it. It's one of the first things to look up in a new language.
+
+| Language | On integer overflow | Source |
+|---|---|---|
+| Python | There isn't any: "Integers have unlimited precision" | Python docs |
+| Java | Wraps: "the result is the low-order bits of the mathematical sum" | Java Language Specification |
+| C, unsigned | Wraps: "always performed modulo 2ⁿ" | cppreference |
+| C, signed | "the behavior is undefined" | cppreference |
+
+"Undefined" in C doesn't mean it wraps. The same page says it "may wrap around", "may trap", or "may be completely optimized out by the compiler". So under C's rules, a check written as `if (x + 1 < x)` to detect overflow can be deleted, because the compiler may assume overflow never happens. Whether it is depends on the compiler and its settings. We tried one: MSVC 19.44 kept the check, at `/O2` and at `/Od`. We haven't run GCC or Clang, and one compiler keeping it doesn't make the check safe.
+
+The classic bug in [binary search](/learn/algorithms/searching/) is a wrap of exactly this kind, in Java. And a date is waiting for 32-bit clocks: Linux's manual says a program with a 32-bit `time_t` can fail "when the time is 2038-01-19 03:14:08 UTC or later". You can check that from the arithmetic: it's 2³¹ seconds after the start of 1970. The same manual notes that "POSIX.1-2024 requires that the width of time_t is at least 64 bits; however, some systems still use 32 bits by default."
+
+<Callout kind="real">
+Python's own arithmetic has no edge here, so everything fixed-width on this page is emulated: the Bit Lab's switches, and the `wrap` you wrote. This site's tests check the emulation against `ctypes.c_int8`, `c_int16` and `c_int32` in real Python, which are real fixed-width integers, and against `struct` for the bytes. A Python int does hit an edge when it goes into something fixed-width: `struct.pack` refuses a number that doesn't fit, and `float(10 ** 400)` raises an OverflowError. Those are a closer match to Ariane than a wrap is. The `struct` one isn't in the code lab, because `import` isn't. Try the 787's sum in real Python, and it will count happily past 2³¹.
+
+If you try `bin(-5)`, you'll get `-0b101`, and that isn't a bug: Python writes the sign in front, since it has no width to complement in. `-5 & 0xff` shows the 8-bit pattern: 251, which is `11111011`.
+</Callout>
+
+<GoDeeper title="Two's complement is arithmetic mod 2ⁿ">
+An n-bit register keeps only the low n bits of any sum, which is the remainder after dividing by 2ⁿ. So it does arithmetic **mod 2ⁿ**, where two numbers count as equal if they differ by a multiple of 2ⁿ. On a clock, that's how 3 hours after 11 is 2, with n bits in place of 12 hours.
+
+In mod 256, -5 and 251 are the same number, because they differ by 256. Two's complement just decides that the pattern for 251 will be *called* -5. Since the adder is correct mod 256 no matter what you call its inputs, it's automatically correct for negatives, as long as the true answer is in range. That's the whole reason no special rule is needed.
+
+It also explains the negation trick. Flipping all n bits of x gives (2ⁿ - 1) - x, because each bit becomes one minus itself and all-ones is 2ⁿ - 1. Add 1, and you have 2ⁿ - x, which is the same as -x mod 2ⁿ. For x = 2ⁿ⁻¹, that's 2ⁿ⁻¹ again, which is why the most negative number negates to itself.
+
+When does a sum come out wrong? Only when the true answer is outside the range. Adding a positive and a negative can never do that, because the answer lies between them. So overflow needs two inputs with the same sign, and it shows up as a result with the opposite sign, which is one way hardware detects it.
+</GoDeeper>
+
+<Quiz
+  id="comp-neg-1"
+  q="What does the 8-bit pattern 11111110 mean in two's complement?"
+  options={["254", "-2", "-126"]}
+  answer={1}
+  explain="The top bit is worth -128, and the rest add up to 126, so -128 + 126 = -2. As a check, flip the bits and add 1: 00000001 + 1 = 2, so the original was -2. 254 is the same bits with no negatives, and -126 is sign and magnitude."
+/>
+
+<Quiz
+  id="comp-neg-2"
+  q="In 16-bit two's complement, what's 32767 + 1?"
+  options={["32768", "0", "-32768"]}
+  answer={2}
+  explain="The largest positive plus one wraps to the most negative: 0111...1 + 1 is 1000...0, and that top bit is worth -32768. 32768 needs a seventeenth bit to be positive, which this format doesn't have."
+/>
+
+<Quiz
+  id="comp-neg-3"
+  q="Ariane 5's two measuring units both failed within 72 milliseconds. Why didn't having a backup help?"
+  options={["The backup had a hardware fault as well, by bad luck", "The backup ran identical software on the same inputs, so it hit the same error", "The main computer never tried to switch to it"]}
+  answer={1}
+  explain="The report says the units had 'identical hardware and software', and that the backup stopped 'for the same reason'. A backup protects against random hardware failure. It can't protect against a design error that both copies share."
+/>
+
+<Quiz
+  id="comp-neg-4"
+  q="Which of these would you expect to overflow in Python's own ints, as shipped?"
+  options={["2 ** 64", "The result of adding 1 to the largest 64-bit number", "Neither: Python's ints keep growing"]}
+  answer={2}
+  explain="The Python docs say integers have unlimited precision, so both are ordinary numbers, limited by memory. (Printing one past 4,300 digits needs a setting changed, which is a limit on the text, not the number.) Fixed-width behaviour in Python only appears when you ask for it, as your wrap function did, or when a value goes into something fixed-width."
+/>
+
+## What to remember
+
+- In two's complement, the top bit is worth minus its usual value. To negate, flip every bit and add 1.
+- A signed n-bit integer holds -2ⁿ⁻¹ to 2ⁿ⁻¹ - 1. There's one more negative than positive.
+- Past the edge, what happens depends on the language: it may wrap, raise an error, or be undefined. Look it up.
+- A check tells you there's a problem. What to do about it is the actual decision, and a second copy of the same software fails the same way.

@@ -1,0 +1,191 @@
+---
+import '../styles/widgets.css';
+import { COUNTER_BITS, MAX_PERIOD, MIN_PERIOD } from '../lib/cs/sequential.ts';
+---
+<div class="widget card clocklab" data-clock-lab>
+  <div class="widget-head">
+    <strong>Clock lab</strong>
+    <span class="pill info">a model: every gate is a NAND, and each one takes exactly one time step to answer</span>
+  </div>
+  <div class="cl2-grid">
+    <div class="cl2-main">
+      <section class="cl2-panel" data-latch>
+        <h4>One bit that remembers <span class="muted">two NAND gates, each feeding the other</span></h4>
+        <div class="controls">
+          <button class="btn small" type="button" data-sr="set">Set</button>
+          <button class="btn small" type="button" data-sr="reset">Reset</button>
+          <button class="btn small" type="button" data-sr="release">Release</button>
+          <button class="btn small" type="button" data-sr="both">Press both</button>
+        </div>
+        <div class="stats">
+          <div class="stat">Q<b data-q>0</b></div>
+          <div class="stat">not Q<b data-qn>1</b></div>
+        </div>
+        <p class="cl2-note" data-sr-note role="status">Nothing pressed. Q is 0, and it's staying 0 because the two gates hold each other there.</p>
+      </section>
+
+      <section class="cl2-panel" data-edge>
+        <h4>Listening to the clock <span class="muted">a latch and a flip-flop, same D, same clock</span></h4>
+        <div class="controls">
+          <button class="btn small" type="button" data-flip-d>Flip D</button>
+          <button class="btn small" type="button" data-raise>Raise clock</button>
+          <button class="btn small" type="button" data-lower>Lower clock</button>
+        </div>
+        <div class="stats">
+          <div class="stat">D<b data-e="d">0</b></div>
+          <div class="stat">clock<b data-e="clk">0</b></div>
+          <div class="stat">latch Q<b data-e="latchQ">0</b></div>
+          <div class="stat">flip-flop Q<b data-e="ffQ">0</b></div>
+        </div>
+        <div class="cl2-wave" data-edge-wave tabindex="0" role="img" aria-label="No changes yet."></div>
+      </section>
+
+      <section class="cl2-panel" data-counter>
+        <h4>A {COUNTER_BITS}-bit counter <span class="muted">flip-flops, plus an add-one circuit from gates</span></h4>
+        <div class="controls">
+          <label>clock period <input type="range" data-period min={MIN_PERIOD} max={MAX_PERIOD} step="1" value="30" aria-label="Clock period in gate delays" /> <b data-period-label>30</b> gate delays</label>
+          <button class="btn small primary" type="button" data-run-counter>Run the counter</button>
+        </div>
+        <p class="cl2-verdict" data-verdict role="status">Not run yet.</p>
+        <ol class="cl2-reads" data-reads aria-label="The count read before each clock edge"></ol>
+        <div class="cl2-wave" data-wave tabindex="0" role="img" aria-label="No waveform yet."></div>
+        <p class="cl2-note">The diagram has bit 0 at the top and the clock at the bottom. This is a model of the arithmetic of timing, and it doesn't model load, voltage or heat. Those change how long a real gate takes, so the same design has no single true speed limit.</p>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { CLOCK_MISSION, EdgeBench, SrLatch, runCounter, COUNTER_BITS } from '../lib/cs/sequential.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const SVG = 'http://www.w3.org/2000/svg';
+
+  /** A timing diagram. Plain lines on the page's own colours, so it follows light and dark. */
+  function wave(box: HTMLElement, rows: { name: string; values: number[] }[], label: string) {
+    const n = rows[0]?.values.length ?? 0;
+    box.setAttribute('aria-label', label);
+    if (!n) { box.replaceChildren(); return; }
+    const rowH = 22, left = 56, w = Math.max(n * 6, 480), step = (w - left) / n;
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${w} ${rows.length * rowH}`);
+    svg.setAttribute('width', String(w));
+    svg.setAttribute('height', String(rows.length * rowH));
+    rows.forEach((r, i) => {
+      const t = document.createElementNS(SVG, 'text');
+      t.setAttribute('x', '0'); t.setAttribute('y', String(i * rowH + 15));
+      t.textContent = r.name;
+      svg.append(t);
+      const hi = i * rowH + 4, lo = i * rowH + 18;
+      let d = '', prev = -1;
+      r.values.forEach((v, k) => {
+        const x = left + k * step, y = v ? hi : lo;
+        if (prev < 0) d += `M${x} ${y}`;
+        else if (prev !== v) d += `L${x} ${prev ? hi : lo}L${x} ${y}`;
+        else d += `L${x} ${y}`;
+        prev = v;
+      });
+      d += `L${left + n * step} ${prev ? hi : lo}`;
+      const p = document.createElementNS(SVG, 'path');
+      p.setAttribute('d', d);
+      svg.append(p);
+    });
+    box.replaceChildren(svg);
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-clock-lab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = CLOCK_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), CLOCK_MISSION, () => state);
+
+    // ---- the latch ------------------------------------------------------------
+    const latch = new SrLatch();
+    latch.apply(false, false);
+    let sawSet = false;
+    const srNote = q('[data-sr-note]');
+    const showSr = (r: { q: number; qn: number; settled: boolean }) => {
+      q('[data-q]').textContent = String(r.q);
+      q('[data-qn]').textContent = String(r.qn);
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-sr]').forEach((b) => b.addEventListener('click', () => {
+      const kind = b.dataset.sr!;
+      const r = kind === 'set' ? latch.apply(true, false) : kind === 'reset' ? latch.apply(false, true) : kind === 'both' ? latch.apply(true, true) : latch.apply(false, false);
+      showSr(r);
+      if (kind === 'set') { sawSet = true; srNote.textContent = 'Set is held down, and Q is 1. Now let go.'; }
+      else if (kind === 'reset') { sawSet = false; srNote.textContent = 'Reset is held down, and Q is 0. Let go, and it stays 0.'; }
+      else if (kind === 'both') srNote.textContent = 'Both held down: Q and not Q are both 1. That isn\'t a stored bit at all, because they\'re supposed to be opposites. Now let go of both at once.';
+      else if (!r.settled) srNote.textContent = 'You let go of both in the same instant, and this model never settles: Q and not Q flip together on every gate delay. A real latch isn\'t this tidy, and nobody can say in advance which way it will fall or how long it will take. That\'s called metastability. Press Set or Reset to recover.';
+      else if (sawSet && r.q === 1) { state.latchHeld = true; srNote.textContent = 'Nothing is pressed, and Q is still 1. There\'s no input telling it so. The gates hold each other there, for as long as the power stays on.'; }
+      else srNote.textContent = `Nothing is pressed, and Q is ${r.q}, held by the two gates.`;
+      refresh();
+    }));
+
+    // ---- the bench -------------------------------------------------------------
+    const bench = new EdgeBench();
+    const showBench = () => {
+      for (const k of ['d', 'clk', 'latchQ', 'ffQ'] as const) q(`[data-e="${k}"]`).textContent = String(bench.state[k]);
+      const h = bench.history;
+      wave(q('[data-edge-wave]'), [
+        { name: 'D', values: h.map((x) => x.d) }, { name: 'clock', values: h.map((x) => x.clk) },
+        { name: 'latch', values: h.map((x) => x.latchQ) }, { name: 'flip-flop', values: h.map((x) => x.ffQ) },
+      ], `The last ${h.length} changes. D is ${bench.state.d}, the clock is ${bench.state.clk}, the latch's Q is ${bench.state.latchQ} and the flip-flop's Q is ${bench.state.ffQ}.`);
+      refresh();
+    };
+    q('[data-flip-d]').addEventListener('click', () => {
+      bench.setD(bench.state.d ? 0 : 1);
+      const s = bench.state;
+      if (s.clk === 1 && s.latchQ === s.d && s.ffQ !== s.d) state.edgeHeld = true;
+      showBench();
+    });
+    q('[data-raise]').addEventListener('click', () => { bench.setClk(1); showBench(); });
+    q('[data-lower]').addEventListener('click', () => { bench.setClk(0); showBench(); });
+
+    // ---- the counter ------------------------------------------------------------
+    const period = q<HTMLInputElement>('[data-period]');
+    period.addEventListener('input', () => { q('[data-period-label]').textContent = period.value; });
+    q('[data-run-counter]').addEventListener('click', () => {
+      const r = runCounter(Number(period.value));
+      state.tried.push({ period: r.period, correct: r.correct });
+      const verdict = q('[data-verdict]');
+      if (r.correct) { verdict.textContent = `Every read was right at ${r.period} gate delays per tick: 0 to 15, then back to 0. That's for this count and this model.`; verdict.className = 'cl2-verdict ok'; }
+      // Not "the flip-flops saved what they were given": at 12 the input was already 0 when the clock rose, and 1 got stored.
+      else { const wrong = r.read.filter((v, i) => v !== i % 16).length; verdict.textContent = `Wrong at ${r.period} gate delays per tick. After ${r.firstWrong - 1} it should read ${r.firstWrong % 16}, and it read ${r.read[r.firstWrong]}. ${wrong} of these ${r.read.length} reads are wrong. No error was raised, because nothing checks the flip-flops' timing.`; verdict.className = 'cl2-verdict bad'; }
+      q('[data-reads]').replaceChildren(...r.read.map((v, i) => {
+        const want = i % 16;
+        return el('li', v === want ? {} : { class: 'wrong' }, String(v), v === want ? '' : el('small', {}, ` not ${want}`));
+      }));
+      // Enough ticks to see the fault, and no more: 16 ticks at a long period makes an unreadable strip.
+      const shown = Math.min(r.wave.clk.length, Math.max(r.period * 10, 200));
+      const rows = Array.from({ length: COUNTER_BITS }, (_, i) => ({ name: `bit ${i}`, values: r.wave.bits[i].slice(0, shown) }));
+      rows.push({ name: 'clock', values: r.wave.clk.slice(0, shown) });
+      wave(q('[data-wave]'), rows, `Timing diagram for a clock period of ${r.period} gate delays. The count read ${r.read.join(', ')}.`);
+      refresh();
+    });
+    showBench();
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .clocklab .cl2-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .clocklab .cl2-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .clocklab .cl2-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
+  .clocklab .cl2-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .clocklab h4 { margin: 0 0 8px; font-size: 0.95rem; }
+  .clocklab h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .clocklab .cl2-note { margin: 6px 0 0; font-size: 0.86rem; color: var(--ink-2); overflow-wrap: anywhere; }
+  .clocklab .controls input[type="range"] { width: 150px; }
+  .clocklab .cl2-verdict { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); font-size: 0.9rem; overflow-wrap: anywhere; }
+  .clocklab .cl2-verdict.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .clocklab .cl2-verdict.bad { background: var(--berry-soft); color: var(--berry); }
+  .clocklab .cl2-reads { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; font: 13px var(--mono); }
+  .clocklab .cl2-reads li { padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 6px; }
+  .clocklab .cl2-reads li.wrong { border-color: var(--berry); color: var(--berry); font-weight: 650; }
+  .clocklab .cl2-reads small { font-weight: 400; }
+  .clocklab .cl2-wave { overflow-x: auto; margin-top: 6px; }
+  /* max-width none: the site's global image rule shrank a long waveform to a phone's width, where it couldn't be read. It scrolls instead. */
+  .clocklab .cl2-wave svg { display: block; max-width: none; }
+  .clocklab .cl2-wave text { font: 11px var(--mono); fill: var(--ink-2); }
+  .clocklab .cl2-wave path { fill: none; stroke: var(--sky); stroke-width: 1.5; }
+</style>

@@ -105,7 +105,7 @@ Being scattered matters because of the **cache**. Main memory is far slower than
 
 That's a factor of 200. These are his round numbers and not a measurement, but one thing doesn't depend on the details: to the machine, reading the next item in a line and jumping across memory are very different costs. To big-O, they're both one step.
 
-Here's the same walk, measured for this trail. Node 24 on one Windows laptop, with the same number of steps through one array of next-addresses, once in memory order and once as a single shuffled cycle. Only the layout changes:
+Here's the same walk, measured for this trail. Node 24 on one Windows workstation, with the same number of steps through one array of next-addresses, once in memory order and once as a single shuffled cycle. Only the layout changes:
 
 | Elements | Memory | In order (ns per step) | Shuffled (ns per step) | Ratio |
 |---|---|---|---|---|
@@ -128,7 +128,7 @@ The first panel is a small cache you can see into, with small made-up sizes so y
 <Callout kind="real" title="Why this lab isn't Python">
 A Python list can't show you contiguity, which means items sitting next to each other. It holds pointers: its slots are side by side, but each one only says where the object lives, and that object can be anywhere. Stroustrup draws this for a vector of points, where each entry points off to a separate object, and says the layout "is found in a language that doesn't emphasize compact representation, such as Java or Python".
 
-Python's `array` module can do it, because it stores raw whole numbers side by side. We ran this same walk over one in plain Python, on one laptop, and got 1.1x at 1,000 elements and about 2.2x at 16 million, where the table above shows 46x. Each step costs about 70 ns of interpreter work whichever way it walks, and that drowns most of the effect. So the widget above is written in TypeScript, the language this site's pages are built with, and walks an `Int32Array`, JavaScript's raw array of whole numbers.
+Python's `array` module can do it, because it stores raw whole numbers side by side. We ran this same walk over one in plain Python, on one machine, and got 1.1x at 1,000 elements and about 2.2x at 16 million, where the table above shows 46x. Each step costs about 70 ns of interpreter work whichever way it walks, and that drowns most of the effect. So the widget above is written in TypeScript, the language this site's pages are built with, and walks an `Int32Array`, JavaScript's raw array of whole numbers.
 
 The code lab has the same limit from the other side. Its steps are counts, and it knows nothing about caches, so in that lab a linked list walk looks as cheap as an array's. Treat the step counter as the count of the work, not the time it takes.
 </Callout>
@@ -182,7 +182,7 @@ The general form, which is this site's own derivation and isn't quoted from a bo
   q="Two walks take the same number of steps through the same data, and big-O calls both O(n). One takes 56 times as long. How can both of those be true?"
   options={["One of the measurements must be wrong", "Big-O counts steps and hides the constant. Where each step lands in memory decides whether it hits the cache", "The slower one secretly takes more steps"]}
   answer={1}
-  explain="Same count, different cost per step. Once the data no longer fits in the cache, each scattered read can be a trip to main memory. It's also why you measure on your own machine: that 56x is one laptop's, and the shape is what carries over."
+  explain="Same count, different cost per step. Once the data no longer fits in the cache, each scattered read can be a trip to main memory. It's also why you measure on your own machine: that 56x is one workstation's, and the shape is what carries over."
 />
 
 <Quiz

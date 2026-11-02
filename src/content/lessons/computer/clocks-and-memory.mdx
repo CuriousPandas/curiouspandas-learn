@@ -1,0 +1,135 @@
+---
+title: Flip-flops, registers and the clock
+summary: Researchers made a phone's processor compute wrong answers by pushing its clock past its limits, and used that to pull out secret keys. Build memory from gates, watch a counter go wrong one gate delay below its limit, and learn what a clock speed is a promise about.
+minutes: 22
+xp: 60
+tiers: [browser]
+builds_on: [computer/adder]
+sources:
+  - title: Tang, Sethumadhavan and Stolfo - CLKSCREW, Exposing the Perils of Security-Oblivious Energy Management (USENIX Security 2017)
+    url: https://www.usenix.org/system/files/conference/usenixsecurity17/sec17-tang.pdf
+  - title: Ulrich Drepper - What Every Programmer Should Know About Memory, section 2.1 (2007, free PDF)
+    url: https://people.freebsd.org/~lstewart/articles/cpumemory.pdf
+  - title: UC San Diego CSE 140 - lecture slides on the hold time constraint and fixing it (2015)
+    url: https://cseweb.ucsd.edu/classes/wi15/cse140-ab/slides/lec18_before.pdf
+---
+
+In 2017 three researchers at Columbia University published an attack on a real phone, a Nexus 6, with no soldering iron and no lab equipment. Phones save battery by changing how fast their processor runs and at what voltage, and software can set both. The researchers' code pushed those settings past safe limits, on purpose, for a tiny moment, while the phone's most protected code was doing its work.
+
+When it worked, the processor gave a wrong answer and raised no error. It took many tries: on average 20 in one of the paper's attacks, and 65 in the other. From those wrong answers: "We show that a malicious kernel driver (1) can extract secret cryptographic keys from Trustzone, and (2) can escalate its privileges by loading self-signed code into Trustzone." (A kernel driver is code running with the operating system's own powers. Trustzone is a walled-off part of the chip meant to keep secrets even from the operating system.) They named it CLKSCREW.
+
+Their code didn't change a single gate. It only made the clock run faster than the gates could keep up with. To see why that gives you a wrong answer and not an error, you need to know what a clock is for, and that starts with a bit that stays put.
+
+## Gates forget
+
+An adder made of gates gives you a sum for as long as you hold its inputs steady. Take the inputs away and the sum is gone. Gates like that have no past: their output depends only on what's at their inputs right now, which is called **combinational logic**. A computer also has to remember what it was doing, so it needs a circuit whose output depends on what happened before. That's **sequential logic**.
+
+The trick is feedback. Take a **NAND** gate, whose output is 0 only when both its inputs are 1, and connect two of them so that each one's output feeds the other's input:
+
+```text
+Q     = NAND(Set,   not Q)
+not Q = NAND(Reset, Q)
+```
+
+Each line needs the other's answer, and that loop is the whole trick. Set and Reset normally sit at 1. Pull Set low to 0 for a moment, and Q goes to 1. Let go, and Q stays at 1, because the two gates are now holding each other in place. Nothing is telling them to. Pull Reset low and it flips the other way and stays there too. That's a **latch**, and it's one bit of memory, for as long as the power stays on.
+
+Add a little gating in front, so it only listens while an "enable" input is 1, and you get a **D latch**: while enable is high, the output Q follows the data input D. While it's low, Q holds whatever it last had.
+
+A latch has a flaw for building computers. While it's listening, a change goes straight through it. If its output feeds back through some logic to its own input, as it will in any counter, it can race round the loop many times in one tick. The fix is to put two latches back to back, one listening while the clock is low and the other while it's high, so there's never a clear path through. The pair is an **edge-triggered flip-flop**, and the CLKSCREW paper describes it well: "A typical flip-flop has an input D, and an output Q, and only changes the output to the value of the input upon the receipt of the rising edge of the clock (CLK) signal."
+
+The **clock** is one signal, going up and down forever, wired to every flip-flop in a part of the chip. A big chip can have several: the phone in the attack gives each core its own, which the paper calls "a dedicated clock domain". The clock's rising edge is the moment everything on it saves at once. A row of flip-flops sharing a clock is a **register**: 4 of them hold a 4-bit number, 32 of them hold a 32-bit one.
+
+## Try it
+
+This lab is built out of NAND gates and nothing else, about 60 of them, and every gate takes exactly one time step, called a **gate delay**, to answer. There's no rule in it that says "a latch remembers" or "a counter fails if it's rushed". The gates do that by themselves.
+
+<ClockLab />
+
+## State, and the next state
+
+Between them, the flip-flops and the gates form a loop you'll see everywhere: the flip-flops hold the **state**, gates work out the **next state** from it, and the clock says when to move. Anything built that way is a **state machine**. Here's one in Python. The dictionary plays the part of the gates, and the `for` loop plays the clock.
+
+<CodeLab code={`# A state, and a rule for what comes after it.
+NEXT = {"red": "green", "green": "amber", "amber": "red"}
+
+state = "red"
+for tick in range(5):
+    print(tick, state)
+    state = NEXT[state]
+`} />
+
+The counter in the lab is exactly this, with the state in 4 flip-flops, an add-one circuit in place of `NEXT`, and a real clock in place of the loop.
+
+## What a clock speed is a promise about
+
+After a rising edge, new values come out of the flip-flops and start through the gates. Those gates take time. The answer is only ready when the slowest route through them has settled, and then it has to sit still at the next flip-flop's input for a little while before the next edge. The paper writes that as an inequality, for some constant `K` (`T_FF` is the flip-flop's own delay, and `T_setup` is how long the input has to be steady before the edge):
+
+```text
+T_clk >= T_FF + T_max_path + T_setup + K
+```
+
+Your lab gives you two of those numbers. The longest route through the add-one circuit is 9 gates, and the counter's reads need a clock period of 13 gate delays, measured by running it. That leaves about 4 for the flip-flops, as a rough sum and not a separate measurement. And 13 is the limit for the reads, not for a clean signal: look at bit 3's line in the diagram at 13 and at 14, and it still blips after one edge and comes back before it's read. From 15 up, each bit changes at most once a cycle. Every period the lab offers from 13 up reads correctly, and every period from 2 to 12 goes wrong somewhere.
+
+Look at what going wrong looks like at 12. It counts 0, 1, 2, 3, 4, 5, 6, and then reads 15 where 7 belongs. As the clock rises for that step, the right answer is at the flip-flop's input. It only just got there, though. Bit 3's input had gone to 1 on its way, because several bits were changing at once, and it came back to 0 just before the edge. A brief wrong value on the way to a right one is called a **glitch**. So the flip-flop's input wasn't steady for long enough, and the flip-flop stored a 1 anyway. From then on, in this model, the latches inside bit 3 flip on every gate delay, and they never stop. It's the same cartoon as "Press both, then Release" in the lab.
+
+The reads after that look as if it recovered: 8, 9, 10, up to 15. It hasn't. The next read is 8 where 0 belongs, and the count goes round from 8 to 15 for as long as you run it. Over 96 ticks of the clock, 42 of the 97 reads are wrong. The ones that look right are right by luck of timing. A period of 12 is even, so the clock catches a signal that flips on every delay at the same point each time, and it always sees bit 3 high. At a period of 11, the same fault reads 14, 7, 8, 1, 10, 3, 12, 5, because an odd period catches it high and low in turn. A real flip-flop wouldn't ring for ever. That part is this model's.
+
+<Callout kind="trap" title="Nothing reports this">
+There's no error here for anyone to catch, because nothing checks whether a flip-flop's input was steady. The machine carries on, with the wrong number. That's why CLKSCREW worked at all. The paper's version of this failure is a flip-flop left holding old data: when the timing is violated "the FFdst continues to operate with stale data." (FFdst is the flip-flop receiving the value.) The lab's failure at 12 is a different one, an input that changed too close to the edge. Either way, nothing raises an error.
+</Callout>
+
+A real chip's limit isn't one number. A gate takes longer when it has to drive more gates (the number it drives is its **fan-out**, and the number of inputs it has is its **fan-in**), and it also changes with voltage and temperature. The paper names lowering the voltage as the second way to break the same promise. A vendor lists the speed and voltage settings it considers safe. The paper's finding was blunt, and it says it isn't only about that phone: "There are no safeguard limits in the hardware regulators to restrict the range of frequencies and voltages that can be configured."
+
+<Callout kind="real">
+This lab's model is deliberately plain: each gate takes the same time and a real value is either 0 or 1. A real latch released at the wrong moment can hang between 0 and 1 for an unpredictable time, which is called **metastability**. "Press both, then Release" in the lab shows a cartoon of that as endless flickering. Real chips aren't designed by placing gates like this either. Engineers describe the registers and logic in a language such as Verilog or VHDL, and tools turn that into gates, either for a manufactured chip or for an **FPGA**, a chip whose wiring can be reconfigured after it's made.
+</Callout>
+
+## From one bit to a lot of memory
+
+The cross-coupled shape you built is close to how the fastest memory is really made. Drepper describes a static RAM (**SRAM**) cell: "one cell requires six transistors", and four of them "form two cross-coupled inverters. They have two stable states, representing 0 and 1 respectively." That's your latch, in transistors.
+
+Main memory is built differently, as dynamic RAM (**DRAM**), because six transistors a bit is expensive. "All it consists of is one transistor and one capacitor." A capacitor is a tiny store of charge, and it leaks, so it has to be read and rewritten on a schedule, which is called refresh. Drepper's paper, from 2007, says "For most DRAM chips these days this refresh must happen every 64ms." The cost of cheap memory is that it's slower, and "SRAM is much more expensive to produce and to use than DRAM."
+
+So a machine has both, and the gap between them is the reason caches exist.
+
+To use many cells, you add an **address**: a number that gates turn into "this row, and no other". That's combinational logic again. A computer's main memory is, at this level of detail, a huge number of tiny storage cells and a circuit for picking one.
+
+<GoDeeper title="Setup time, hold time, and how the paper's inequality fits together">
+A flip-flop has two timing rules. **Setup time** is how long D must be steady before the clock edge. **Hold time** is how long it must stay steady after the edge.
+
+The inequality in this lesson is about setup: too little time between edges, and the signal arrives late. It has a sibling about hold: if the shortest route between two flip-flops is too fast, the new value gets to the next flip-flop before it has finished taking in the old one. A slower clock doesn't fix that, because the time between edges isn't in the rule. The rule compares the hold time with the shortest delay through the first flip-flop and the gates after it. Chip designers fix it by adding delay to the routes that are too fast. In the words of one university course's slides: "Add buffers to the short paths". (A **buffer** is a gate that passes its input along, a little later.)
+
+The clock's frequency is one over its period: a period of 0.5 ns is 2 GHz. The paper's footnote says so too: "T clk is simply the reciprocal of the clock frequency."
+</GoDeeper>
+
+<Quiz
+  id="comp-clock-1"
+  q="At a clock period of 12 gate delays, the counter reads 0 to 6, and then 15. No gate is faulty. What went wrong?"
+  options={["The adder gives wrong answers when it runs fast", "The clock rose before bit 3's input had been steady for long enough, so the flip-flop stored a value that wasn't the settled answer", "The counter ran out of bits"]}
+  answer={1}
+  explain="Every gate still does its job in one delay. The clock period promised that everything would be settled in time, and at 12 that promise is broken by one delay. One more gate delay and every read is right."
+/>
+
+<Quiz
+  id="comp-clock-2"
+  q="While the clock is high, you change D. What happens?"
+  options={["A latch's output follows D, and an edge-triggered flip-flop's output doesn't change until the next rising edge", "Both outputs follow D", "Neither output changes, because nothing changes while the clock is high"]}
+  answer={0}
+  explain="That's the difference, and you can see it in the lab. A latch is open for the whole time its enable is high. A flip-flop only takes a value at the moment the clock rises, so a feedback loop can't race round it."
+/>
+
+<Quiz
+  id="comp-clock-3"
+  q="A processor is pushed past its limit for just a moment, and a value comes out wrong. What does the program notice?"
+  options={["An exception, because hardware checks each result", "Nothing: the wrong value is stored as if it were right, unless something else happens to check it", "The processor always halts"]}
+  answer={1}
+  explain="A flip-flop has no way to know the value it took wasn't ready. That's about one brief fault. Set the limits too far, and the phone in the paper rebooted or froze instead. CLKSCREW relied on the quiet case, which took many tries to hit: code carried on with a faulty value, and the faulty values gave the keys away."
+/>
+
+## What to remember
+
+- Feedback is how gates remember: two NANDs holding each other are one bit, for as long as the power stays on.
+- An edge-triggered flip-flop takes its input only as the clock rises. A row of them is a register.
+- State, next-state logic and a clock make a state machine, and that describes most of a computer.
+- A clock period is a promise that everything between two flip-flops settles in time. Breaking it can give you quiet wrong answers rather than an error.
+- SRAM is fast and needs six transistors a bit. DRAM needs one and a capacitor, is slower, and has to be refreshed.

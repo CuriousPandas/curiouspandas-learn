@@ -1,0 +1,210 @@
+---
+import '../styles/widgets.css';
+import { PIPE_PROGRAMS, PREDICTORS } from '../lib/cs/pipeline.ts';
+const first = PIPE_PROGRAMS[0];
+---
+<div class="widget card pipelab" data-pipe-lab>
+  <div class="widget-head">
+    <strong>Pipeline lab</strong>
+    <span class="pill info">a simple textbook model of five stages, not any real CPU: memory always answers in one cycle, and a wrong guess costs two cycles</span>
+  </div>
+  <div class="pl-grid">
+    <div class="pl-main">
+      <div class="controls">
+        <label>program <select data-program>{PIPE_PROGRAMS.map((p) => <option value={p.id}>{p.label}</option>)}</select></label>
+        <label>forwarding <select data-forwarding><option value="on">on</option><option value="off">off</option></select></label>
+        <label>branches <select data-predictor>{PREDICTORS.map((p) => <option value={p.id} selected={p.id === 'not-taken'}>{p.label}</option>)}</select></label>
+        <label data-data-label hidden>data order <select data-order><option value="shuffled">shuffled</option><option value="sorted">sorted</option></select></label>
+      </div>
+      <label class="pl-editor">
+        <span class="eyebrow">The program <span class="muted">You can edit it. The answers come from the real RISC-V machine from the earlier lessons</span></span>
+        <textarea data-src rows="12" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off">{first.src}</textarea>
+      </label>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-run>Run</button>
+        <button class="btn small" type="button" data-unprotected>Run with no hazard handling at all</button>
+      </div>
+      <p class="pl-status" data-status role="status">Not run yet.</p>
+      <div class="stats" aria-live="polite">
+        <div class="stat">cycles<b data-s="cycles">0</b></div>
+        <div class="stat">instructions<b data-s="instructions">0</b></div>
+        <div class="stat">cycles per instruction<b data-s="cpi">0</b></div>
+        <div class="stat">data stalls<b data-s="stalls">0</b></div>
+        <div class="stat">wrong guesses or waits<b data-s="wrong">0</b></div>
+        <div class="stat">of branches<b data-s="branches">0</b></div>
+      </div>
+      <div class="pl-scroll" data-chart-wrap tabindex="0" role="region" aria-label="Pipeline diagram: one row per instruction, one column per cycle">
+        <table class="pl-chart"><tbody data-chart><tr><td class="muted">Run a program to see it.</td></tr></tbody></table>
+      </div>
+      <p class="pl-note" data-clip></p>
+      <div class="pl-scroll">
+        <table class="pl-history">
+          <thead><tr><th scope="col">Program</th><th scope="col">Forwarding</th><th scope="col">Branches</th><th scope="col">Data</th><th scope="col">Cycles</th><th scope="col">CPI</th><th scope="col">Stalls</th><th scope="col">Wrong</th></tr></thead>
+          <tbody data-history><tr><td colspan="8" class="muted">Nothing run yet.</td></tr></tbody>
+        </table>
+      </div>
+      <section class="pl-panel" data-machine>
+        <h4>Your machine <span class="pill gold">shown, never checked: your hardware, in this browser, today</span></h4>
+        <p class="pl-note">The same loop over the same 32,768 values in JavaScript, shuffled and then sorted. It only tells you about this device. An engine is free to compile a branch away, so a ratio near 1x is an honest result too.</p>
+        <div class="controls"><button class="btn small primary" type="button" data-machine-run>Run on my machine</button></div>
+        <p class="pl-note" data-machine-status role="status">Not run yet.</p>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { PIPE_MISSION, PIPE_PROGRAMS, PREDICTORS, REORDER_ADDR, REORDER_VISIBLE, chart, compareRuns, dataWords, noteReorder, runUnprotected, schedule, traceOf, type Dataset, type Predictor } from '../lib/cs/pipeline.ts';
+  import { hexAddr, type MachineOptions } from '../lib/cs/riscv.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-pipe-lab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = PIPE_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), PIPE_MISSION, () => state);
+    const src = q<HTMLTextAreaElement>('[data-src]'), status = q('[data-status]');
+    const programSel = q<HTMLSelectElement>('[data-program]'), fwd = q<HTMLSelectElement>('[data-forwarding]'), pred = q<HTMLSelectElement>('[data-predictor]'), order = q<HTMLSelectElement>('[data-order]');
+    const setStatus = (text: string, kind = '') => { status.textContent = text; status.className = `pl-status ${kind}`; };
+    const program = () => PIPE_PROGRAMS.find((p) => p.id === programSel.value)!;
+    const guarded = (fn: () => void) => () => {
+      try { fn(); } catch (e) {
+        const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        setStatus(`This is a bug in this page's model, not in your program. Details for a bug report: ${detail}`, 'warn');
+        console.error(`The pipeline lab failed: ${detail}`);
+      }
+    };
+    const options = (): MachineOptions => {
+      const p = program();
+      if (p.usesData) return { words: dataWords(order.value as Dataset) };
+      if (p.id === 'reorder') return { regs: { a0: REORDER_ADDR }, words: [{ addr: REORDER_ADDR, values: REORDER_VISIBLE }] };
+      return {};
+    };
+    const refuse = (t: { errors?: { line: number; message: string }[]; fault?: string; line?: number }) => {
+      if (t.errors) setStatus(`This didn't assemble, so nothing ran. Line ${t.errors[0].line}: ${t.errors[0].message}.`, 'bad');
+      else setStatus(`It didn't finish, so it has no cycle count. ${t.line ? `Line ${t.line}: ` : ''}${t.fault}.`, 'bad');
+    };
+
+    const CELL: Record<string, string> = { IF: 'IF', ID: 'ID', EX: 'EX', MEM: 'ME', WB: 'WB', stall: '·', wait: '·', '': '' };
+    function drawChart(c: ReturnType<typeof chart>) {
+      const head = el('tr', {}, el('th', { scope: 'col' }, 'Instruction'), ...Array.from({ length: c.cycles }, (_, i) => el('th', { scope: 'col', class: 'pl-c' }, String(i + 1))));
+      q('[data-chart]').replaceChildren(head, ...c.rows.map((r) => el('tr', {},
+        el('th', { scope: 'row' }, r.text, r.flushAfter ? el('span', { class: 'pl-flush' }, ' 2 cycles lost') : ''),
+        ...r.cells.map((cell) => el('td', { class: `pl-c ${cell}`, ...(cell === 'stall' ? { title: 'stalled' } : cell === 'wait' ? { title: 'waiting behind a stall' } : {}) }, CELL[cell])),
+      )));
+      q('[data-clip]').textContent = `Each row is an instruction, and each column is one cycle. A dot means waiting.${c.clippedRows || c.clippedCycles ? ' Only the start of this run is drawn. The counts above are for the whole run.' : ''}`;
+    }
+
+    q('[data-program]').addEventListener('change', () => {
+      const p = program();
+      src.value = p.src;
+      q('[data-data-label]').hidden = !p.usesData;
+    });
+
+    q('[data-run]').addEventListener('click', guarded(() => {
+      const p = program();
+      const t = traceOf(src.value, options());
+      if (!t.ok) { refuse(t as never); if (p.id === 'reorder') { noteReorder(state, src.value); refresh(); } return; }
+      const cfg = { forwarding: fwd.value === 'on', predictor: pred.value as Predictor };
+      const r = schedule(t.trace, cfg);
+      q('[data-s="cycles"]').textContent = fmt(r.cycles);
+      q('[data-s="instructions"]').textContent = fmt(r.instructions);
+      q('[data-s="cpi"]').textContent = r.cpi.toFixed(2);
+      q('[data-s="stalls"]').textContent = fmt(r.dataStalls);
+      q('[data-s="wrong"]').textContent = fmt(r.mispredicts);
+      q('[data-s="branches"]').textContent = fmt(r.branches);
+      drawChart(chart(r.rows));
+      const a0 = t.machine.reg('a0');
+      const data = order.value as Dataset;
+      state.runs.push({ program: p.id, src: src.value, cfg, data, result: r, a0 });
+      const answer = p.id === 'reorder' ? `Memory at a0+12 holds ${t.machine.readWord(REORDER_ADDR + 12)}, and a0+16 holds ${t.machine.readWord(REORDER_ADDR + 16)}.` : `a0 is ${a0}.`;
+      setStatus(`${fmt(r.cycles)} cycles. ${answer}`, 'ok');
+      if (p.id === 'reorder') noteReorder(state, src.value);
+      const rows = state.runs.slice(-8).reverse().map((x) => el('tr', {},
+        el('td', {}, PIPE_PROGRAMS.find((y) => y.id === x.program)!.label), el('td', {}, x.cfg.forwarding ? 'on' : 'off'),
+        el('td', {}, PREDICTORS.find((y) => y.id === x.cfg.predictor)!.label), el('td', {}, x.program === 'loop' ? x.data : ''),
+        el('td', {}, fmt(x.result.cycles)), el('td', {}, x.result.cpi.toFixed(2)), el('td', {}, fmt(x.result.dataStalls)), el('td', {}, fmt(x.result.mispredicts))));
+      q('[data-history]').replaceChildren(...rows);
+      refresh();
+    }));
+
+    q('[data-unprotected]').addEventListener('click', guarded(() => {
+      const right = traceOf(src.value, options()), wrong = runUnprotected(src.value, options());
+      if (!right.ok) { refuse(right as never); return; }
+      if (!wrong.ok) { setStatus(`With no hazard handling, this program didn't even finish. ${'errors' in wrong ? '' : `${wrong.line ? `Line ${wrong.line}: ` : ''}${wrong.fault}.`} Stale values had it reading or jumping to the wrong place.`, 'bad'); return; }
+      const d = compareRuns(right.machine, wrong.machine);
+      // No reason is offered when they match. "Nothing here reads a register soon after it's written" was a guess the page couldn't back, and it was false of programs that do exactly that.
+      if (d.same) { setStatus(`With no hazard handling, this run ended the same in everything compared here: registers, all of memory, what it printed, and where it stopped. That's the end of this run on this input, not a guarantee. It ended at ${hexAddr(wrong.machine.pc)}.`, 'warn'); return; }
+      const said = [...d.registers.slice(0, 5), ...d.memory.slice(0, 3), ...(d.memory.length > 3 ? [`and ${d.memory.length - 3} more words of memory differ`] : []), ...(d.output ? [d.output] : []), ...(d.ending ? [d.ending] : [])];
+      setStatus(`With no stalls and no forwarding, each instruction read what its registers held before the last two wrote to them. What differs: ${said.join('; ')}.${d.registers.length ? '' : ' The registers all match, so comparing only those would miss this.'} Nothing raised an error.`, 'bad');
+    }));
+
+    // ---- your machine ---------------------------------------------------------
+    // Never asserted, by the tests or by this page. It reports what it saw.
+    const machineBtn = q<HTMLButtonElement>('[data-machine-run]');
+    let sink = 0;
+    machineBtn.addEventListener('click', async () => {
+      machineBtn.disabled = true;
+      const out = q('[data-machine-status]');
+      try {
+        out.textContent = 'Timing…';
+        await new Promise((d) => setTimeout(d, 30));
+        const a = new Int32Array(32768);
+        let x = 12345;
+        for (let i = 0; i < a.length; i++) { x = (Math.imul(x, 1103515245) + 12345) & 0x7fffffff; a[i] = (x >>> 16) & 255; }
+        const b = a.slice().sort();
+        const loop = (d: Int32Array) => { let sum = 0; for (let k = 0; k < 500; k++) for (let i = 0; i < d.length; i++) if (d[i] >= 128) sum += d[i]; return sum; };
+        // Warm up both, so neither is timed while the engine is still compiling it.
+        loop(a); loop(b);
+        await new Promise((d) => setTimeout(d, 30));
+        let t = performance.now(); const s1 = loop(a); const shuffled = performance.now() - t;
+        await new Promise((d) => setTimeout(d, 30));
+        t = performance.now(); const s2 = loop(b); const sorted = performance.now() - t;
+        if (s1 !== s2) throw new Error('the two orders gave different sums');
+        sink ^= s1;
+        const n = 500 * 32768;
+        out.textContent = `Shuffled: ${(shuffled * 1e6 / n).toFixed(2)} ns per element. Sorted: ${(sorted * 1e6 / n).toFixed(2)} ns per element. Ratio: ${(shuffled / Math.max(sorted, 0.01)).toFixed(1)}x. One run, on this device, today. Run it again and the numbers will move. (Both totals came to ${s1}, so the engine had to do the work.)`;
+      } catch (e) {
+        out.textContent = `Stopped: this browser refused the measurement (${(e as Error).message}).`;
+      }
+      machineBtn.disabled = false;
+      void sink;
+    });
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .pipelab .pl-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .pipelab .pl-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .pipelab .pl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .pipelab .pl-editor { display: grid; gap: 4px; min-width: 0; }
+  .pipelab .pl-editor .muted { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .pipelab textarea { width: 100%; box-sizing: border-box; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; border: 1px solid var(--line-2); padding: 10px 12px; font: 13px/1.5 var(--mono); resize: vertical; overflow: auto; }
+  .pipelab .pl-status { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .pipelab .pl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .pipelab .pl-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .pipelab .pl-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .pipelab .pl-scroll { overflow-x: auto; }
+  .pipelab table.pl-chart { display: table; border-collapse: collapse; font: 11.5px var(--mono); margin: 0; }
+  .pipelab table.pl-chart th, .pipelab table.pl-chart td { padding: 1px 3px; border: 1px solid var(--line); text-align: center; font-weight: 400; }
+  .pipelab table.pl-chart tbody th[scope="row"] { text-align: left; white-space: nowrap; }
+  .pipelab table.pl-chart th[scope="col"]:first-child { text-align: left; }
+  .pipelab .pl-c { min-width: 22px; }
+  .pipelab td.IF { background: var(--bg-2); }
+  .pipelab td.ID { background: var(--sky-soft, var(--bg-2)); }
+  .pipelab td.EX { background: var(--sun-soft); color: var(--sun-text); }
+  .pipelab td.MEM { background: var(--bamboo-soft); color: var(--bamboo); }
+  .pipelab td.WB { background: var(--bg-2); }
+  .pipelab td.stall { background: var(--berry-soft); color: var(--berry); font-weight: 700; }
+  .pipelab .pl-flush { color: var(--berry); font-family: var(--sans); font-size: 0.72rem; }
+  .pipelab table.pl-history { display: table; width: 100%; border-collapse: collapse; font-size: 0.82rem; font-variant-numeric: tabular-nums; margin: 0; }
+  .pipelab table.pl-history th, .pipelab table.pl-history td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
+  .pipelab .pl-note { margin: 4px 0 0; font-size: 0.85rem; color: var(--ink-2); overflow-wrap: anywhere; }
+  .pipelab .pl-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .pipelab h4 { margin: 0 0 6px; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .pipelab h4 .pill { font-weight: 600; white-space: normal; }
+  .pipelab label[hidden] { display: none; }
+</style>

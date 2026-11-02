@@ -171,7 +171,7 @@ test('slack depends on n: doubling can beat CPython, and long lists stay in the 
 // "So no Python program can lay values out" was false, and so was "nothing a Python
 // program can see says when it did". Addresses, not times: this asserts the layout
 // and the moves, which are what the lesson claims. The timings are in the lesson as
-// one laptop's numbers.
+// one machine's numbers.
 test("Python's array module does lay values side by side, which a list doesn't", () => {
   const out = python(`import array, ctypes
 a = array.array('i', range(1000))

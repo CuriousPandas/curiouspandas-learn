@@ -1,0 +1,248 @@
+---
+import '../styles/widgets.css';
+import { PROBE_LINES, PUBLIC_LEN } from '../lib/cs/speculation.ts';
+---
+<div class="widget card speclab" data-speclab>
+  <div class="widget-head">
+    <strong>Speculation Lab</strong>
+    <span class="pill info">a model made of JavaScript variables. It isn't an attack, and it doesn't touch your CPU's cache or time anything real. Cycle counts are invented.</span>
+  </div>
+  <div class="sl-grid">
+    <div class="sl-main">
+      <div class="controls">
+        <label>Attack
+          <select data-attack>
+            <option value="spectre">Spectre style: a wrong guess past a bounds check</option>
+            <option value="meltdown">Meltdown style: a read the CPU will fault on</option>
+          </select>
+        </label>
+      </div>
+      <section class="sl-panel" data-spectre-panel>
+        <pre class="sl-code" tabindex="0">{`victim(x):
+    if x < ${PUBLIC_LEN}:
+        return probe[data[x]]
+    return 0`}</pre>
+        <p class="sl-note">Cells 0 to {PUBLIC_LEN - 1} of <code>data</code> are public. Cells {PUBLIC_LEN} to {PUBLIC_LEN + 3}, straight after them in memory, hold the secret: four digits the program must never return.</p>
+        <div class="controls">
+          <button class="btn small" type="button" data-train>Train: 4 in-range calls</button>
+          <button class="btn small" type="button" data-flush>Flush probe</button>
+          <label>x <input type="number" min="0" max="39" value="16" data-x aria-label="x, the victim's argument" /></label>
+          <button class="btn small primary" type="button" data-call>Call victim</button>
+          <button class="btn small" type="button" data-round>Whole round</button>
+        </div>
+        <div class="controls">
+          <label>Defence
+            <select data-defence>
+              <option value="none">none</option>
+              <option value="barrier">speculation barrier before the load</option>
+              <option value="mask">index mask: x &amp; 15</option>
+            </select>
+          </label>
+          <span class="pill" data-predictor></span>
+        </div>
+      </section>
+      <section class="sl-panel" data-meltdown-panel hidden>
+        <pre class="sl-code" tabindex="0">{`value = read(kernel_address)   # faults: the program never gets this
+touch probe[value]             # how far did the CPU get first?`}</pre>
+        <div class="controls">
+          <button class="btn small" type="button" data-flush2>Flush probe</button>
+          <label>Kernel digit
+            <select data-pos>
+              <option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            </select>
+          </label>
+          <button class="btn small primary" type="button" data-read>Read kernel</button>
+          <button class="btn small" type="button" data-round2>Whole round</button>
+        </div>
+        <div class="controls">
+          <label>CPU
+            <select data-cpu>
+              <option value="affected">affected: data forwarded before the check lands</option>
+              <option value="checks-first">checks permission before forwarding data</option>
+            </select>
+          </label>
+          <label><input type="checkbox" data-iso /> page table isolation</label>
+        </div>
+      </section>
+      <section class="sl-panel">
+        <div class="controls">
+          <button class="btn small primary" type="button" data-probe>Time the probe</button>
+          <label><input type="checkbox" data-coarse /> coarse timer</label>
+        </div>
+        <h4>What the attacker measures <span class="muted">invented cycles to load each line</span></h4>
+        <div class="sl-lines" data-lines role="list" aria-label="Probe lines">
+          {Array.from({ length: PROBE_LINES }, (_, i) => <div class="sl-line" role="listitem" data-line={i}><span>{i.toString(16)}</span><b>-</b></div>)}
+        </div>
+        <p class="sl-read" data-read-out role="status">Nothing timed yet.</p>
+      </section>
+      <section class="sl-panel sl-two">
+        <div>
+          <h4>What the program saw</h4>
+          <p data-arch role="status">Nothing called yet.</p>
+        </div>
+        <div>
+          <h4>What the model knows <span class="muted">an attacker can't see this</span></h4>
+          <p data-truth>Nothing has run.</p>
+        </div>
+      </section>
+      <div class="controls">
+        <label>Your reading of the secret <input type="text" maxlength="16" data-guess spellcheck="false" autocomplete="off" aria-label="The four digits you recovered" placeholder="4 digits" /></label>
+        <button class="btn small" type="button" data-check>Check</button>
+        <span class="sl-guess" data-guess-out role="status"></span>
+      </div>
+      <div class="stats"><div class="stat">model cycles, invented<b data-cycles>0</b></div></div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { SPEC_MISSION } from '../lib/cs/speculation-missions.ts';
+  import { hex, HIT_CYCLES, SECRET_LEN, type MeltdownCpu, type ProbeRecord, type SpectreDefence } from '../lib/cs/speculation.ts';
+  import { mountMission } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-speclab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = SPEC_MISSION.setup();
+    const lab = state.lab;
+    const refresh = mountMission(q('[data-mission-panel]'), SPEC_MISSION, () => state);
+    const attack = q<HTMLSelectElement>('[data-attack]'), xBox = q<HTMLInputElement>('[data-x]'), defence = q<HTMLSelectElement>('[data-defence]');
+    const coarse = q<HTMLInputElement>('[data-coarse]'), iso = q<HTMLInputElement>('[data-iso]'), cpu = q<HTMLSelectElement>('[data-cpu]'), pos = q<HTMLSelectElement>('[data-pos]');
+    const lines = [...root.querySelectorAll<HTMLElement>('[data-line]')];
+    const arch = q('[data-arch]'), truth = q('[data-truth]'), readOut = q('[data-read-out]');
+
+    const paintPredictor = () => {
+      const names = ['strongly "out of range"', 'weakly "out of range"', 'weakly "in range"', 'strongly "in range"'];
+      q('[data-predictor]').textContent = `predictor: ${names[lab.counter]}`;
+      q('[data-cycles]').textContent = lab.cycles.toLocaleString('en-US');
+    };
+    const clearLines = () => { for (const l of lines) { l.className = 'sl-line'; l.querySelector('b')!.textContent = '-'; } };
+
+    const wrote = () => { paintPredictor(); refresh(); };
+
+    const doTrain = () => {
+      for (let i = 0; i < 4; i++) lab.call(i);
+      clearLines();
+      arch.textContent = 'Four calls in range, each returning a public value. The predictor is learning that the check passes.';
+      truth.textContent = 'Training put those calls\' lines in the cache too, so flush before you measure.';
+      wrote();
+    };
+    const doFlush = () => {
+      lab.flush();
+      clearLines();
+      readOut.textContent = 'Flushed: every line of the probe is slow now.';
+      readOut.className = 'sl-read';
+      wrote();
+    };
+    // An empty box is Number('') = 0, which would quietly call victim(0). Say so instead.
+    const readX = () => {
+      const x = Number(xBox.value);
+      if (xBox.value.trim() === '' || !Number.isInteger(x) || x < 0 || x > 39) {
+        arch.textContent = 'x has to be a whole number from 0 to 39 here. Nothing was called.';
+        return null;
+      }
+      return x;
+    };
+    const doCall = () => {
+      const x = readX();
+      if (x === null) return;
+      const c = lab.call(x);
+      arch.textContent = c.inRange
+        ? `victim(${x}) returned ${hex(c.returned)}: in range, so that's a public value.`
+        : `victim(${x}) returned 0. The check refused it, and the program can't tell anything else happened.`;
+      if (c.inRange) truth.textContent = 'An ordinary call, and it left its own mark in the cache.';
+      else if (c.speculated?.secret) truth.textContent = `The predictor guessed "in range", so the CPU read cell ${c.speculated.cell} before the check finished: a secret cell. The guess was thrown away and the registers restored. The mark in the cache stayed.`;
+      else if (c.speculated) truth.textContent = `The predictor guessed "in range" and the CPU read cell ${c.speculated.cell} first. ${c.defence === 'mask' ? 'The mask kept the read inside the public cells, so what reached the cache is public.' : 'That cell isn\'t secret.'}`;
+      else if (c.defence === 'barrier') truth.textContent = 'The barrier made the CPU wait for the check, so nothing ran on a guess. That wait is paid on every call, including the honest ones.';
+      else truth.textContent = 'The predictor guessed "out of range", so nothing ran on a guess and nothing reached the cache.';
+      wrote();
+    };
+    const doRead = () => {
+      const r = lab.readKernel(Number(pos.value));
+      arch.textContent = 'The read faulted, as it does on every CPU: the program never received the value.';
+      truth.textContent = r.transient !== null
+        ? 'This CPU forwarded the value to the next instruction before the permission check landed. The fault threw that work away. The mark in the cache stayed.'
+        : r.pageTableIsolation ? 'The kernel isn\'t mapped in this program\'s page tables, so the load had no data to forward. A fault, and nothing else.' : 'This CPU checks permission before forwarding data, so the next instruction never had a value to use.';
+      wrote();
+    };
+    const showProbe = (p: ProbeRecord) => {
+      lines.forEach((l, i) => {
+        l.querySelector('b')!.textContent = String(p.latencies[i]);
+        l.classList.toggle('fast', p.fast.includes(i));
+      });
+      if (p.coarse) readOut.textContent = 'Every line reads the same: this timer can\'t tell a hit from a miss, so this probe sees nothing.';
+      else if (p.fast.length === 1) readOut.textContent = `One line stands out: ${hex(p.fast[0])}, at ${HIT_CYCLES} cycle.`;
+      else if (p.fast.length === 0) readOut.textContent = 'No line stands out: all slow.';
+      else readOut.textContent = `${p.fast.length} lines are fast, so this tells you little. Was the probe flushed before the call?`;
+      readOut.className = `sl-read${p.fast.length === 1 && !p.coarse ? ' got' : ''}`;
+      // Ground truth, kept apart from the measurement: a blind timer and a clean cache mustn't read alike.
+      const held = p.secretMarked ? 'A secret did mark the cache.' : 'No secret reached the cache in this round.';
+      // "Wasn't flushed" was shown straight after a flush when nothing had run since, which was simply false.
+      truth.textContent = !p.aimed ? 'Nothing out of range has run since the last probe or flush, so this reading can\'t say anything about a secret.' : !p.flushed ? 'The probe wasn\'t clean when that call ran: it wasn\'t flushed, or other calls ran after the flush. So the reading mixes old marks with new ones.' : p.coarse && p.secretMarked ? `${held} The timer hid it from this probe. The mark is still there: your readings changed, and the cache didn't.` : held;
+      wrote();
+    };
+    const doProbe = () => showProbe(lab.probe());
+
+    const guard = (fn: () => void) => () => {
+      try { fn(); }
+      catch (e) {
+        arch.textContent = `This is a bug in this page's model, not something you did. Details for a bug report: ${e instanceof Error ? e.message : String(e)}`;
+        console.error(`The speculation lab failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+
+    q('[data-train]').addEventListener('click', guard(doTrain));
+    q('[data-flush]').addEventListener('click', guard(doFlush));
+    q('[data-flush2]').addEventListener('click', guard(doFlush));
+    q('[data-call]').addEventListener('click', guard(doCall));
+    q('[data-read]').addEventListener('click', guard(doRead));
+    q('[data-probe]').addEventListener('click', guard(doProbe));
+    q('[data-round]').addEventListener('click', guard(() => { if (readX() === null) return; doTrain(); doFlush(); doCall(); doProbe(); }));
+    q('[data-round2]').addEventListener('click', guard(() => { doFlush(); doRead(); doProbe(); }));
+    attack.addEventListener('change', () => {
+      const m = attack.value === 'meltdown';
+      q('[data-spectre-panel]').hidden = m;
+      q('[data-meltdown-panel]').hidden = !m;
+    });
+    defence.addEventListener('change', () => { lab.defence = defence.value as SpectreDefence; wrote(); });
+    coarse.addEventListener('change', () => { lab.coarseTimer = coarse.checked; wrote(); });
+    iso.addEventListener('change', () => { lab.pageTableIsolation = iso.checked; wrote(); });
+    cpu.addEventListener('change', () => { lab.cpu = cpu.value as MeltdownCpu; wrote(); });
+    q('[data-check]').addEventListener('click', guard(() => {
+      const kind = attack.value === 'meltdown' ? 'meltdown' : 'spectre';
+      const box = q<HTMLInputElement>('[data-guess]');
+      const right = lab.guess(kind, box.value);
+      const out = q('[data-guess-out]');
+      out.textContent = right ? `Yes, that's the ${kind === 'spectre' ? 'victim\'s secret' : 'kernel secret'}. The program never returned it.` : `No. It needs ${SECRET_LEN} digits, one from each position, read off the probe.`;
+      out.className = `sl-guess ${right ? 'ok' : 'bad'}`;
+      wrote();
+    }));
+    paintPredictor();
+  }
+</script>
+
+<style is:global>
+  .speclab .sl-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  @media (min-width: 1000px) { .speclab .sl-grid { grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr); } }
+  .speclab .sl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .speclab .sl-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .speclab .sl-panel[hidden] { display: none; }
+  .speclab .sl-two { grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 620px) { .speclab .sl-two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .speclab h4 { margin: 0; font-size: 0.92rem; }
+  .speclab h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .speclab p { margin: 0; font-size: 0.88rem; }
+  /* Global pre styles are pale text for a dark box, unreadable on this one. */
+  .speclab .sl-code { margin: 0; font-size: 0.82rem; overflow-x: auto; background: var(--bg-2); color: var(--ink); padding: 8px 10px; border-radius: 8px; }
+  .speclab .sl-note { color: var(--ink-2); }
+  .speclab input[type="number"] { width: 4.5em; font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .speclab input[type="text"] { width: 7em; font: inherit; font-family: var(--mono); padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .speclab .sl-lines { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .speclab .sl-line { display: grid; gap: 1px; text-align: center; padding: 3px 0; border: 1px solid var(--line); border-radius: 6px; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+  .speclab .sl-line span { color: var(--ink-2); font-family: var(--mono); }
+  .speclab .sl-line.fast { background: var(--berry-soft); border-color: var(--berry); }
+  .speclab .sl-line.fast b { color: var(--berry); }
+  .speclab .sl-read.got { color: var(--berry); font-weight: 650; }
+  .speclab .sl-guess.ok { color: var(--bamboo); font-weight: 650; font-size: 0.88rem; }
+  .speclab .sl-guess.bad { color: var(--berry); font-weight: 650; font-size: 0.88rem; }
+</style>

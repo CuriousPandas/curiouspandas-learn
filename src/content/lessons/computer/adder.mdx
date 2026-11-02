@@ -1,0 +1,181 @@
+---
+title: Build an adder from gates
+summary: In 1994 a flaw in a table, wrong on very few inputs, became a $475 million recall. Wire gates into a working 4-bit adder, checked on every input, then make it subtract with no new parts, and see why addition takes time.
+minutes: 20
+xp: 55
+tiers: [browser]
+builds_on: [computer/gates, computer/negative-numbers]
+sources:
+  - title: Ken Shirriff - Intel's $475 million error, the silicon behind the Pentium division bug (2024)
+    url: https://www.righto.com/2024/12/this-die-photo-of-pentium-shows.html
+  - title: MIT Computation Structures - Design Tradeoffs (free course notes, adders and their speed)
+    url: https://computationstructures.org/notes/tradeoffs/notes.html
+  - title: MIT Computation Structures - Combinational Logic (free course notes, timing)
+    url: https://computationstructures.org/notes/combinational_logic/notes.html
+  - title: Nisan and Schocken - From Nand to Tetris (free course)
+    url: https://www.nand2tetris.org/
+  - title: The RISC-V Instruction Set Manual, Volume I, version 20240411 (free)
+    url: https://github.com/riscv/riscv-isa-manual/releases/download/20240411/unpriv-isa-asciidoc.pdf
+---
+
+In 1994 a maths professor researching prime numbers noticed that his Intel Pentium sometimes gave the wrong answer when dividing. Ken Shirriff, who later studied the chip under a microscope, tells how that ended: "After weeks of criticism, mockery, and bad publicity, Intel agreed to replace everyone's faulty Pentium chips, costing the company $475 million."
+
+The division circuit used a lookup table. Shirriff writes: "In 1994, Intel stated that the cause of the bug was that five entries were omitted from the table due to an error in a script. However, my analysis shows that 16 entries were omitted due to a mathematical mistake in the definition of the lookup table." So the two accounts differ on why, and that's his analysis against Intel's statement, thirty years apart.
+
+The flaw was rare: Shirriff puts it at "about 1 in 9 billion random divisions". That rarity was Intel's argument for calling it trivial, and it isn't why the bug cost so much. The cost came from the publicity, IBM stopping shipments, and the recall. How often real users would hit it "became a highly controversial topic": Intel's paper claimed once every 27,000 years, and IBM's analysis suggested every few days.
+
+That's the difficulty with arithmetic hardware. A test can run for a long time without meeting one of those values, and the chip had been on sale since 1993. A long enough test can meet one, though. Shirriff writes that the professor "wasn't the first to find it": in May 1994 Intel's own testing had found the inaccuracy, and "Intel quietly revised the Pentium circuitry to fix the problem", months before the professor noticed. So in this lesson you'll build a circuit where **every input gets checked**, and then see why that's a stronger result than it sounds.
+
+## Adding in columns
+
+You already know the algorithm, from school. To add 27 + 15, you add the rightmost column, 7 + 5 = 12. You write the 2, and carry the 1. The next column adds three things: 2 + 1 + the carry.
+
+Binary is the same, with smaller digits. A column can only ever hold these sums:
+
+| Adding | Total | Written here | Carried on |
+|---|---|---|---|
+| 0 + 0 | 0 | 0 | 0 |
+| 0 + 1 | 1 | 1 | 0 |
+| 1 + 1 | 2 | 0 | 1 |
+| 1 + 1 + 1 (with a carry in) | 3 | 1 | 1 |
+
+Those are truth tables. Look at the "written here" column for the first three rows, then at the "carried on" column, and see if you recognise two gates from [the last lesson](/learn/computer/gates/). A circuit for one column is all you need, because a whole adder is the same column again and again.
+
+## Build it
+
+The mission's four puzzles go in order, each building on the one before. The lab tries every input each time you change a wire: 4 rows, then 8, then 256 for the 4-bit adder, then 512.
+
+On the 4-bit adder, `a0` is the bit worth 1, and `a3` is the bit worth 8.
+
+<LogicLab set="adder" mission="comp-logic-adder" />
+
+## Subtraction came free
+
+You didn't add a subtract part, as there isn't one. [Two's complement](/learn/computer/negative-numbers/) says that -b is "flip every bit of b, then add 1". An XOR gate with one input set to `sub` flips a bit when `sub` is 1, and passes it unchanged when `sub` is 0. And the first column's carry-in is a spare place to add 1. So one wire, `sub`, turns an adder into a subtractor.
+
+If you flipped b and forgot the + 1, you got a circuit that's wrong on every subtraction: off by one. Flipping alone is one's complement.
+
+## The carry fell off, and that's fine
+
+Your 4-bit adder has a fifth output, `carry`, for when a sum doesn't fit. Now you can see what an **unsigned** wrap physically is. There's no fifth output in the register that holds the result, so when 15 + 1 happens, all four sum bits read 0, and the carry goes to a wire that may be connected to nothing.
+
+The wrap in [the earlier lesson](/learn/computer/negative-numbers/) was the **signed** one, and that isn't a lost carry. Read the same four bits as two's complement. 7 + 1 gives `1000`, which is -8, and the carry out is 0: it went wrong with no carry at all. -3 + 5 gives `0010`, which is 2 and right, and the carry out is 1: a carry fell off and nothing went wrong. So the carry alone can't tell you about a signed answer. What can is this: two inputs of the same sign and a result of the other sign. That comes to the same thing as the carry into the top column differing from the carry out of it, and your adder has both of those wires.
+
+Many processors keep both facts, in **flags**: one for the carry, and one for signed overflow. Whether a program looks at those flags is up to the program, and an ordinary addition in C or Java doesn't. Not every processor has them. RISC-V, which you'll read in [Fetch, decode, execute](/learn/computer/toy-cpu/), has no such flags in its base instructions. Its manual says "We did not include special instruction-set support for overflow checks on integer arithmetic operations in the base instruction set", so a program that cares compares for itself. The same circuit gives the right answer for signed and unsigned numbers, so only whatever checks the result needs to know which you meant.
+
+Here's the same structure in Python, with functions in place of gates. It tries every pair of 6-bit numbers against the real `+`:
+
+<CodeLab code={`def full_adder(a, b, cin):
+    total = a ^ b ^ cin
+    carry = (a & b) | (a & cin) | (b & cin)
+    return total, carry
+
+def add_bits(x, y, width):
+    result = 0
+    carry = 0
+    for i in range(width):
+        a = (x >> i) & 1
+        b = (y >> i) & 1
+        bit, carry = full_adder(a, b, carry)
+        result = result | (bit << i)
+    return result, carry
+
+wrong = 0
+for x in range(64):
+    for y in range(64):
+        result, carry = add_bits(x, y, 6)
+        if result + carry * 64 != x + y:
+            wrong = wrong + 1
+print("wrong answers:", wrong, "of", 64 * 64)
+print(add_bits(50, 30, 6))
+`} />
+
+## Why 8 rows are enough
+
+The lab checked 256 sums for 4 bits. A 64-bit adder has 2¹²⁸ pairs of inputs, a number with 39 digits. Trying a billion a second on a billion machines would take about 10¹³ years. So exhaustive testing of the whole adder is out.
+
+But you don't need to. The 64-bit adder is 64 copies of one full adder, and a full adder has 8 rows. If each column is right on all 8, the chain is right by a simple argument: the bottom column gets its digit and carry right. Given that, the next column has the right inputs, so it does too, and so on up. Eight rows are enough, for any width.
+
+It's how big systems get built at all: **get a small part fully right, then prove that the way you connect the parts keeps it right.** This doesn't help with a physical defect in one chip, which is why chips are tested as well, and it says nothing about a part that wasn't built this way, like Pentium's table. Tables have to be checked another way.
+
+## Addition takes time
+
+If you tried the gate-delay checkbox, you watched the answer arrive. Each gate takes a moment to react, and the carry has to travel through every column in turn. The bottom bit of your sum is right quite early, while the top bit may be wrong for a while before it settles.
+
+Here's what this site's simulator measures for a ripple-carry adder built from the shelf's parts. The last column is the longest that any change of the inputs takes to settle, starting from a settled circuit:
+
+| Width | NAND gates | Gate delays to settle, worst change |
+|---|---|---|
+| 1 bit | 15 | 5 |
+| 2 bits | 30 | 8 |
+| 4 bits | 60 | 16 |
+| 8 bits | 120 | 32 |
+| 16 bits | 240 | 64 |
+| 32 bits | 480 | 128 |
+| 64 bits | 960 | 256 |
+
+Up to 4 bits, this site's tests try every change from every settled state to every other: 65,280 of them at 4 bits, and the worst takes 16. Past that there are too many to try, so the tests pin the number from both sides. A change can't take longer than the longest path it can travel, which at each width is the number shown. And one change takes exactly that long: with every bit of `a` on and `b` at 0, turn on `b0`, and the carry runs the whole width. That's the input in the mission's hint, so with the shelf's full adder, it's the 16 you saw in the lab. For any circuit you wire, the panel's number is that same limit: a change settles within it, and may settle sooner.
+
+Double the width and both columns double, from 2 bits up: the delay there is `4 × width`. (At 1 bit the sum is slower than the carry, which is why it's 5.) It's in the same family of ideas as [counting steps](/learn/algorithms/counting-steps/), with a physical cost. An answer can't be used until the slowest path has settled, so a slow path limits how fast a machine can run. These counts are for this lesson's particular full adder of 15 NANDs. A tighter one, with 9 NANDs, passes the same puzzle, so the numbers are a model's and not a real chip's.
+
+A carry doesn't have to ripple through 64 columns. MIT's notes describe designs that work out carries in a tree, such as carry-select and carry-lookahead adders, so that delay grows like the logarithm of the width, and they spend more circuitry to do it. Same truth table, more gates, less waiting: that's a trade a truth table can't show you.
+
+<Callout kind="real">
+This is a model of how an adder is organised, and not a picture of a real chip's layout. Real gates don't all take the same time, and a real adder's delay depends on its wiring and voltage as well. This site's tests hold your puzzles to real wrapped arithmetic in real Python 3.12, and check the simulator's 8-bit adder against Python on all 65,536 pairs, and a 32-bit one on random pairs. In the real world most programmers never see these flags, and Python's own ints go on past any width your CPU's adder has, by using more of them. That's software working around the width, on top of this hardware.
+</Callout>
+
+<GoDeeper title="Why a chain of correct columns is correct">
+Write the inputs as bits aᵢ and bᵢ, and the carry into column i as cᵢ, with c₀ = 0. A full adder guarantees aᵢ + bᵢ + cᵢ = sᵢ + 2cᵢ₊₁, because that's what its 8 rows say.
+
+Multiply the equation for column i by 2ⁱ, and add them all up, for i from 0 to n - 1:
+
+Σ aᵢ2ⁱ + Σ bᵢ2ⁱ + Σ cᵢ2ⁱ = Σ sᵢ2ⁱ + Σ cᵢ₊₁2ⁱ⁺¹
+
+The two sums involving carries are nearly the same sum. They differ only in c₀ on the left, which is 0, and cₙ2ⁿ on the right. So those cancel, and what's left is:
+
+A + B = S + cₙ × 2ⁿ
+
+That's the whole correctness proof, for any n: S is the sum mod 2ⁿ, and the final carry says whether it overflowed as an unsigned number. The only thing it relied on is the full adder's table. This style of argument is called induction, or here a telescoping sum, and you can see why it's worth more than any number of test cases.
+
+The add/subtract circuit follows too. With sub = 1, each bᵢ is flipped and c₀ = 1. Flipping all n bits gives 2ⁿ - 1 - B, so the formula gives S + cₙ2ⁿ = A + (2ⁿ - 1 - B) + 1 = A - B + 2ⁿ. Mod 2ⁿ, that's A - B.
+</GoDeeper>
+
+<Quiz
+  id="comp-adder-1"
+  q="A half adder has two outputs. Which gates compute them?"
+  options={["sum is XOR, carry is AND", "sum is OR, carry is AND", "sum is AND, carry is XOR"]}
+  answer={0}
+  explain="1 + 1 is the case to check: the sum bit is 0 and the carry is 1. OR would give a sum of 1 there, and that's the bug in the most common wrong answer."
+/>
+
+<Quiz
+  id="comp-adder-2"
+  q="Your 4-bit adder gets 15 + 1. What do the sum bits and carry show?"
+  options={["Sum 16, carry 0", "Sum 0, carry 1", "Sum 15, carry 1"]}
+  answer={1}
+  explain="16 is 10000, which needs five bits. The four sum bits show 0000, and the fifth bit comes out on the carry wire. Read as unsigned, in a 4-bit register with no one looking at the carry, that's a wrap to 0."
+/>
+
+<Quiz
+  id="comp-adder-3"
+  q="How does the add/subtract circuit do a - b?"
+  options={["It has a separate subtractor, chosen by a switch", "It flips every bit of b with XOR gates, and puts a 1 into the first carry-in", "It flips every bit of a, and adds b"]}
+  answer={1}
+  explain="That's a + (flip b) + 1, and in two's complement flip b + 1 is -b. So the same full adders do it, and sub is the only new wire."
+/>
+
+<Quiz
+  id="comp-adder-4"
+  q="If you double the width of a ripple-carry adder, what happens to its worst-case delay?"
+  options={["It stays the same, since each column does the same work", "It roughly doubles, since a carry may have to pass through every column", "It quadruples, since there are twice as many inputs on both sides"]}
+  answer={1}
+  explain="The slowest path runs through every column in turn, so it grows in step with the width: in this lesson's table, 4 × width from 2 bits up. Designs such as carry-lookahead reduce that, by spending more gates."
+/>
+
+## What to remember
+
+- One column of binary addition is a truth table, so it's a circuit: the full adder. Chain them, each carry into the next, and you have an adder of any width.
+- Subtraction is addition with b flipped and a 1 carried in, thanks to two's complement.
+- An unsigned wrap is a carry with nowhere to go. A signed wrap is different: inputs of one sign and a result of the other, whatever the carry did. Many processors record both in flags, RISC-V's base instructions have none, and programs decide whether to look.
+- Eight rows are enough to trust a chain of any length, because the argument for the chain never depends on its size.
+- The answer takes time to settle, and the longest path a change can take sets the speed. Faster adders spend more gates to shorten it.

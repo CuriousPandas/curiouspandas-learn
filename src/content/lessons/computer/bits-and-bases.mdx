@@ -1,0 +1,170 @@
+---
+title: Everything is bits
+summary: A rocket broke up after its main computer read a diagnostic pattern as flight data. Bits mean what the reader takes them to mean. Learn how a row of switches counts, why programmers write hex, and why the same bits can be a number or a letter.
+minutes: 16
+xp: 50
+tiers: [browser]
+builds_on: []
+sources:
+  - title: ESA - Ariane 5 Flight 501 Failure, report by the Inquiry Board (1996)
+    url: https://esamultimedia.esa.int/docs/esa-x-1819eng.pdf
+  - title: MIT Computation Structures - The Digital Abstraction (free course notes)
+    url: https://computationstructures.org/notes/digitalabstraction/notes.html
+  - title: MIT Computation Structures - Basics of Information (free course notes)
+    url: https://computationstructures.org/notes/information/notes.html
+  - title: Python documentation - Built-in functions (bin, hex, oct, int, chr, ord)
+    url: https://docs.python.org/3/library/functions.html
+  - title: Python documentation - Built-in types (integers and bitwise operations)
+    url: https://docs.python.org/3/library/stdtypes.html
+---
+
+On 4 June 1996 the first Ariane 5 rocket left the pad. In the words of the inquiry board: "Only about 40 seconds after initiation of the flight sequence, at an altitude of about 3700 m, the launcher veered off its flight path, broke up and exploded."
+
+The board traced it back, one step at a time. The rocket's main computer swung the engine nozzles as far as they would go, because of the data it received from the unit that measures the rocket's movement. And part of that wasn't flight data at all: "Part of these data at that time did not contain proper flight data, but showed a diagnostic bit pattern of the computer of the SRI 2, which was interpreted as flight data."
+
+The SRI is that measuring unit, and it had failed. Its specification said a failure "should be indicated on the databus", and the report says the unit "had declared a failure". But part of what the main computer used was that diagnostic pattern, and it took the pattern for flight data. The report doesn't say what in the pattern could have told the two apart. A format can carry a label saying "this is an error report", but a label is only more bits, and it helps only if the reader checks it. What bits mean is an agreement between whoever writes them and whoever reads them.
+
+That's a lot of consequence for a small idea. Why the unit failed is a story about numbers too, and [the next lesson](/learn/computer/negative-numbers/) tells it.
+
+## What a bit is
+
+A **bit** is one thing with two possible states. We write them 0 and 1, but those are only names. In an ordinary logic chip, it's a wire whose voltage is either low or high.
+
+Why only two? The world is full of quantities that vary smoothly, like a sound or a temperature, and those are called **analog**. A smooth voltage could carry much more than one yes-or-no. The trouble is that every wire adds a little noise, and in an analog signal noise can't be told apart from the signal, so each copy is slightly worse than the last.
+
+A **digital** signal settles that by throwing most of the voltages away. Anything low enough counts as 0, anything high enough counts as 1, and what's in between isn't allowed. A device has to send a cleaner signal than it's required to accept, and that gap is called the **noise margin**. As MIT's course notes put it, the aim is "to build the combinational devices themselves in such a way that they tolerate some amount of noise on the connections between them." Then a little noise changes nothing, and each device puts out clean levels again, so a copy of a copy is as good as the original.
+
+<Callout kind="real">
+"Everything is bits" is about how we work with data, and it's not a law of physics. Parts of a computer do use more than two levels or smooth signals inside, such as the analog side of a radio or a sound card. What they hand to the rest of the machine is bits.
+</Callout>
+
+## Counting with switches
+
+One bit has two states. Two bits have four: 00, 01, 10, 11. Each new bit doubles the count, because everything you could do before can now happen with the new bit off or on. So **n bits have 2ⁿ patterns**.
+
+To use those patterns as numbers, give each place a value, the way ordinary digits do. In 305, the 3 is worth 300, because the places are worth 1, 10, 100. In binary each place is worth twice the one to its right: 1, 2, 4, 8, and so on. That's **base 2**, and the number you write as 13 in everyday **base 10** is 1101 in base 2, because 8 + 4 + 0 + 1 is 13.
+
+Press some switches, then do the mission.
+
+<BitLab mission="comp-bits-switches" />
+
+Eight bits are a **byte**, which holds 2⁸ = 256 patterns, and read as a number that's 0 to 255. On practically every machine you'll meet, a byte is eight bits, and it's the smallest piece of memory a program normally addresses. Sizes of files and memory are counted in bytes.
+
+Notice what happened when you added 1 to 255. A ninth bit is where the answer needed to go, and there wasn't one, so it was gone. A later lesson builds [the circuit that does that addition](/learn/computer/adder/), and you'll see that carry fall off the end for yourself.
+
+## Why programmers write hex
+
+`10100101` is hard to read and easy to miscopy. **Hexadecimal**, or **hex**, is base 16, so it needs sixteen digits: 0 to 9, then a to f, where a is 10 and f is 15. Since 16 is 2⁴, each hex digit stands for exactly four bits, and the conversion needs no arithmetic:
+
+| Binary | `1010` | `0101` |
+|---|---|---|
+| Hex | `a` | `5` |
+
+So the byte `10100101` is `a5`, and a byte is always two hex digits. In code it's written with a prefix so nobody takes it for something else: `0xa5` is hex, `0b1101` is binary. The Bit Lab accepts both. You'll see hex in colour codes such as `#ff0080`, which is three bytes, in memory addresses, and in the error dumps programmers read.
+
+**Octal** is base 8, with three bits per digit, and it survives mainly in [Linux file permissions](/learn/linux/permissions/).
+
+## Same value, different writing
+
+A number isn't binary or decimal. Those are ways of writing it down. Python can write the same value several ways, and read them back. Say what you expect before you press Run:
+
+<CodeLab code={`n = 165
+print(n)
+print(bin(n))
+print(hex(n))
+print(oct(n))
+print(int("10100101", 2))
+print(int("a5", 16))
+print(0b10100101 == 0xa5)
+`} />
+
+Here's the trick behind all those functions, and you can write it yourself. `n % 2` is the last binary digit, because it says whether n is odd. `n // 2` is everything else. Repeat until nothing's left, and you have the digits from the end backwards. Nothing about that is special to base 2. (`%` gives the remainder after dividing, and `//` divides and throws the remainder away.)
+
+<CodeLab mission="comp-bits-digits" />
+
+<Callout kind="trap">
+`bin(5)` gives the text `'0b101'`, not a number, so `bin(5) + 1` is a TypeError. And `int("101")` is a hundred and one: text is read as base 10 unless you say otherwise, so you want `int("101", 2)`. These are ordinary slips, and they fail loudly. The quiet one is a leading zero in other languages, where `010` can mean eight. Python refuses to guess, and calls `010` a SyntaxError.
+</Callout>
+
+## The same bits, read differently
+
+Now back to the rocket. Here's a single byte read four ways. Nothing changes between these lines except the agreement about what the byte means:
+
+<CodeLab code={`byte = 65
+print(byte)                  # As a whole number.
+print(format(byte, "08b"))   # As eight bits.
+print(chr(byte))             # As a character.
+print(byte * 1.0 / 255)      # As a brightness from 0 to 1.
+`} />
+
+`format(byte, "08b")` writes a number in binary, padded to eight places. `chr` looks a number up in the table of characters, and [a later lesson](/learn/computer/text-and-images-as-bytes/) is about that table. In the Bit Lab, try the byte 65 and read the "As a character" row.
+
+Memory has no labels to tell these apart. A variable in a program has a type, but in many compiled languages that type is known to the compiler, and isn't stored beside the bits. The same goes for data crossing a bus between two computers: the reader has to know what it's reading.
+
+On ordinary computers, the instructions a processor runs are bits as well, kept in the same memory as the data they work on. So a program is data too, which is part of why a bug can make a computer run something it was only meant to store.
+
+## Doing things to bits directly
+
+Python can act on the bits of a number, not just its value. These are worth meeting now, because they're the gates of [a later lesson](/learn/computer/gates/) applied to every bit at once:
+
+<CodeLab code={`a = 0b1100
+b = 0b1010
+print(format(a & b, "04b"))   # AND: 1 where both are 1.
+print(format(a | b, "04b"))   # OR: 1 where either is 1.
+print(format(a ^ b, "04b"))   # XOR: 1 where they differ.
+print(format(a << 1, "05b"))  # Shift left: every bit moves up, so it doubles.
+print(format(a >> 1, "04b"))  # Shift right: every bit moves down, so it halves, rounding down.
+`} />
+
+A shift left by one doubles a number because each bit moves to a place worth twice as much. Doubling in base 2 is the same trick as multiplying by ten in base 10: put a zero on the end.
+
+<Callout kind="real">
+Python's ints have no fixed width: the docs say "Integers have unlimited precision", so `2 ** 100` is an ordinary number. Printing one past 4,300 digits does need a setting changed, which is a limit on the text and not on the number: `2 ** 20000 > 0` is fine, and `print(2 ** 20000)` raises a ValueError, on real Python 3.12 and on this page. The width you just played with is emulated by the Bit Lab, which is what hardware registers do for real. So `255 + 1` in the code lab is 256, on this page and on real Python 3.12, and the Bit Lab's lost carry is a model of hardware. It isn't something Python does. The code lab's Python has `bin`, `hex`, `oct`, `int` with a base, `format`, `chr` and `ord`, and it refuses `bytes`, `.encode()` and `.to_bytes()` by name. Real Python has those.
+</Callout>
+
+<GoDeeper title="Why n bits reach exactly 2ⁿ - 1">
+The largest value has every bit on, which is 1 + 2 + 4 + ... + 2ⁿ⁻¹. Call that sum S. Then 2S = 2 + 4 + ... + 2ⁿ. Subtract, and everything in the middle cancels: 2S - S = 2ⁿ - 1. So S = 2ⁿ - 1, and counting 0 there are 2ⁿ values, one per pattern.
+
+In general, digits dₖ...d₁d₀ in base b have the value dₖbᵏ + ... + d₁b + d₀. Pull out a b from all but the last term, and that's b × (the rest) + d₀. So dividing by b leaves d₀ as the remainder and "the rest" as the quotient, which is why your `to_digits` works. Reading the same expression the other way, as ((dₖ)b + dₖ₋₁)b + ..., is your `from_digits`. That's called Horner's rule.
+
+Since d₀ is fixed by the remainder, and the rest by the same argument again, every whole number has exactly one way to be written in a base, leading zeros aside.
+</GoDeeper>
+
+<Quiz
+  id="comp-bits-1"
+  q="A file format stores a value in 3 bits. How many different values can it hold, and what's the largest if it's a plain count starting at 0?"
+  options={["3 values, up to 3", "8 values, up to 7", "9 values, up to 8"]}
+  answer={1}
+  explain="Each bit doubles the patterns: 2 × 2 × 2 = 8. One of those is 0, so the largest is 7, which is 111 in binary."
+/>
+
+<Quiz
+  id="comp-bits-2"
+  q="What is 0x2f in binary, without doing any decimal arithmetic?"
+  options={["0010 1111", "0010 0110", "1111 0010"]}
+  answer={0}
+  explain="Each hex digit is four bits on its own: 2 is 0010, and f is 1111. They stay in the same order. As a check, that's 32 + 15 = 47, and hex(47) is 0x2f."
+/>
+
+<Quiz
+  id="comp-bits-3"
+  q="Ariane's main computer read a diagnostic pattern as flight data. What's the most accurate lesson from that one fact?"
+  options={["The pattern must have had a bad parity bit", "Bits mean what the reader assumes, so a reader that doesn't check can take one kind of data for another", "Binary is too fragile for rockets, which should use decimal"]}
+  answer={1}
+  explain="The inquiry says the pattern 'was interpreted as flight data', though the unit 'had declared a failure'. It doesn't say what in the pattern could have told the two apart, and it never mentions parity. A label saying 'error report' would only be more bits, useful if the reader checks it. Decimal digits stored in a computer would be bits too."
+/>
+
+<Quiz
+  id="comp-bits-4"
+  q="What does print(int(&quot;11&quot;)) print, and what does print(int(&quot;11&quot;, 2)) print?"
+  options={["11 and 3", "3 and 3", "11 and 11"]}
+  answer={0}
+  explain="With no base, the text is read as base 10. With base 2, 11 means 2 + 1. The value in your program is an ordinary number either way: the base only says how to read the text."
+/>
+
+## What to remember
+
+- A bit has two states. Digital signals keep only two levels, so noise doesn't add up.
+- n bits have 2ⁿ patterns. As a count, that's 0 to 2ⁿ - 1.
+- Binary, hex, octal and decimal are ways of writing a value, not kinds of value. One hex digit is four bits.
+- What bits mean is an agreement. A label is only more bits, so a reader that doesn't check can still get it wrong.

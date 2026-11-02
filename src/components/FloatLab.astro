@@ -1,0 +1,125 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card floatlab" data-floatlab>
+  <div class="widget-head">
+    <strong>Float Lab</strong>
+    <span class="pill info">Your browser's real 64-bit floats, the same format as a Python float. This page only shows the bits</span>
+  </div>
+  <div class="fl-grid">
+    <div class="fl-main">
+      <div class="controls">
+        <label>number <input type="text" data-value value="0.1" spellcheck="false" autocomplete="off" /></label>
+        <button class="btn small primary" type="button" data-store>Store</button>
+        <button class="btn small" type="button" data-next="down">Next down</button>
+        <button class="btn small" type="button" data-next="up">Next up</button>
+      </div>
+      <p class="fl-status" data-status role="status">Showing 0.1. Press Store on anything you type.</p>
+      <dl class="fl-read">
+        <dt>Python prints</dt><dd data-repr></dd>
+        <dt>Exactly</dt><dd data-exact></dd>
+        <dt>float.hex()</dt><dd data-hex></dd>
+        <dt>Kind</dt><dd data-kind></dd>
+        <dt>Gap to the next one</dt><dd data-gap></dd>
+      </dl>
+      <div class="fl-legend"><i class="sign"></i> sign <i class="exp"></i> exponent, 11 bits <i class="frac"></i> fraction, 52 bits</div>
+      <div class="fl-bits" data-bits role="group" aria-label="The 64 bits, sign first. Each button flips one bit."></div>
+      <p class="fl-formula" data-formula></p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { FLOAT_MISSION, describeFlip, describeStored, doFlipFloat, doNext, doTypeFloat, exactDecimal, fieldsOfBits, pyHex, ulp } from '../lib/cs/float.ts';
+  import { repr } from '../lib/py/values.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const KIND = { zero: 'Zero', subnormal: 'Subnormal: smaller than the usual format can reach, so it has lost some precision', normal: 'Normal', infinity: 'Infinity: too big to hold', nan: 'NaN, "not a number". It is not even equal to itself' };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-floatlab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = FLOAT_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), FLOAT_MISSION, () => state);
+    const input = q<HTMLInputElement>('[data-value]'), status = q('[data-status]');
+    const say = (text: string, kind = '') => { status.textContent = text; status.className = `fl-status ${kind}`; };
+
+    const bits = Array.from({ length: 64 }, (_, i) => {
+      const b = el('button', { type: 'button', class: `fl-bit ${i === 0 ? 'sign' : i < 12 ? 'exp' : 'frac'}`, 'data-fbit': String(i) });
+      b.addEventListener('click', () => { const before = state.value; doFlipFloat(state, i); input.value = repr(state.value); say(describeFlip(i, before, state.value)); render(); });
+      return b;
+    });
+    q('[data-bits]').append(...bits);
+
+    function render() {
+      const x = state.value, f = fieldsOfBits(state.bits);
+      bits.forEach((b, i) => {
+        b.textContent = f.bits[i];
+        b.classList.toggle('on', f.bits[i] === '1');
+        b.setAttribute('aria-pressed', f.bits[i] === '1' ? 'true' : 'false');
+        b.setAttribute('aria-label', `Bit ${i}, ${i === 0 ? 'sign' : i < 12 ? 'exponent' : 'fraction'}, is ${f.bits[i]}`);
+      });
+      q('[data-repr]').textContent = repr(x);
+      q('[data-exact]').textContent = exactDecimal(x);
+      q('[data-hex]').textContent = pyHex(x);
+      q('[data-kind]').textContent = KIND[f.kind];
+      const gap = ulp(x);
+      q('[data-gap]').textContent = Number.isFinite(gap) ? repr(gap) : 'None';
+      q('[data-formula]').textContent = f.kind === 'normal'
+        ? `Sign ${f.sign}. Exponent bits ${f.exponentBits}, which means 2 to the power ${f.exponentBits - 1023} (${f.exponentBits} - 1023). Value: ${f.sign ? '-' : ''}1.fraction × 2^${f.exponentBits - 1023}.`
+        : f.kind === 'subnormal' ? `All the exponent bits are 0, which means 2 to the power -1022 with no leading 1.`
+        : f.kind === 'zero' ? 'All the exponent and fraction bits are 0. The sign bit still exists, so -0.0 is a separate pattern.'
+        : 'All the exponent bits are 1, which is reserved for infinity and NaN.';
+      refresh();
+    }
+
+    const store = () => {
+      const typed = input.value.trim();
+      const error = doTypeFloat(state, input.value);
+      if (error) { say(error, 'warn'); return; }
+      const e = state.events.at(-1)!;
+      if (e.op !== 'type') return;
+      const d = describeStored(typed, e, repr);
+      say(d.text, d.kind);
+      render();
+    };
+    q('[data-store]').addEventListener('click', store);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); store(); } });
+    root.querySelectorAll<HTMLButtonElement>('[data-next]').forEach((b) => b.addEventListener('click', () => {
+      const before = state.value;
+      doNext(state, b.dataset.next === 'up');
+      input.value = repr(state.value);
+      if (Number.isNaN(state.value)) say('NaN has no next number.', 'warn');
+      else if (state.value === before) say(`${repr(before)} is the end of the line: nothing lies beyond it.`, 'warn');
+      else if (!Number.isFinite(state.value)) say(`The next one after ${repr(before)} is infinity. The numbers ran out.`, 'warn');
+      else if (!Number.isFinite(before)) say(`Back from infinity: this is the largest finite number in that direction.`);
+      else say(`Moved by ${repr(Math.abs(state.value - before))}. There is no number in between.`);
+      render();
+    }));
+
+    render();
+  }
+</script>
+
+<style is:global>
+  .floatlab .fl-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .floatlab .fl-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .floatlab .fl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .floatlab input[type="text"] { font: inherit; font-family: var(--mono); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); width: 15em; max-width: 100%; min-width: 0; }
+  .floatlab .fl-status { margin: 0; font-size: 0.92rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .floatlab .fl-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .floatlab .fl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .floatlab .fl-read { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 0.9rem; }
+  @media (min-width: 560px) { .floatlab .fl-read { grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 3px 12px; } }
+  .floatlab .fl-read dt { color: var(--ink-2); }
+  .floatlab .fl-read dd { margin: 0 0 4px; font-family: var(--mono); overflow-wrap: anywhere; min-width: 0; max-height: 9em; overflow-y: auto; }
+  .floatlab .fl-legend { font-size: 0.8rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .floatlab .fl-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 2px solid; }
+  .floatlab .fl-legend i.sign, .floatlab .fl-bit.sign { border-color: var(--berry); }
+  .floatlab .fl-legend i.exp, .floatlab .fl-bit.exp { border-color: var(--sun); }
+  .floatlab .fl-legend i.frac, .floatlab .fl-bit.frac { border-color: var(--sky); }
+  .floatlab .fl-bits { display: grid; grid-template-columns: repeat(auto-fill, minmax(26px, 1fr)); gap: 3px; }
+  .floatlab .fl-bit { min-width: 0; min-height: 28px; padding: 0; border-width: 2px; border-style: solid; border-radius: 6px; background: var(--bg-2); color: var(--ink); font: 600 0.82rem var(--mono); cursor: pointer; }
+  .floatlab .fl-bit.on { background: var(--bamboo-soft); color: var(--bamboo); }
+  .floatlab .fl-formula { margin: 0; font-size: 0.86rem; color: var(--ink-2); overflow-wrap: anywhere; }
+</style>

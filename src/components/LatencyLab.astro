@@ -1,0 +1,108 @@
+---
+import '../styles/widgets.css';
+import { BUDGET_MS, KIND_LABEL, LATENCIES, PLACES, PLAN_WRITES, humanTime } from '../lib/cs/latency.ts';
+const lo = Math.log10(LATENCIES[0].ns), hi = Math.log10(LATENCIES.at(-1)!.ns);
+const pct = (ns: number) => 4 + 96 * (Math.log10(ns) - lo) / (hi - lo);
+---
+<div class="widget card latlab" data-latency-lab>
+  <div class="widget-head">
+    <strong>Latency lab</strong>
+    <span class="pill info">every row says where it came from, when, and what kind of number it is. None of them is today's truth for your machine</span>
+  </div>
+  <div class="lt-grid">
+    <div class="lt-main">
+      <section class="lt-panel">
+        <h4>A sense of scale</h4>
+        <div class="controls">
+          <label>pretend <select data-unit>{LATENCIES.slice(0, 8).map((r, i) => <option value={r.ns} selected={i === 0}>{r.label[0].toLowerCase() + r.label.slice(1)}</option>)}</select> takes one second</label>
+        </div>
+        <ul class="lt-rows">
+          {LATENCIES.map((r) => (
+            <li data-row={r.id} data-ns={r.ns}>
+              <div class="lt-head"><strong>{r.label}</strong> <b>{humanTime(r.ns)}</b> <span class="lt-scaled" data-scaled></span></div>
+              <div class="lt-bar" aria-hidden="true"><i style={`width:${pct(r.ns)}%`}></i></div>
+              <p class="lt-src"><span class={`pill lt-${r.kind}`}>{KIND_LABEL[r.kind]}</span> <a href={r.url}>{r.source}</a>, {r.date}. {r.holds}</p>
+            </li>
+          ))}
+        </ul>
+        <p class="lt-note">The bars are on a log scale, where each step is a multiple rather than an addition. On a straight scale, everything above the disk rows would be too thin to see. The scaled times are this site's arithmetic, rounded.</p>
+      </section>
+      <section class="lt-panel" data-budget>
+        <h4>One page, {BUDGET_MS} ms <span class="pill">the budget is invented, and the sums are exact</span></h4>
+        <div class="controls">
+          <label>writes <input type="number" data-writes min="0" max="1000" value={PLAN_WRITES} /></label>
+          <label>to a database in the <select data-place>{PLACES.map((p) => <option value={p.id}>{p.label}</option>)}</select></label>
+          <label>writes per round trip <select data-batch><option value="1">1 (one at a time)</option><option value="5">5</option><option value="10">10</option><option value="20">20</option><option value="40">40</option></select></label>
+          <button class="btn small primary" type="button" data-plan>Work it out</button>
+        </div>
+        <p class="lt-verdict" data-verdict role="status">Not worked out yet.</p>
+        <p class="lt-note">It counts round trips and nothing else. It can't see queues, locks, retries, disks or what a batch does when one write fails, so "fits" means only that these sums come out under the line.</p>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { BUDGET_MS, LATENCY_MISSION, planCost, scaled, type Place } from '../lib/cs/latency.ts';
+  import { mountMission } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-latency-lab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = LATENCY_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), LATENCY_MISSION, () => state);
+    const unit = q<HTMLSelectElement>('[data-unit]');
+
+    const showScale = () => {
+      const u = Number(unit.value);
+      for (const li of root.querySelectorAll<HTMLElement>('[data-row]')) {
+        const ns = Number(li.dataset.ns);
+        li.querySelector('[data-scaled]')!.textContent = ns >= u ? `feels like ${scaled(ns, u)}` : 'less than a second';
+      }
+    };
+    unit.addEventListener('change', showScale);
+    showScale();
+
+    q('[data-plan]').addEventListener('click', () => {
+      const verdict = q('[data-verdict]');
+      const writes = Number(q<HTMLInputElement>('[data-writes]').value);
+      if (!Number.isInteger(writes) || writes < 0 || writes > 1000) {
+        verdict.textContent = 'The number of writes has to be a whole number from 0 to 1,000.';
+        verdict.className = 'lt-verdict bad';
+        return;
+      }
+      const plan = { writes, place: q<HTMLSelectElement>('[data-place]').value as Place, batch: Number(q<HTMLSelectElement>('[data-batch]').value) };
+      const c = planCost(plan);
+      state.tried.push({ ...plan, ...c });
+      verdict.textContent = `${fmt(c.roundTrips)} round trip${c.roundTrips === 1 ? '' : 's'}, one after another: ${fmt(c.ms)} ms. ${c.fits ? `That's within ${BUDGET_MS} ms, on these numbers.` : `That's over ${BUDGET_MS} ms, before the page has done anything else.`}`;
+      verdict.className = `lt-verdict ${c.fits ? 'ok' : 'bad'}`;
+      refresh();
+    });
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .latlab .lt-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .latlab .lt-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .latlab .lt-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
+  .latlab .lt-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .latlab h4 { margin: 0 0 6px; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .latlab h4 .pill { font-weight: 600; white-space: normal; }
+  .latlab ul.lt-rows { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .latlab .lt-rows li { padding: 0 0 8px; border-bottom: 1px solid var(--line); min-width: 0; margin: 0; }
+  .latlab .lt-head { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font-size: 0.9rem; }
+  .latlab .lt-head b { font-variant-numeric: tabular-nums; }
+  .latlab .lt-scaled { color: var(--ink-2); font-size: 0.82rem; }
+  .latlab .lt-bar { height: 7px; background: var(--bg-2); border-radius: 99px; overflow: hidden; margin: 3px 0; }
+  .latlab .lt-bar i { display: block; height: 100%; background: var(--sky); }
+  .latlab .lt-src { margin: 2px 0 0; font-size: 0.78rem; color: var(--ink-2); overflow-wrap: anywhere; }
+  .latlab .lt-src .pill { white-space: normal; }
+  .latlab .lt-note { margin: 8px 0 0; font-size: 0.85rem; color: var(--ink-2); overflow-wrap: anywhere; }
+  .latlab .controls input[type="number"] { width: 6em; }
+  .latlab .lt-verdict { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); font-size: 0.9rem; overflow-wrap: anywhere; }
+  .latlab .lt-verdict.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .latlab .lt-verdict.bad { background: var(--berry-soft); color: var(--berry); }
+</style>

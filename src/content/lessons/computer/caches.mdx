@@ -1,0 +1,186 @@
+---
+title: The same loop, fifty times slower
+summary: One line of code, the same number of steps, and around fifty times the time, measured at one size on one machine. Learn what a cache does with an address, why order matters so much, the three kinds of miss and their three different cures, and build a cache simulator of your own.
+minutes: 26
+xp: 70
+tiers: [browser]
+builds_on: [computer/toy-cpu]
+sources:
+  - title: Ulrich Drepper - What Every Programmer Should Know About Memory (2007, free PDF, long and aimed well above this lesson)
+    url: https://people.freebsd.org/~lstewart/articles/cpumemory.pdf
+  - title: Peter Norvig - Teach Yourself Programming in Ten Years (approximate timings)
+    url: https://norvig.com/21-days.html
+  - title: Linux kernel documentation - False Sharing
+    url: https://docs.kernel.org/kernel-hacking/false-sharing.html
+  - title: Schroeder, Pinheiro and Weber - DRAM Errors in the Wild, a Large-Scale Field Study (SIGMETRICS 2009)
+    url: https://www.cs.toronto.edu/~bianca/papers/sigmetrics09.pdf
+---
+
+Here's a loop. It's in TypeScript, for a reason that comes up shortly. It follows a chain of numbers through an array: each element says which element to go to next.
+
+```ts
+for (let i = 0; i < steps; i++) at = next[at];
+```
+
+We ran it with the same `steps`, on an array of the same size: 16,000,000 whole numbers, about 64 MB. Each run followed every element in turn. The only difference was what the array held. In one run each element pointed at the one right after it in memory. In the other, the same chain ran through memory in a shuffled order.
+
+We did that nine times, in three sets of three, and at five other sizes too. Set A ran while the machine was busy with other jobs, and we didn't record how busy. Set B ran later under lighter load, with 12% to 21% of the CPU in use. Set C was set B's conditions with eight more scattered walks over 64 MB running alongside it, on purpose.
+
+| Elements | Memory | Ratio, set A | Ratio, set B | Ratio, set C | Next element is next in memory (ns per step, all sets) | Next element is anywhere (ns per step, all sets) |
+|---|---|---|---|---|---|---|
+| 1,000 | 4 KB | 1.0x to 1.1x | 1.0x | 1.0x | 2.16 to 2.39 | 2.2 to 2.6 |
+| 100,000 | 400 KB | 4.1x to 5.1x | 5.0x to 5.3x | 5.0x to 5.3x | 2.18 to 3.15 | 10.9 to 12.8 |
+| 1,000,000 | 4 MB | 17x to 26x | 9.7x to 10.7x | 10.4x | 2.18 to 2.50 | 21.8 to 64.1 |
+| 4,000,000 | 16 MB | 42x to 46x | 18x to 30x | 39x to 40x | 2.28 to 2.43 | 41.8 to 110 |
+| 16,000,000 | 64 MB | **48x to 52x** | **43x to 46x** | **48x to 55x** | 2.23 to 2.71 | 99.8 to 130 |
+| 64,000,000 | 256 MB | 57x to 60x | 54x to 55x | 54x to 57x | 2.28 to 2.46 | 125 to 146 |
+
+**That's the fifty in this lesson's title, and it's a round figure for exactly that case:** this walk at 64 MB, 20,000,000 steps a run, in Node 24, on a Windows machine with a Xeon E5-2695 v3, on 2026-11-01. Across all nine runs, the gap at that size was 43x to 55x.
+
+The size of the gap isn't a fixed fact about this loop, even on one machine on one day:
+
+- **Size changes it.** At 4 KB there's almost no gap, and at 256 MB it was up to 60x.
+- **Load changes it.** At 16 MB, adding those eight other walks took the gap from 18x to 30x up to about 39x. At 64 MB it went from 43x to 46x up to 48x to 55x. Our guess is that they compete for the same large cache, but we didn't measure that.
+- **A rerun changes it, and we can't always say why.** At 4 MB, set A gave 17x to 26x and sets B and C gave about 10x. So don't read any of these ranges as error bars.
+
+A different machine would differ too. Nothing on this site checks these timings in a test, because they're not a law. Your device's numbers are in the panel below.
+
+If you did the [arrays lesson](/learn/algorithms/arrays-and-lists/), you've met a walk like this one. Its table is from another run, and it says 46x at 64 MB. Here's the question it left open: what exactly is in that gap?
+
+## What a cache does with an address
+
+A **cache** is a small, fast memory holding copies of what was recently used. When the CPU reads an address, the cache either has it, a **hit**, or doesn't, a **miss**, and then it fetches from further away. It doesn't fetch one value. It fetches a whole **line**, also called a block, often 64 bytes.
+
+There's a reason that pays off, and it's called **locality**. Programs tend to reuse what they just used (temporal locality), and they tend to use what's next to it (spatial locality). The whole scheme depends on those two habits. Reading an element in a line that's already there is cheap, and a walk along memory gets 16 four-byte elements for each 64-byte line it fetches. A scattered walk gets one.
+
+To find a line quickly, a cache cuts each address into three pieces:
+
+```text
+  31 ........... 12  11 .......... 6  5 ...... 0
+ +-----------------+----------------+----------+
+ |       tag       |      set       |  offset  |
+ +-----------------+----------------+----------+
+```
+
+The **offset** says which byte in the line. The **set** says which part of the cache it may go in. The **tag** is stored with the line, to tell it apart from other lines that share the set. A cache where each line has exactly one possible place is **direct-mapped**. If a line can go in any of 8 places in its set, it has 8 **ways**. If it can go anywhere at all, it's **fully associative**. More ways usually make fewer accidents, though with least recently used, defined just below, a loop just bigger than the cache can do better with fewer ways. Every way is also one more tag to check at the same instant, which costs hardware and time.
+
+When a set is full, something has to go. **Least recently used**, which throws out the line untouched for the longest, is the classic choice. Which rule a real cache uses is up to its designer.
+
+## Three kinds of miss
+
+Each miss has a cause, and only the right cure helps.
+
+- **Cold.** This line has never been here. The first read of anything is a miss. The cure is to fetch before asking, which is what a prefetcher does.
+- **Capacity.** The data doesn't fit. A cache that could hold a line anywhere would still have thrown this one out. The cure is less data, or more cache.
+- **Conflict.** There was room, and this line's set was full anyway, so the placement rule cost you. A fully associative cache of the same size, using the same rule for what to throw out, would have kept it. The cure is more ways, or different addresses.
+
+## Try it
+
+Same reads, same answers, different bills. This model has one level of cache, with no address translation (more on that below) and no other core, and its counts are exact: a separate simulator in real Python gets the same numbers for each loop and cache shape. Its times use only Norvig's round figures (0.5 ns for a hit, 100 ns more for a miss).
+
+<CacheLab />
+
+Reading a 256 by 256 matrix twice with the default cache of 32 KB, 64-byte lines and 8 ways:
+
+| Loop | Reads | Misses | Cold | Capacity | Conflict | Model's average read |
+|---|---|---|---|---|---|---|
+| Rows first | 131,072 | 8,192 | 4,096 | 4,096 | 0 | 6.75 ns |
+| Columns first | 131,072 | 131,072 | 4,096 | 4,096 | 122,880 | 100.5 ns |
+
+Rows first misses once per line. Columns first misses every time, which is 16 times as many. The surprise is the conflict column. You'd expect "too much data", and most of those misses aren't that. The column loop steps 1,024 bytes at a time, and with 64 sets of 64-byte lines, a stride of 1,024 bytes keeps landing on just 4 sets out of the 64. It's using 32 of the cache's 512 lines. With the same size made fully associative, the same loop has 8,192 misses, just like rows first.
+
+Measured for real on the same machine, in the same three sets, the same matrix read at a side of 4,096 (64 MB) ran about 10 to 12 times slower by columns than by rows, and at a side of 8,192 (256 MB) about 14 to 17 times slower. It's the same idea as the walk, and a different number.
+
+## So what's in the gap?
+
+Here's the model's prediction for the walk. In-order reads hit 15 times out of 16, for 6.75 ns on average. A scattered read mostly misses, for 100.5 ns at most, so that's about 15 times slower. Measured at 64 MB, it was 43 to 55. The model is too simple in at least two ways, and these are the two we'd bet on. We haven't measured either one directly on this machine.
+
+**The in-order walk hardly seems to wait.** Its 2.2 to 2.7 ns per step on that machine, with one 3.15 in the table, hardly changes between 4 KB and 256 MB, and Windows reports its largest cache as 35 MB. The likely reason is that hardware notices the pattern and fetches ahead, though that flat line is all we measured. In the lab, at a side of 256 and one pass, the crude prefetcher halves the misses of the in-order walk, and it does little for the scattered one: 57,800 misses without it, and 57,517 with it. Drepper says so about a shuffled list: "it is unlikely that the hardware prefetcher has any effect". So part of the gap probably comes from the fast case getting faster, not only from the slow one getting slower.
+
+**The scattered walk seems to pay for more than the cache.** A program's addresses aren't the memory's real addresses. They're translated, page by page, usually 4 KB at a time, and the CPU keeps a small cache of recent translations called the **TLB** (translation lookaside buffer). A walk across a large area keeps missing that too. Drepper measured a shuffled walk like ours in 2007, on the machines of the day, and the cost per element kept rising as the data grew. He says: "The reason behind this is a rising rate of TLB misses." We haven't measured the split on this machine, because these panels time steps and can't count prefetches or TLB misses. What we can say is that a scattered step at 64 MB and up took about 100 to 146 ns, which is at or above the round 100 ns figure for a memory read, and that the number in the table is the whole bill: every level of cache, translation, and whatever else was running at the time.
+
+**Fitting in the cache doesn't end the gap.** The table shows that as well. 16 MB fits inside that 35 MB cache, and the gap there was 18x to 46x. At 4 MB it was about 10x to 26x, and at 400 KB about 5x. Only the 4 KB row shows none. A big last level doesn't save a scattered walk, and we'd guess that's because the smaller, faster levels are what the in-order walk is getting and the scattered one isn't. That's untested too.
+
+So the fifty is a real measurement of a whole machine under a stated load, and it's not a property of caches alone.
+
+<Callout kind="trap" title="Prefetching is a guess too">
+Linux once removed its prefetch calls from list walks, because they made builds slower, and the [arrays lesson](/learn/algorithms/arrays-and-lists/) tells that story. Next-line prefetching in the lab only helps when the next line gets used. On the scattered walk, at that same size, it fetched 53,100 extra lines to save 283 misses, and real prefetches cost real memory traffic. Don't add one without measuring.
+</Callout>
+
+<Callout kind="real" title="More than the model shows">
+**Levels.** Real CPUs have several caches: small and fast near the core, larger and slower further out. Drepper lists numbers Intel gave for a Pentium M: about 3 cycles to the first level, 14 to the second, and 240 to main memory. That's one old chip, and the shape of it is what lasts.
+
+**Writes.** A write-through cache updates memory on each write, which keeps memory right and is slow. A write-back cache only marks the line as dirty and writes it out when it leaves. Drepper calls the second "more sophisticated", and it saves a lot of traffic when a program keeps changing the same value.
+
+**Other cores.** A core is one of the independent workers inside a CPU. Each usually has caches of its own, so they have to agree. Keeping them in step is **cache coherence**, and protocols such as MESI do it, by having a core claim a line before it writes. It has a cost that surprises people. If two cores write to two different variables that share a line, they fight over the line even though they don't share any data. That's **false sharing**. Linux's documentation says "There are many real-world cases of performance regressions caused by false sharing."
+
+**Errors.** Memory isn't perfect. A study of Google's servers published in 2009 found: "About a third of all machines in the fleet experience at least one memory error per year". Those were errors the memory's correction caught. Errors it couldn't correct hit 1.3% of machines a year. Server memory stores extra bits, computed from the data, that let it detect and often correct a wrong bit. That's **error-correcting code**, or ECC. The study also found the errors "dominated by hard errors, rather than soft errors": repeatable faults from a physical defect, more than random flips. Those numbers are from that fleet at that date.
+</Callout>
+
+## Build one
+
+You've used a simulator. Writing one takes about ten lines, and then you'll know what it's doing. This is Python, in the code lab, so it counts hits and misses and it says nothing about time. The addresses are just numbers you give it.
+
+<CodeLab mission="computer-cache-sim" rows={15} />
+
+<Callout kind="real" title="Why the walk above isn't in Python">
+Python can't show this effect well. A Python list holds pointers to objects that can be anywhere, and about 70 ns of interpreter work per step drowns most of the gap, as measured in [the arrays lesson](/learn/algorithms/arrays-and-lists/). So the timed walk uses TypeScript and a raw array of whole numbers. The code lab counts steps and knows nothing about caches, so to the code lab, a scattered walk costs the same as an in-order one.
+</Callout>
+
+<GoDeeper title="Average memory access time">
+The model's "average read" is the standard formula, **AMAT**:
+
+```text
+AMAT = hit time + miss rate x miss penalty
+```
+
+With a miss rate of 1 in 16: 0.5 + (8,192 / 131,072) x 100 = 6.75 ns. That's how a small change in miss rate becomes a large change in time. At a hit time of 0.5 ns and a penalty of 100 ns, going from a 1% miss rate to a 2% one takes the average from 1.5 ns to 2.5 ns, which is 67% slower.
+
+Levels nest. A second-level cache turns the first level's miss penalty into its own AMAT:
+
+```text
+AMAT = L1 hit + L1 miss rate x (L2 hit + L2 miss rate x memory penalty)
+```
+
+With invented round numbers of a 0.5 ns L1 hit, a 5% L1 miss rate, a 7 ns L2 hit, a 20% L2 miss rate (of the reads reaching it) and 100 ns to memory, that's 0.5 + 0.05 x (7 + 0.2 x 100) = 1.85 ns.
+</GoDeeper>
+
+<GoDeeper title="Associativity and the sets a stride can reach">
+With `S` sets and a line size of `L`, an address's set is `(address / L) mod S`. A loop stepping `D` bytes at a time moves `D / L` lines each step, so it visits only `S / gcd(S, D / L)` different sets. (`gcd` is the greatest common divisor.)
+
+For the column loop: `D` = 1,024, `L` = 64, so 16 lines a step. With `S` = 64, `gcd(64, 16)` = 16, and it reaches 64 / 16 = 4 sets. With 8 ways, that's 32 lines to work with, however big the cache says it is. A column of 256 elements needs 256 lines, so it throws away what it just fetched before the next column can use it.
+
+That's why a matrix can suddenly get slower at sizes that are multiples of a power of two, and why a fully associative cache of the same size doesn't care.
+</GoDeeper>
+
+<Quiz
+  id="comp-cache-1"
+  q="A matrix is read by rows and then by columns: the same reads, the same total. In the 32 KB, 8-way model, why does the column loop miss every time?"
+  options={["Columns are stored on disk", "Each read lands in a different line, and the stride reaches so few sets that lines are thrown out before they're used again", "The cache only holds rows"]}
+  answer={1}
+  explain="Rows first gets 16 elements from each line. Columns first gets one, and its 1,024-byte stride uses just 4 of the 64 sets. The model's conflict column shows it: with full associativity, the same loop misses 8,192 times and not 131,072."
+/>
+
+<Quiz
+  id="comp-cache-2"
+  q="Which cure matches which miss?"
+  options={["Cold: more ways. Capacity: fetch ahead. Conflict: less data", "Cold: fetch ahead. Capacity: less data or more cache. Conflict: more ways or different addresses", "All three are cured by a bigger cache"]}
+  answer={1}
+  explain="A bigger cache does nothing for a line that's never been seen, and it may not help a conflict much either. Naming the kind tells you which cure can work."
+/>
+
+<Quiz
+  id="comp-cache-3"
+  q="This lesson measured 43x to 55x at 64 MB on one machine. What's the honest thing to conclude?"
+  options={["Cache misses are 50 times slower than hits on every computer", "On that machine, at that size, that walk was around 50 times slower in scattered order. The gap changes with size, load and machine, and prefetching and address translation are likely parts of it that weren't measured", "Linked lists are always 50 times slower than arrays"]}
+  answer={1}
+  explain="It's the same loop with almost no gap at 4 KB, and up to 60x at 256 MB. A number like this comes with its size, its machine, its load and its date. What carries over is the shape: order stops mattering when data fits in the fastest levels, and it matters more and more as data outgrows them. A big last-level cache doesn't save a scattered walk: at 16 MB, inside that 35 MB cache, the gap was still 18x to 46x."
+/>
+
+## What to remember
+
+- Caches work because programs reuse things and use what's nearby. An access pattern that does neither gets little from them.
+- An address is cut into tag, set and offset, and that decides where a line can go.
+- Misses are cold, capacity or conflict. Each has its own cure, so name the kind first.
+- A model counts exactly, and a measurement includes everything else. Around fifty times was a real measurement of one machine, at one size, and the same walk gave 43x to 55x as the load changed.
+- Same loop, same steps, and the same big-O, which only counts how the steps grow: the order of memory accesses can still change the time by a large factor.

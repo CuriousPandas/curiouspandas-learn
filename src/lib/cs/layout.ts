@@ -138,7 +138,7 @@ export const LAYOUT_MISSION: Mission<LayoutState> = {
       return !!at(s, 'list-shuffled', tip) && !!at(s, 'list-shuffled', tip + SIZE_STEP) && !!at(s, 'list-ordered', tip) && !!at(s, 'list-ordered', tip + SIZE_STEP);
     } },
   ],
-  debrief: 'Big-O calls all three walks O(n), and it is right: they take the same number of steps. It does not see where those steps land. While the data fits in the cache, layout hardly matters. Past that point every scattered read can be a trip to main memory. That is the shape in the table above: 1.1x at 1,000 elements and 56x at 64 million on one laptop. Your own machine is in the panel below, and it will not be the same.',
+  debrief: 'Big-O calls all three walks O(n), and it is right: they take the same number of steps. It does not see where those steps land. While the data fits in the cache, layout hardly matters. Past that point every scattered read can be a trip to main memory. That is the shape in the table above: 1.1x at 1,000 elements and 56x at 64 million on one machine. Your own machine is in the panel below, and it will not be the same.',
 };
 
 // ---- Python's list -------------------------------------------------------

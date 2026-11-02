@@ -9,8 +9,11 @@ import { checkCases, type GrowthPoint, type GrowthShape, type RunResult } from '
 import { ALG_FOUNDATION_MISSIONS } from './alg-foundations.ts';
 import { ALG_CODE_MISSIONS } from './alg-missions.ts';
 import { ALG_STRATEGY_MISSIONS } from './alg-strategies.ts';
+import { COMPUTER_A_MISSIONS } from './computer-basics-missions.ts';
+import { COMPUTER_MISSIONS } from './computer-cache-missions.ts';
 import { PROG_A_MISSIONS } from './prog-basics.ts';
 import { PROG_MISSIONS } from './prog-missions.ts';
+import { COMPILER_CODE_MISSIONS } from './tinycomp-missions.ts';
 
 export type CodeState = { runs: RunResult[]; growth: { src: string; fn: string; points: GrowthPoint[]; shape: GrowthShape }[] };
 export type CodeMission = Mission<CodeState> & {
@@ -59,4 +62,7 @@ print(has_duplicate([2, 7, 1, 8]))
   ...ALG_CODE_MISSIONS,
   ...PROG_A_MISSIONS,
   ...PROG_MISSIONS,
+  ...COMPUTER_A_MISSIONS,
+  ...COMPUTER_MISSIONS,
+  ...COMPILER_CODE_MISSIONS,
 };

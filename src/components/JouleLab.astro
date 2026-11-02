@@ -1,0 +1,132 @@
+---
+import '../styles/widgets.css';
+import { GHZ_STEPS, VOLT_STEPS, JOB } from '../lib/cs/energy.ts';
+---
+<div class="widget card jlab" data-jlab>
+  <div class="widget-head">
+    <strong>Joule Lab</strong>
+    <span class="pill info">an invented chip with a real shape: C V² per cycle, plus leakage over time. No real part's numbers</span>
+  </div>
+  <div class="jl-grid">
+    <div class="jl-main">
+      <p class="jl-note">The job is {(JOB.cycles / 1e9).toFixed(0)} billion cycles, due in {JOB.deadlineSeconds} seconds. After finishing, the chip idles until the deadline, so every setting is compared over the same time.</p>
+      <div class="controls">
+        <label>Voltage
+          <select data-volts>{VOLT_STEPS.map((v) => <option value={v} selected={v === 1.2}>{v.toFixed(1)} V</option>)}</select>
+        </label>
+        <label>Clock
+          <select data-ghz>{GHZ_STEPS.map((g) => <option value={g} selected={g === 4.5}>{g} GHz</option>)}</select>
+        </label>
+      </div>
+      <p class="jl-verdict" data-verdict role="status"></p>
+      <div class="stats">
+        <div class="stat">total<b data-total></b></div>
+        <div class="stat">switching<b data-dyn></b></div>
+        <div class="stat">leakage<b data-leak></b></div>
+        <div class="stat">idling<b data-idle></b></div>
+        <div class="stat">time taken<b data-sec></b></div>
+      </div>
+      <div class="jl-bar" data-bar role="img" aria-label="Where the energy goes"><i class="dyn" data-bar-d></i><i class="leak" data-bar-l></i><i class="idle" data-bar-i></i></div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+  <section class="jl-gap">
+    <h4>How far from the limit? <span class="muted">published figures, against the minimum Landauer's argument sets</span></h4>
+    <div class="controls">
+      <label>Temperature
+        <select data-temp>
+          <option value="4">4 K (liquid helium)</option>
+          <option value="77">77 K (liquid nitrogen)</option>
+          <option value="300" selected>300 K (a warm room)</option>
+          <option value="360">360 K (a hot chip)</option>
+        </select>
+      </label>
+      <label>Operation
+        <select data-op></select>
+      </label>
+    </div>
+    <p class="jl-note" data-gap role="status"></p>
+  </section>
+</div>
+
+<script>
+  import { ENERGY_MISSION } from '../lib/cs/energy-missions.ts';
+  import { FULL_SPEED, GREEN500_TOP, HOROWITZ, joulesPerFlop, jobCost, landauer, maxGhz, timesLandauer } from '../lib/cs/energy.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const sci = (x: number) => { const [m, e] = x.toExponential(2).split('e'); return `${m} × 10^${Number(e)}`; };
+  const OPS = [...HOROWITZ, { id: 'hpl', label: `one floating-point operation on the ${GREEN500_TOP.system} supercomputer, as the Green500 list measures it`, joules: joulesPerFlop(GREEN500_TOP.gflopsPerWatt), bits: 64, note: `Green500, ${GREEN500_TOP.list}: ${GREEN500_TOP.gflopsPerWatt} GFlops per watt. Treated as a 64-bit result` }];
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-jlab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = ENERGY_MISSION.setup();
+    const lab = state.lab;
+    const refresh = mountMission(q('[data-mission-panel]'), ENERGY_MISSION, () => state);
+    const volts = q<HTMLSelectElement>('[data-volts]'), ghz = q<HTMLSelectElement>('[data-ghz]');
+    const j = (x: number) => `${x.toFixed(2)} J`;
+    const full = jobCost(FULL_SPEED).totalJ;
+
+    const paint = (count: boolean) => {
+      const s = { volts: Number(volts.value), ghz: Number(ghz.value) };
+      const c = count ? lab.set(s) : jobCost(s);
+      const v = q('[data-verdict]');
+      const cells = ['total', 'dyn', 'leak', 'idle', 'sec'].map((k) => q(`[data-${k}]`));
+      if (!c.feasible) {
+        // A setting this chip can't run gets no joule figure: a number here would read as a real option.
+        cells.forEach((x) => { x.textContent = 'no result'; });
+        v.textContent = `This chip can't run ${s.ghz} GHz at ${s.volts.toFixed(1)} V: transistors switch too slowly at that voltage. The most it manages is ${maxGhz(s.volts).toFixed(1)} GHz.`;
+        v.className = 'jl-verdict bad';
+        for (const k of ['d', 'l', 'i']) q(`[data-bar-${k}]`).style.width = '0';
+      } else {
+        q('[data-total]').textContent = j(c.totalJ);
+        q('[data-dyn]').textContent = j(c.dynamicJ);
+        q('[data-leak]').textContent = j(c.leakJ);
+        q('[data-idle]').textContent = j(c.idleJ);
+        q('[data-sec]').textContent = `${c.seconds.toFixed(2)} s`;
+        for (const [k, x] of [['d', c.dynamicJ], ['l', c.leakJ], ['i', c.idleJ]] as const) q(`[data-bar-${k}]`).style.width = `${(x / c.totalJ) * 100}%`;
+        const pct = ((c.totalJ / full - 1) * 100);
+        if (!c.meetsDeadline) { v.textContent = `It runs, and misses the deadline: ${c.seconds.toFixed(2)} s. In this lab a late answer isn't an answer, whatever it cost.`; v.className = 'jl-verdict bad'; }
+        else if (Math.abs(pct) < 0.05) { v.textContent = 'Full speed: the baseline every other setting is compared with.'; v.className = 'jl-verdict'; }
+        else { v.textContent = `${Math.abs(pct).toFixed(0)}% ${pct < 0 ? 'less' : 'more'} energy than full speed, and it makes the deadline.`; v.className = `jl-verdict ${pct < 0 ? 'ok' : 'warn'}`; }
+      }
+      refresh();
+    };
+    volts.addEventListener('change', () => paint(true));
+    ghz.addEventListener('change', () => paint(true));
+    paint(false);
+
+    const temp = q<HTMLSelectElement>('[data-temp]'), op = q<HTMLSelectElement>('[data-op]');
+    op.replaceChildren(...OPS.map((o) => el('option', { value: o.id }, o.label)));
+    const paintGap = () => {
+      const k = Number(temp.value), o = OPS.find((x) => x.id === op.value)!;
+      const per = landauer(k), times = timesLandauer(o.joules, o.bits, k);
+      const own = `That cost belongs to its own conditions, not this temperature: this menu only moves the limit.`;
+      q('[data-gap]').textContent = times === null
+        ? `The minimum to erase one bit that could equally be 0 or 1, at ${k} K, is ${sci(per)} J. This read costs ${sci(o.joules)} J. It only copies, so Landauer's argument sets no minimum for the copy itself. Overwriting the old value in a register would erase, and the minimum for those ${o.overwrites} bits is ${sci(per * (o.overwrites ?? 0))} J, about ${sci(timesLandauer(o.joules, o.overwrites ?? 0, k) ?? 0)} times less than the read. Horowitz attributes part of the read's cost to DRAM's I/O. (${o.note}.) ${own}`
+        : `The minimum to erase one bit that could equally be 0 or 1, at ${k} K, is ${sci(per)} J, so ${o.bits} bits is ${sci(per * o.bits)} J. This operation costs ${sci(o.joules)} J, about ${sci(times)} times that. (${o.note}.) ${own}`;
+    };
+    temp.addEventListener('change', paintGap);
+    op.addEventListener('change', paintGap);
+    paintGap();
+  }
+</script>
+
+<style is:global>
+  .jlab .jl-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  @media (min-width: 1000px) { .jlab .jl-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
+  .jlab .jl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .jlab .jl-note { margin: 0; font-size: 0.88rem; }
+  .jlab .jl-verdict { margin: 0; font-size: 0.92rem; }
+  .jlab .jl-verdict.ok { color: var(--bamboo); font-weight: 650; }
+  .jlab .jl-verdict.warn { color: var(--sun-text); font-weight: 650; }
+  .jlab .jl-verdict.bad { color: var(--berry); font-weight: 650; }
+  .jlab .jl-bar { display: flex; height: 18px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .jlab .jl-bar i { display: block; }
+  .jlab .jl-bar .dyn { background: var(--bamboo); }
+  .jlab .jl-bar .leak { background: var(--berry); }
+  .jlab .jl-bar .idle { background: var(--ink-2); }
+  .jlab .jl-gap { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .jlab h4 { margin: 0; font-size: 0.95rem; }
+  .jlab h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .jlab [data-op] { max-width: 100%; }
+</style>

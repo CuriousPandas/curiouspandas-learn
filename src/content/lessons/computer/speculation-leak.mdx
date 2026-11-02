@@ -1,0 +1,146 @@
+---
+title: The secret the cache gave away
+summary: In January 2018, researchers showed that a CPU's guesses could reveal what its permission checks had refused to hand over, and that these flaws were in chips from several makers. Learn the mechanism in a plainly labelled model, recover a secret from invented numbers, and test which defences really hold.
+minutes: 24
+xp: 60
+tiers: [browser]
+builds_on: [computer/pipelining, computer/caches]
+sources:
+  - title: Kocher et al. - Spectre Attacks, Exploiting Speculative Execution (2019 version, IEEE S&P)
+    url: https://spectreattack.com/spectre.pdf
+  - title: Lipp et al. - Meltdown, Reading Kernel Memory from User Space (USENIX Security 2018)
+    url: https://meltdownattack.com/meltdown.pdf
+  - title: Jann Horn, Google Project Zero - Reading privileged memory with a side-channel (January 2018)
+    url: https://googleprojectzero.blogspot.com/2018/01/reading-privileged-memory-with-side.html
+  - title: Gruss et al. - KASLR is Dead, Long Live KASLR (the KAISER paper, 2017)
+    url: https://gruss.cc/files/kaiser.pdf
+  - title: Linux kernel docs - Page Table Isolation
+    url: https://docs.kernel.org/arch/x86/pti.html
+  - title: Linux kernel docs - Spectre side channels
+    url: https://docs.kernel.org/admin-guide/hw-vuln/spectre.html
+  - title: Red Hat - Speculative Execution Exploit Performance Impacts
+    url: https://access.redhat.com/articles/3307751
+  - title: Microsoft - Understanding the performance impact of Spectre and Meltdown mitigations on Windows Systems (January 2018)
+    url: https://www.microsoft.com/en-us/security/blog/2018/01/09/understanding-the-performance-impact-of-spectre-and-meltdown-mitigations-on-windows-systems/
+  - title: Van Bulck et al. - Foreshadow (USENIX Security 2018)
+    url: https://foreshadowattack.eu/foreshadow.pdf
+---
+
+On 3 January 2018, Google's Project Zero published a post titled "Reading privileged memory with a side-channel". It listed three variants and said it had told Intel, AMD and ARM on 1 June 2017. Two groups of researchers published alongside it, and those attacks got the names Spectre and Meltdown.
+
+What made this different from an ordinary security bug is where the flaw was. No program had a mistake in it, in the usual sense. The checks were all correct and all ran. The Meltdown paper says it "does not exploit any software vulnerability, i.e., it works on all major operating systems". The Spectre paper's closing is blunter about what this undoes: "Software security fundamentally depends on having a clear common understanding between hardware and software developers as to what information CPU implementations are (and are not) permitted to expose from computations."
+
+This lesson teaches how it works, because it's why your machine carries patches and why they cost what they cost. **The lab here is a model, made of ordinary variables.** It doesn't run an attack on anything, it can't and mustn't, and this page has no exploit code for real hardware.
+
+## Two ideas it needs
+
+**A CPU guesses.** Checking a condition can take a while, for instance when the value it needs isn't in the cache and has to come from main memory. So rather than wait, the CPU predicts how the check will go and carries on. This is **speculative execution**. If the guess was wrong, it throws the work away and restores the **registers**, the CPU's small fast storage slots, so a program can't see the mistake. That undoing is careful and correct. The Spectre paper's phrase for what the guessing part does is "Speculative logic is unfaithful in how it executes, can access the victim's memory and registers, and can perform operations with measurable side effects."
+
+**A cache remembers.** A **cache** is a small, fast memory holding recently used data, in small blocks called **lines**. Reading something in the cache is quick, and reading something that isn't is much slower. So how long a read takes tells you whether that data was used recently. Measuring a side effect like this, instead of asking for the value, is called a **side channel**.
+
+Undoing a wrong guess restores registers. It doesn't remove what the guess pulled into the cache. That's the mechanism this lesson models. The cache is the best-known way for a guess to show, and it isn't the only one: the Spectre paper concludes that "virtually any observable effect of speculatively executed code" could be used.
+
+## The shape of it
+
+Here's the example from the Spectre paper, and `x` is a number the attacker chooses:
+
+```text
+if (x < array1_size)
+    y = array2[array1[x] * 4096];
+```
+
+It's a correct bounds check. Call it many times with an `x` in range, and the CPU learns to guess that the check passes. Then call it with an `x` that points past the end, at a secret. The CPU guesses "in range", reads the secret, and uses its value to choose which part of `array2` to read, which loads that part into the cache. The check then finishes, the guess is thrown out and nothing is returned. But the cache now holds one line chosen by the secret, and the attacker can find out which by timing reads.
+
+**Meltdown** has a similar ending and a different cause. It doesn't use branch prediction. The **kernel** is the core of the operating system, and ordinary programs aren't allowed to read its memory. A program tries anyway, and the CPU raises a **fault**, stopping that read, as it should. But on affected CPUs, the instructions right after it can run for a moment with the value before the fault takes effect. Meltdown is a race, and the paper measures how often it's won.
+
+## Try it
+
+Everything below is simulated, and the secret is invented each time this page loads. The lab never shows it to you, and only says whether your reading is right. The numbers are invented too: a hit is 1 and a miss is 100 only because they're easy to read.
+
+<SpeculationLab />
+
+<Callout kind="trap">
+Look at the two panels side by side when you turn on the coarse timer. The probe sees nothing, but the model's "what it knows" panel says the secret did reach the cache. A check that can only see through the probe would call that safe. The defence changed what you measure, and the state is still there. The Spectre paper says browsers' reduced timers "may decrease attack performance", and "does not guarantee that attacks are not possible". It also notes that a page can build its own timer from a second thread, another strand of the page's code running at the same time, counting in shared memory, which is why those patches also turned that feature off at the time.
+</Callout>
+
+## Which chips, according to whom
+
+This is where summaries of this story often go wrong. Each source established something narrower than "all CPUs".
+
+| Source, date | What it establishes |
+|---|---|
+| Spectre paper | Observed on the Intel Ivy Bridge, Haswell, Broadwell, Skylake and Kaby Lake chips it lists, and on AMD Ryzen. Also on ARM-based Qualcomm and Samsung phone chips it tested. Its authors say: "Spectre attacks work on a wider range of processors, including most AMD and ARM processors." |
+| Meltdown paper | Leaked kernel memory on the Intel chips in its table and on a Samsung Exynos M1. "we did not manage to mount Meltdown on other ARM cores nor on AMD." It says Intel chips "since 2010" are affected, and reports that ARM named the Cortex-A75, which the authors hadn't been able to test. It also reports an altered attack, on system registers rather than inaccessible memory, that works on several ARM processors, and that AMD publicly stated its own CPUs aren't affected, which is AMD's statement and not the paper's test. |
+| Intel's own advisory, [INTEL-SA-00088](https://www.intel.com/content/www/us/en/security-center/advisory/intel-sa-00088.html) | Not summarised here, because we couldn't read it: Intel's site refused our automated check with a 403 error in November 2026. Intel is the place to ask about Intel's own chips, so the link is here for you to try. |
+
+Those are statements about particular chips at a particular date. For a real machine, check the vendor's current list and what your operating system reports, not a table of 2018 papers. On Linux, the kernel documents its own reporting under `/sys/devices/system/cpu/vulnerabilities`.
+
+## What the defences cost, and how disputed that is
+
+The fix for Meltdown was to stop mapping most kernel memory into every program's view, in the page tables, the CPU's record of what a program's addresses refer to. The paper calls it KAISER, and Linux calls it **page table isolation**. The paper reports "no leakage of any kernel or physical memory" with it, because there's no longer a mapping for that load to reach, though a small part of the kernel has to stay mapped for the CPU to work. It's not free, since switching views costs time at every entry to the kernel.
+
+For Spectre there's no single fix. The kinds of defence you tried in the lab each have costs:
+
+- **A speculation barrier** tells the CPU to wait before going on. The Spectre paper says that putting one on every branch "amounts to disabling branch prediction and our tests indicate that this would dramatically reduce performance", so compilers try to place them only where they're needed. The paper says Microsoft's compiler, doing that, "misses many vulnerable code patterns".
+- **An index mask** forces a value towards the array's range with arithmetic, even during a guess. It's cheap, and someone has to apply it to each risky place. Our lab has exactly 16 public cells, which is why `x & 15` keeps it fully in bounds. Real sizes aren't always so tidy: the Spectre paper describes WebKit's version, which "may result in access outside the bounds of the array" and limits how far.
+- **Separate defences** cover a variant our model leaves out: tricking indirect branches, which are jumps whose destination is worked out while running. Those include microcode changes, updates to the chip's internal programming from the vendor, and a compiler technique called retpoline.
+
+Every published cost number depends on the chip, the software and the workload, and none should be read as "the cost of the fix":
+
+| Source | What it measured or reported |
+|---|---|
+| KAISER paper, 2017 | "a runtime overhead of only 0.28%", on its authors' test setup, before Meltdown was public. |
+| Red Hat, updated over time | "between 1-20%" in January 2018 across its tests, "within 1-8%" later for those workloads. Heavier for databases with many kernel transitions, and less for number-crunching that rarely enters the kernel. |
+| Spectre paper, on hardware controls for indirect branches | "varies from a few percent to a factor of 4 or more", depending on which are used and how widely. |
+| Microsoft, January 2018 | Described in words: single-digit slowdowns on 2016-era PCs with Windows 10, more on older chips and Windows versions, and more again on input-heavy servers. |
+
+So anyone quoting one number for "the Spectre slowdown" is leaving something out. Most of these come from vendors or from the fix's own authors, and later patches changed the figures. If it matters for you, measure your own workload. Turning mitigations off to get the speed back is a decision about your threat model, and on a machine that runs anyone else's code, including web pages, it's a risky one.
+
+<Callout kind="real">
+This model leaves out most of what a real attack would need, on purpose. It has one predictor counter, no noise, no real timing, and the secret always lands. Real caches are shared and busy, the window for speculation is limited, and Meltdown's race can be lost. It has none of the variants that came after 2018 either. Don't read "it took four clicks" as how hard this is, and don't read a defence working here as proof that it works everywhere. Page table isolation stopped the one Meltdown path modelled here. It doesn't cover Spectre, which the Spectre paper is explicit about.
+</Callout>
+
+## A flaw in the secure part too
+
+The same mechanism reached hardware built for keeping secrets. A **trusted execution environment**, or enclave, is a region of memory the CPU protects even from the operating system. Intel's version is called SGX. In 2018 the Foreshadow paper showed "a practical software-only microarchitectural attack" on it, using work done on a guess in the same way, which researchers call **transient execution**. That doesn't make enclaves pointless. It does show that a guarantee is only as strong as what the hardware's hidden machinery does. The Foreshadow authors draw that lesson from Spectre, Meltdown and their own attack together: "current processors exceed our levels of understanding".
+
+<GoDeeper title="Why a barrier and a mask are different kinds of fix">
+A barrier changes *when*: nothing after it runs until everything before it has finished, so no load can run under a wrong guess. Its cost falls on every pass through that code, right or wrong, which is why it's placed sparingly.
+
+A mask changes *what*: the guess still runs, but the value it uses has been forced into the array's range by arithmetic, not by a branch. There's no branch in that arithmetic to guess past, so speculative code sees the masked value. If the array's length is a power of two, `x & (length - 1)` does it exactly, and other lengths need more arithmetic or, as in the WebKit case the paper describes, accept a small reach past the end.
+
+Neither fixes the cache. They both stop a secret reaching it from this one place. The paper's closing view is that "long-term solutions will require fundamentally changing instruction set architectures", which is its authors' opinion, from 2019.
+</GoDeeper>
+
+<Quiz
+  id="comp-spec-1"
+  q="In the lab, the victim always returned 0 for an out-of-range x. So how did the secret get out?"
+  options={["The check was wrong, and returned the secret by mistake", "During a wrong guess, the CPU used the secret to choose which line to load. Undoing the guess restored the registers but not the cache, and the cache could be read by timing", "The probe could read the secret directly from memory"]}
+  answer={1}
+  explain="Every result the program saw was correct. The leak is in the state left behind by work that was officially never done, which is why fixing the code around it was so hard to get right."
+/>
+
+<Quiz
+  id="comp-spec-2"
+  q="You turn on the coarse timer and the probe now shows no fast line. What can you conclude?"
+  options={["The secret is safe, since the attack read nothing", "This probe can't see the mark, and the mark is still in the cache. So a better timer, or more measurements, might still find it", "The cache has been cleared"]}
+  answer={1}
+  explain="That's the difference between 'checked and clear' and 'can't see'. The Spectre paper says the same of reduced browser timers: they may slow an attack, and they don't guarantee it can't be done."
+/>
+
+<Quiz
+  id="comp-spec-3"
+  q="A manager asks: 'What's the performance cost of the Spectre and Meltdown patches?' What's the honest answer?"
+  options={["About 5%", "It's from under 1% to several times slower depending on the chip, the workload and which defences are on, and the figures here mostly come from vendors or the fix's own authors. We should measure our own workload", "There's no cost on modern chips"]}
+  answer={1}
+  explain="The sources here range from 0.28% to a factor of 4 or more, because they measured different things. A single number isn't a fact about the patches: it's a fact about one setup."
+/>
+
+## What to remember
+
+- Speculation throws away registers and results, and it doesn't throw away what reached the cache.
+- A correct check isn't enough if a wrong guess can run past it and leave a trace.
+- Spectre and Meltdown have different causes, chips and fixes. Page table isolation is for Meltdown and doesn't stop Spectre.
+- A defence that blinds your measurement isn't the same as one that removes the leak.
+- There's no single cost. Published figures range widely and depend on chip, workload and date, so measure your own.
+- The lab is a model on invented numbers. It didn't touch your CPU.

@@ -1,0 +1,131 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card amlab" data-amlab>
+  <div class="widget-head">
+    <strong>Amdahl Lab</strong>
+    <span class="pill info">an invented job of 1,000 ticks. A real program's parallel share has to be measured</span>
+  </div>
+  <div class="am-grid">
+    <div class="am-main">
+      <label class="am-slider"><span>Parallel share of the job: <b data-p-show>90%</b></span>
+        <input type="range" min="0" max="1000" step="1" value="900" data-p aria-label="Parallel share of the job, in tenths of a percent" />
+      </label>
+      <label class="am-slider"><span>Cores: <b data-c-show>1</b></span>
+        <input type="range" min="0" max="12" step="1" value="0" data-c aria-label="Cores, as a power of two" />
+      </label>
+      <div class="stats">
+        <div class="stat">speedup by the formula<b data-speedup>1.00</b></div>
+        <div class="stat">the most this share can ever reach<b data-limit>10.00</b></div>
+        <div class="stat">by the tick-by-tick run<b data-ticks>not run</b></div>
+      </div>
+      <div class="am-bar" data-bar role="img" aria-label="How the run's time divides"><i class="serial" data-bar-s></i><i class="par" data-bar-p></i></div>
+      <p class="am-note" data-note></p>
+      <div class="controls"><button class="btn small" type="button" data-run>Run tick by tick</button></div>
+      <p class="am-note" data-sched role="status"></p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+  <section class="am-lanes">
+    <h4>Lanes: one instruction, many values <span class="muted">an invented if: one side costs 8, the other costs 1</span></h4>
+    <div class="controls">
+      <label>Data
+        <select data-pattern>
+          <option value="uniform">every value takes the same side</option>
+          <option value="alternating">values alternate sides</option>
+          <option value="random">values pick a side at random</option>
+        </select>
+      </label>
+      <label>Lanes
+        <select data-lanes>
+          <option value="1">1</option>
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+        </select>
+      </label>
+    </div>
+    <div class="stats">
+      <div class="stat">one value at a time<b data-scalar></b></div>
+      <div class="stat">with lanes<b data-simd></b></div>
+      <div class="stat">speedup<b data-lane-speed></b></div>
+      <div class="stat">batches paying for both sides<b data-both></b></div>
+    </div>
+    <p class="am-note" data-lane-note role="status"></p>
+  </section>
+</div>
+
+<script>
+  import { AMDAHL_MISSION } from '../lib/cs/parallel-missions.ts';
+  import { JOB_TICKS, lanePattern, runLanes, tickNote, type LanePath } from '../lib/cs/parallel.ts';
+  import { mountMission } from '../lib/ui.ts';
+
+  const fix = (x: number) => (Number.isFinite(x) ? x.toFixed(2) : 'no limit');
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-amlab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = AMDAHL_MISSION.setup();
+    const lab = state.lab;
+    const refresh = mountMission(q('[data-mission-panel]'), AMDAHL_MISSION, () => state);
+    const pBox = q<HTMLInputElement>('[data-p]'), cBox = q<HTMLInputElement>('[data-c]');
+
+    const paint = () => {
+      const p = lab.p, cores = lab.cores, speed = lab.speedup();
+      q('[data-p-show]').textContent = `${(p * 100).toFixed(1).replace(/\.0$/, '')}%`;
+      q('[data-c-show]').textContent = cores.toLocaleString('en-US');
+      q('[data-speedup]').textContent = fix(speed);
+      q('[data-limit]').textContent = fix(lab.limit());
+      q('[data-ticks]').textContent = 'not run';
+      q('[data-sched]').textContent = '';
+      const serial = 1 - p, par = p / cores, sum = serial + par;
+      q('[data-bar-s]').style.width = `${(serial / sum) * 100}%`;
+      q('[data-bar-p]').style.width = `${(par / sum) * 100}%`;
+      q('[data-note]').textContent = `Serial work takes ${(serial * JOB_TICKS).toFixed(0)} ticks however many cores you have, and it now makes up ${((serial / sum) * 100).toFixed(0)}% of the run (dark bar). ${cores > 1 ? `By the formula, you're using ${((speed / cores) * 100).toFixed(0)}% of what you paid for.` : ''}`;
+      refresh();
+    };
+    const fromControls = () => { lab.set(Number(pBox.value) / 1000, 2 ** Number(cBox.value)); paint(); };
+    pBox.addEventListener('input', fromControls);
+    cBox.addEventListener('input', fromControls);
+    q('[data-run]').addEventListener('click', () => {
+      const r = lab.runSchedule();
+      const speed = JOB_TICKS / r.ticks;
+      q('[data-ticks]').textContent = speed.toFixed(2);
+      q('[data-sched]').textContent = `${r.ticks.toLocaleString('en-US')} tick${r.ticks === 1 ? '' : 's'} instead of ${JOB_TICKS.toLocaleString('en-US')}. Cores sat idle for ${r.idleCoreTicks.toLocaleString('en-US')} core-ticks.${tickNote(lab.p, lab.cores)}`;
+      refresh();
+    });
+    paint();
+
+    const pattern = q<HTMLSelectElement>('[data-pattern]'), lanes = q<HTMLSelectElement>('[data-lanes]');
+    const paintLanes = () => {
+      const kind = pattern.value as LanePath, n = Number(lanes.value);
+      const r = runLanes(lanePattern(kind, 1024, 7), n);
+      q('[data-scalar]').textContent = r.scalar.toLocaleString('en-US');
+      q('[data-simd]').textContent = r.simd.toLocaleString('en-US');
+      q('[data-lane-speed]').textContent = `${r.speedup.toFixed(2)}x`;
+      q('[data-both]').textContent = `${r.bothSidesBatches} of ${r.batches}`;
+      q('[data-lane-note]').textContent = n === 1
+        ? 'One lane is the ordinary machine.'
+        : r.bothSidesBatches === 0
+          ? `All ${n} lanes do useful work on every step, so you get the full ${n} times.`
+          : `Lanes share one instruction stream, so when a batch needs both sides it runs both and throws half the results away. That's why ${n} lanes didn't give ${n} times.`;
+    };
+    pattern.addEventListener('change', paintLanes);
+    lanes.addEventListener('change', paintLanes);
+    paintLanes();
+  }
+</script>
+
+<style is:global>
+  .amlab .am-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  @media (min-width: 1000px) { .amlab .am-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
+  .amlab .am-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .amlab .am-slider { display: grid; gap: 4px; font-size: 0.9rem; min-width: 0; }
+  .amlab .am-slider input { width: 100%; accent-color: var(--bamboo); }
+  .amlab .am-bar { display: flex; height: 18px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .amlab .am-bar .serial { background: var(--ink-2); display: block; }
+  .amlab .am-bar .par { background: var(--bamboo); display: block; }
+  .amlab .am-note { margin: 0; font-size: 0.88rem; }
+  .amlab .am-lanes { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .amlab h4 { margin: 0; font-size: 0.95rem; }
+  .amlab h4 .muted { font-weight: 400; font-size: 0.8rem; }
+</style>

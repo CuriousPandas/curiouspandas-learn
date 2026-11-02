@@ -1,0 +1,155 @@
+---
+title: What a computation costs in joules
+summary: Physics sets a minimum price for erasing a bit, and real chips pay vastly more than that. Compute the limit, see how far real hardware is from it, find out why slowing a clock alone often doesn't save energy, and read data-centre estimates for what they are.
+minutes: 20
+xp: 50
+tiers: [browser]
+builds_on: [computer/many-small-brains]
+sources:
+  - title: Rolf Landauer - Irreversibility and Heat Generation in the Computing Process (1961, as reprinted in IBM J. Res. Dev., 2000)
+    url: https://www.pitt.edu/~jdnorton/lectures/Rotman_Summer_School_2013/thermo_computing_docs/Landauer_1961.pdf
+  - title: Bérut et al. - Experimental verification of Landauer's principle (Nature, 2012; abstract free)
+    url: https://www.nature.com/articles/nature10872
+  - title: Charles Bennett - Logical Reversibility of Computation (IBM J. Res. Dev., 1973)
+    url: https://www.math.ucsd.edu/~sbuss/CourseWeb/Math268_2013W/Bennett_Reversibiity.pdf
+  - title: Mark Horowitz - Computing's Energy Problem (and what we can do about it) (ISSCC, 2014)
+    url: https://gwern.net/doc/cs/hardware/2014-horowitz-2.pdf
+  - title: TOP500 - Green500 list, June 2026
+    url: https://top500.org/lists/green500/2026/06/
+  - title: Elsworth et al., Google - Measuring the environmental impact of delivering AI at Google scale (August 2025)
+    url: https://arxiv.org/abs/2508.15734
+  - title: International Energy Agency - Energy and AI (2025), executive summary
+    url: https://www.iea.org/reports/energy-and-ai/executive-summary
+  - title: International Energy Agency - Energy and AI (2025), energy demand from AI
+    url: https://www.iea.org/reports/energy-and-ai/energy-demand-from-ai
+  - title: International Energy Agency - Key Questions on Energy and AI (April 2026), executive summary
+    url: https://www.iea.org/reports/key-questions-on-energy-and-ai/executive-summary
+  - title: Lawrence Berkeley National Laboratory - 2024 United States Data Center Energy Usage Report
+    url: https://eta-publications.lbl.gov/sites/default/files/2024-12/lbnl-2024-united-states-data-center-energy-usage-report_1.pdf
+  - title: Google - Data center efficiency (reports its own power usage effectiveness)
+    url: https://datacenters.google/efficiency/
+  - title: ITU and UNITAR - The Global E-waste Monitor 2024
+    url: https://ewastemonitor.info/wp-content/uploads/2024/12/GEM_2024_EN_11_NOV-web.pdf
+---
+
+How much energy does asking an AI a question use? In August 2025, Google published a measurement from inside its own systems: "the median Gemini Apps text prompt consumes 0.24 Wh of energy", which it called "a figure substantially lower than many public estimates". The same paper lists earlier outside estimates, including one that "a single GPT-3.5 prompt may consume around 3 watt-hours".
+
+Those are more than ten times apart, and that's not necessarily because anyone was careless. One is a company measuring its own system with access nobody outside has, on one model at one date. Others are outsiders working from assumptions about hardware they can't see, about a different model, sometimes years earlier. Neither side can fully check the other's work. Most numbers in this subject are like that, so this lesson keeps asking who measured what, and when.
+
+Underneath all of it is a physical question: does computing have to cost energy at all?
+
+## A joule, and the limit
+
+A **joule** is a unit of energy. A **watt** is one joule per second, so a 60 W bulb uses 60 joules each second. A **watt-hour** is 3,600 joules, which makes that median prompt 864 joules, by Google's figure.
+
+In 1961 Rolf Landauer, working at IBM, asked whether there was a minimum. He looked at what a computer does that can't be run backwards. Take an AND gate. If it outputs 0, you can't say what its inputs were, because three of its four possible inputs give 0. He called that "logical irreversibility", and he argued it has a physical price: it "requires a minimal heat generation, per machine cycle, typically of the order of kT for each irreversible function".
+
+Here `k` is Boltzmann's constant, a fixed conversion between temperature and energy, and `T` is the temperature in **kelvin**, which is Celsius plus 273.15. For resetting a bit, his number was "0.6931 kT per restored bit", where 0.6931 is the natural logarithm of 2. At 300 K, about room temperature:
+
+```python
+import math
+k = 1.380649e-23    # Boltzmann's constant, in joules per kelvin
+print(k * 300 * math.log(2))
+```
+
+That's about 2.87 × 10⁻²¹ joules for each bit erased, when that bit could equally well be 0 or 1. A bit already known to hold the value you want needs nothing done to it, as Landauer points out. He also says his reasoning "gives no guarantee that this minimum is in fact achievable". He knew this was tiny. His paper says the amount "is many orders of magnitude smaller than the heat dissipation in any practically conceivable device", and that the point was that the limit is real. In 2012 a team measured it, using a single tiny particle held in a two-sided trap as a one-bit memory, and found the average heat "saturates at the Landauer bound in the limit of long erasure cycles". So it's been seen in the lab, in one small system, when the erasure was done very slowly.
+
+The limit applies to erasing, not to computing as such. Landauer's own paper describes a three-bit gate that computes AND while keeping enough of its input to be reversed. In 1973 Charles Bennett showed that a general computer can be made "logically reversible at every step". So physics doesn't rule out computing at below this limit, in principle, if you never erase anything. Reversible computing remains a research subject: real chips lose far more energy elsewhere, so this limit isn't what's holding them back.
+
+## How far away are real chips?
+
+The best published breakdown that's easy to check is Mark Horowitz's 2014 table, "Rough energy costs for various operations in 45nm 0.9V". 45 nm names an old manufacturing process now, and newer ones cost less per operation, so treat it as a sense of proportion rather than today's price.
+
+| Operation | Energy (Horowitz, 2014) | Times the Landauer limit for its bits |
+|---|---|---|
+| 32-bit integer add | 0.1 pJ | about 1 million |
+| 32-bit floating-point multiply | 3.7 pJ | about 40 million |
+| A whole instruction, with that add inside | 70 pJ | about 760 million |
+| 64-bit read from main memory (DRAM) | 1.3 to 2.6 nJ | none for the copy itself, and about 7 to 14 billion if you count the 64 bits it overwrites |
+
+A **picojoule** (pJ) is 10⁻¹² joules, and a **nanojoule** (nJ) is 10⁻⁹. The last column counts 32 bits erased for a 32-bit operation. You get 32 if you count 64 bits in and 32 out, and 32 if you count the old value its result overwrites in a register. That's our estimate, and it isn't from Horowitz.
+
+Two things stand out. The add itself is a small part of the instruction: almost everything goes on fetching it, the registers and the control logic. And reading from main memory costs roughly 20 to 40 times as much as that whole instruction. Reading only copies, so the read itself doesn't have to erase anything, although overwriting the old value in a register does. Either way the Landauer minimum is nowhere near the real cost. Horowitz says "Part of this high cost comes from the very energy-inefficient I/O that DRAM systems use", I/O being the link between chips. In this table, going out to main memory is what's expensive, which is another reason caches matter.
+
+For a whole machine, the Green500 list ranks supercomputers by measured efficiency. In June 2026 the top system, KAIROS, reached 73.282 billion floating-point operations each second for each watt. A watt is a joule per second, so the seconds cancel, and that's 73.282 billion operations per joule, or about 13.6 pJ per operation. That's by the list's own measurement rules, which aren't the same as a whole building's bill. If we count each operation as erasing 64 bits, which is our rough assumption, it's still more than 70 million times the limit. (This is the list's standard benchmark, not a general workload.)
+
+So the gap is many millions. Landauer's limit isn't what constrains today's chips. How they're built is.
+
+## Why voltage is the lever
+
+A chip's energy has two main parts. **Dynamic** energy is spent moving charge each time a transistor switches: about `C V²` per cycle, where `C` is the charge-holding capacity of what's switching and `V` is the voltage. **Leakage** is current that flows even when nothing switches, for as long as the power is on.
+
+Look at what that formula says about speed. The clock isn't in it. A job with a fixed number of cycles costs the same dynamic energy whether it runs fast or slow. Voltage is squared, though, so a modest drop pays well. The catch is that transistors switch more slowly at low voltage, so a lower voltage forces a slower clock. Adjusting both as the load changes is called **dynamic voltage and frequency scaling**, or DVFS.
+
+## Try it
+
+This chip is invented, with numbers chosen to be readable. The shape is real. Horowitz's paper makes the same point about leakage: slower isn't always cheaper once static power is counted.
+
+<JouleLab />
+
+<Callout kind="trap">
+"Lower the clock to save energy" sounds right, and in this lab, on its own, it costs more. Slower lowers the *power*, the joules per second, and you're paying for more seconds. A cooler chip or a longer battery life per second isn't the same as fewer joules for the job. Check which one a claim is about. On real hardware the balance also depends on what the rest of the system burns while it waits. And this lab's job always takes the same number of cycles. A real job that spends its time waiting on memory takes fewer cycles at a slower clock, because those waits are fixed in time, so a slower clock can cost it less.
+</Callout>
+
+## At the scale of buildings
+
+Those picojoules add up, and here the numbers get less certain. The honest form is a range, with who said it:
+
+| Source, date | What it says |
+|---|---|
+| IEA, *Energy and AI*, 2025 | Worldwide, data centres used "around 415 terawatt hours (TWh), or about 1.5% of global electricity consumption in 2024". |
+| The same report | About 945 TWh by 2030 in its base case. For 2035, "the range of data centre electricity demand across our cases spans from 700 to 1 700 TWh". |
+| IEA, *Key Questions on Energy and AI*, April 2026 | Data-centre demand "grew by 17% in 2025", to 485 TWh, and it projects "950 TWh in 2030". |
+| Lawrence Berkeley National Lab, 2024 | US data centres: 76 TWh in 2018 and 176 TWh in 2023, "representing 4.4% of total U.S. electricity consumption". For 2028: "roughly 325 and 580 TWh". |
+
+So the IEA's 2035 high case is about 2.4 times its low case. That's before arguing over assumptions, and these reports state that uncertainty themselves. A forecast like this isn't a measurement of the future: it depends on how quickly AI is adopted, how efficient the hardware gets, and whether grids can keep up.
+
+A building also burns energy on things other than computing, cooling above all. **Power usage effectiveness**, or PUE, is the total energy used divided by what reaches the computers, so 1.0 would be perfect. Google reports 1.09 for its fleet in 2025, its own figure for its own sites, and an average like that says little about anyone else's.
+
+Whether energy means carbon depends on what generated it, which varies by place and hour. Google's paper puts its median prompt at 0.03 grams of CO₂ equivalent, a figure that counts its purchases of clean energy, and which depends on how those are accounted for. Changing what the computation is can matter more than any of this: [Ethereum's move away from proof of work](/learn/algorithms/algorithms-and-people/) is the well-known example, with the same caveat about who did the measuring.
+
+Then there's the hardware itself. The Global E-waste Monitor reports "62 billion kg" of electronic waste generated in 2022, with 22.3 per cent of it documented as properly collected and recycled. That covers all electronics, not just computers, and a chip's whole cost includes making it, which none of the joules above count.
+
+<Callout kind="real">
+You're reading this on a device that uses energy, and this lab doesn't measure any of it. Its joules come only from the invented chip's formula, and the table's figures come from the sources named beside them. If you need a real number for real code, use the measurement tools for your platform, on your hardware, under your workload.
+</Callout>
+
+<GoDeeper title="Where kT ln 2 comes from">
+A bit in thermal equilibrium could be in either of two states, so the collection of possible physical states covers both. Resetting it to a known value cuts the number of states in half. Boltzmann's definition of entropy is `S = k ln W`, where `W` counts the states, so halving `W` reduces entropy by `k ln 2`. Landauer's paper writes this as "k logₑ 2 = 0.6931 k per bit".
+
+The second law of thermodynamics says the entropy of a closed system can't fall, so that entropy has to go somewhere: into the surroundings, as heat of at least `T` times the entropy change, which is `k T ln 2` per bit.
+
+That only applies to information being destroyed. If a gate's output determines its input, nothing is lost. We can count what's lost: with all inputs equally likely, AND takes in 2 bits, and its output has an entropy of about 0.811 bits, so about 1.189 bits are lost per use. XOR that keeps one input, and Toffoli's three-bit gate, lose none, and the lab's test checks these from their truth tables. Real chips don't sit near this: they use many times the thermal energy on purpose, so that thermal noise doesn't flip bits, which is one more thing Landauer's paper considers.
+</GoDeeper>
+
+<Quiz
+  id="comp-energy-1"
+  q="A chip at fixed voltage runs a job of a fixed number of cycles at half the clock speed. What happens to the energy for the job?"
+  options={["It halves, since the power halves", "Switching energy stays the same, since the same cycles switch the same charge, and leakage runs for twice as long. So it goes up", "It falls by three quarters, since energy depends on the clock squared"]}
+  answer={1}
+  explain="Power per second falls, and the job takes twice as many seconds. It's the voltage that's squared, not the clock, and that's why DVFS lowers both together."
+/>
+
+<Quiz
+  id="comp-energy-2"
+  q="Why does Landauer's limit not tell you the minimum energy to read from main memory?"
+  options={["Because copying a value doesn't have to erase anything, so the argument sets no minimum for the read itself, and the minimum for any bits it overwrites is far below the real cost", "Because memory runs colder than the CPU", "Because the limit only applies at 300 K"]}
+  answer={0}
+  explain="The limit is about information being destroyed, and a copy destroys nothing. Whatever a load overwrites in a register does count, and that minimum is still billions of times below the cost. Horowitz's table has DRAM far above an add, and he puts part of that down to DRAM's I/O. That's a useful reminder of how little the limit explains about today's chips."
+/>
+
+<Quiz
+  id="comp-energy-3"
+  q="Someone quotes a single number for how much electricity AI will use in 2035. What should you ask?"
+  options={["Nothing: if it's from a well-known agency it's a fact", "Which scenario, whose assumptions and what date. The IEA's own cases for all data centres in 2035 run from 700 to 1,700 TWh", "Whether it's in joules or watt-hours, since that's where errors usually come from"]}
+  answer={1}
+  explain="A projection depends on assumptions about adoption, efficiency and bottlenecks. The range isn't a flaw in the report: it's the report telling you how much it doesn't know, and a single number leaves that out."
+/>
+
+## What to remember
+
+- Landauer's limit is the minimum heat for erasing a bit that could equally be 0 or 1: about 2.87 × 10⁻²¹ J at 300 K, and it has been seen in a lab experiment.
+- Real chips are millions of times above it, and their cost is mostly in moving data and control. The limit isn't what constrains them today.
+- For a fixed number of cycles, switching energy depends on voltage squared, not on the clock. Slowing the clock alone can cost more.
+- Power and energy are different. Always check which one a claim is about.
+- Data-centre figures are estimates and scenarios, and they vary widely. Ask who measured what, and when.
