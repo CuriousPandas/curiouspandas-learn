@@ -1,0 +1,146 @@
+---
+title: One gate to build them all
+summary: Start with one kind of gate and wire your way up to every other. Learn what a logic gate is, how a NAND is made from four transistors, how any truth table becomes a circuit, and how to make one smaller.
+minutes: 20
+xp: 50
+tiers: [browser]
+builds_on: [computer/bits-and-bases]
+sources:
+  - title: MIT Computation Structures - CMOS (free course notes)
+    url: https://computationstructures.org/notes/cmos/notes.html
+  - title: MIT Computation Structures - Combinational Logic (free course notes)
+    url: https://computationstructures.org/notes/combinational_logic/notes.html
+  - title: Nisan and Schocken - From Nand to Tetris (free course, the same climb taken all the way to a computer)
+    url: https://www.nand2tetris.org/
+---
+
+This is a **logic gate**. It has two inputs, each a bit, and one output, also a bit. Flip the switches and see what it does.
+
+<LogicLab set="gates" mission="comp-logic-gates" />
+
+It's called **NAND**, for "not and". Its output is 0 when both inputs are 1, and otherwise 1. That's the whole device, and it's also all you've got: this lab's shelf starts with nothing else. Every other part that joins the shelf is something the earlier puzzles show can be made from it.
+
+So do the mission. The first steps take about a minute. XOR may take you longer, and that's expected. Once every part is wired up and nothing loops, the lab only tries every possible input and compares. So there are many right answers, and yours counts even if it's strange.
+
+## A table says everything
+
+A gate's whole behaviour fits in a **truth table**: every combination of inputs, and what comes out. Here are the gates you've been building:
+
+| a | b | NAND | AND | OR | XOR |
+|---|---|---|---|---|---|
+| 0 | 0 | 1 | 0 | 0 | 0 |
+| 0 | 1 | 1 | 0 | 1 | 1 |
+| 1 | 0 | 1 | 0 | 1 | 1 |
+| 1 | 1 | 0 | 1 | 1 | 0 |
+
+A circuit whose outputs depend only on its inputs at this moment, with nothing remembered, is called **combinational**. That's everything in this lesson. For those circuits, the truth table is the complete truth: two circuits with the same table can be swapped, and nothing outside can tell, apart from their speed and size. It's why the lab could hand you a sealed NOT and let it stand in for yours. Circuits that remember need wires that loop back, which this lesson leaves out.
+
+The fewest NANDs for each are 1 for NOT, 2 for AND, 3 for OR and 4 for XOR. We checked those by trying every possible wiring with fewer gates. If yours used more, it's still right. It's just bigger.
+
+## Any table can be built
+
+You've built five gates, and you may suspect a pattern. There's a recipe that builds a circuit for **any** truth table, and it never needs inspiration:
+
+1. Find the rows where the output should be 1.
+2. For each one, write an AND that's true on that row and no other. For a row with a = 1, b = 0, c = 1, that's `a AND (NOT b) AND c`.
+3. OR all of those together.
+
+The result is 1 exactly on the rows you picked. That's called the **sum-of-products** form. The chooser you built is an example of the thinking: `(a AND NOT sel) OR (b AND sel)`.
+
+The recipe only needs AND, OR and NOT, and you've built all three from NAND. So NAND can make anything that has a truth table. The word for this is **universal**: as MIT's notes put it, "the 2-input NAND and NOR operations that are easily implemented as single CMOS gates are each, in isolation, universal."
+
+Not every gate has that power. AND and OR can't make NOT from its input, however you wire them: with all inputs at 0, AND and OR both give 0, so a circuit of only those gates gives 0, when NOT needs a 1. This lab's "always 1" gets past that argument, but it doesn't help: turning an input on can never turn off the output of an AND or an OR, and NOT has to do exactly that.
+
+## Making it smaller
+
+The recipe works, but it can be wasteful. Take this one, written in Python's own words for the same operations. Press Run and look at the two columns:
+
+<CodeLab code={`def long_way(a, b):
+    return (a and b) or (a and not b)
+
+def short_way(a, b):
+    return a
+
+for a in [False, True]:
+    for b in [False, True]:
+        print(a, b, long_way(a, b), short_way(a, b))
+`} />
+
+They match on every row, so `b` never mattered. Checking every row like that always works for a few inputs. You can also reason it through: `(a AND b) OR (a AND NOT b)` is `a AND (b OR NOT b)`, and `b OR NOT b` is always 1. Rules like these are called **Boolean algebra**, and the one that keeps showing up in circuit work is **De Morgan's law**:
+
+- `NOT (a AND b)` is the same as `(NOT a) OR (NOT b)`
+- `NOT (a OR b)` is the same as `(NOT a) AND (NOT b)`
+
+You used the first one when you built OR: NAND of `NOT a` and `NOT b` is `a OR b`. Finding the smallest circuit for a table is called **logic minimization**. Doing it perfectly is a hard problem in general, and real chip design leaves it to software.
+
+## What a NAND is made of
+
+A gate isn't a program. It's a small circuit, and in almost all chips today that circuit is **CMOS**, built from transistors. For this lesson a **transistor** is a switch that's controlled by a voltage. CMOS uses two kinds: an **NFET** conducts when its control input is high, and a **PFET** conducts when its control input is low.
+
+Here's a NAND, as MIT's notes lay it out. The output wire can be connected to ground, which means 0, or to the supply voltage, which means 1:
+
+- **Two NFETs in series** connect the output to ground. Current has to pass through both, so this path conducts only when a *and* b are both high.
+- **Two PFETs in parallel** connect the output to the supply. Either is enough, so this path conducts when a *or* b is low.
+
+For any inputs, exactly one of those paths conducts, so the output is always firmly driven one way or the other. Both inputs high gives 0, and anything else gives 1. That's the NAND table, from four transistors.
+
+This also shows why NAND is the natural starting point and AND isn't. A high input can only turn an NFET on and a PFET off, which can only pull the output down. So a single stage of this kind always inverts. MIT's notes again: "only certain logical functions -- inverting functions -- can be implemented as a single CMOS gate." So in CMOS an AND takes more than one stage, and the notes build it as a NAND followed by an inverter, which is another word for a NOT.
+
+<Callout kind="real">
+Real chips aren't all NAND. NAND being enough doesn't make it the cheapest for everything: CMOS also has a single-stage NOR, gates with more inputs, and many other standard building blocks, and design tools pick among them. This simulator is a model too. It treats every NAND as identical, each taking one equal step to react, and it ignores power, wire length, and how many inputs one output can drive, which is called **fan-out**. In a real gate, the delay depends on those. The MIT notes in this lesson's sources go into what this leaves out. What the simulator does hold to is the logic: this site's tests check every part against truth tables written out separately.
+</Callout>
+
+You can also use these same operations on whole numbers in Python, one pair of bits at a time, as you saw with `&`, `|` and `^` in [the first lesson](/learn/computer/bits-and-bases/). Python's `and` and `or` work on one true-or-false value. Its `&` and `|` work on every bit of a number. Mixing those up is a common bug.
+
+<GoDeeper title="NAND is functionally complete">
+A set of gates is **functionally complete** if it can build every truth table, for any number of inputs.
+
+Claim: {`{AND, OR, NOT}`} is complete. For a function of n inputs, take the sum-of-products recipe. Each row where the output is 1 gets an AND of n literals, a literal being an input or its negation. Build the AND with n - 1 two-input ANDs. Then OR the terms. If no row is 1, the function is constant 0, which is `a AND (NOT a)`. On any input row, exactly the term for that row is 1 (each other term has a literal that's 0), so the OR is 1 on chosen rows and 0 on the others.
+
+Then {`{NAND}`} is complete, because NOT a = NAND(a, a), a AND b = NOT(NAND(a, b)), and a OR b = NAND(NOT a, NOT b). You built each of those. Replace every gate in any AND/OR/NOT circuit with those, and you have an all-NAND circuit with the same table. This site's tests build all 256 functions of three inputs this way and check every row.
+
+There are 2^(2ⁿ) truth tables on n inputs, which is why circuits are not designed by trying them. That's 16 for two inputs, 256 for three, and already 4,294,967,296 for five.
+
+And {`{AND, OR}`} isn't complete, because both output 0 when all their inputs are 0, and wiring them together keeps that true. So no such circuit can be NOT. Adding fixed 0s and 1s doesn't rescue it, because AND and OR are monotone: raising an input can't lower an output, and wiring them together keeps that true.
+
+{`{XOR}`} alone can't make AND either, for a different reason, since AND also gives 0 on all 0s. Any wiring of XORs gives the parity of some of its inputs (whether an odd number of them are 1), flipped if a fixed 1 is wired in, and AND isn't a parity. NOR is complete too, by the mirror-image argument.
+</GoDeeper>
+
+<Quiz
+  id="comp-gates-1"
+  q="You feed both inputs of a NAND from the same wire. What have you built?"
+  options={["AND", "NOT", "A wire that copies its input"]}
+  answer={1}
+  explain="With both inputs equal, only two rows of the table can happen: 0,0 gives 1, and 1,1 gives 0. That's the opposite of the input, so it's NOT."
+/>
+
+<Quiz
+  id="comp-gates-2"
+  q="Two circuits have the same truth table, and one has twice as many gates. What can you conclude?"
+  options={["They're interchangeable in behaviour, though they may differ in size, speed and power", "The smaller one must be wrong on a row you didn't check", "Nothing, until you see how they are wired"]}
+  answer={0}
+  explain="A truth table says everything about what a combinational circuit does, because its output depends only on its inputs. It says nothing about the cost: that's the other half of chip design."
+/>
+
+<Quiz
+  id="comp-gates-3"
+  q="Why can't you build NOT using only AND and OR gates?"
+  options={["AND and OR have two inputs and NOT has one", "Turning an input on can never turn off the output of an AND or an OR, and NOT has to do exactly that", "You can: AND a with itself, then OR the result"]}
+  answer={1}
+  explain="Two inputs aren't the problem, because you can tie them together as you did with NAND. With only those gates, all 0s can only give 0. A fixed 1 would get past that, but the reason here holds even then: when the input rises, NOT's output has to fall, and these gates can't do that."
+/>
+
+<Quiz
+  id="comp-gates-4"
+  q="In a CMOS NAND, what connects the output to ground?"
+  options={["Two NFETs in series, which conduct only when both inputs are high", "Two PFETs in parallel, which conduct when either input is low", "A resistor, which is always conducting"]}
+  answer={0}
+  explain="Ground is 0, and NAND gives 0 only when both inputs are 1, so that path has to need both. The PFETs in parallel are the other path, up to the supply, which gives 1."
+/>
+
+## What to remember
+
+- A gate is a small circuit with a truth table. In a combinational circuit, the table is its whole behaviour.
+- NAND is universal: NOT, AND and OR can be made from it, and then any truth table by the sum-of-products recipe.
+- Two circuits with the same table can be swapped. Size and speed are a separate question, and Boolean algebra can shrink them.
+- A CMOS NAND is four transistors: two NFETs in series to ground, and two PFETs in parallel to the supply.

@@ -1,0 +1,181 @@
+---
+import '../styles/widgets.css';
+import { WIDTHS } from '../lib/cs/bits.ts';
+interface Props {
+  /** A key in BIT_MISSIONS (src/lib/cs/bits.ts). */
+  mission?: string;
+  /** Show the readings for negative numbers. */
+  signed?: boolean;
+}
+const { mission, signed = false } = Astro.props;
+---
+<div class="widget card bitlab" data-bitlab data-mission={mission} data-signed={signed ? '1' : '0'}>
+  <div class="widget-head">
+    <strong>Bit Lab</strong>
+    <span class="pill info">The fixed width is emulated by this page: Python's ints and JavaScript's numbers do not stop at 8 bits on their own</span>
+  </div>
+  <div class="bl-grid">
+    <div class="bl-main">
+      <div class="controls">
+        <label>width
+          <select data-width>{WIDTHS.map((w) => <option value={w} selected={w === 8}>{w} bits</option>)}</select>
+        </label>
+        <button class="btn small" type="button" data-clear>All off</button>
+        <button class="btn small" type="button" data-flip>Flip all</button>
+        {signed && <button class="btn small" type="button" data-negate>Negate</button>}
+      </div>
+      <div class="bl-switches" data-switches role="group" aria-label="The switches, biggest place first. Each button turns one bit on or off."></div>
+      <dl class="bl-read" data-read></dl>
+      <div class="controls">
+        <label>set to <input type="text" data-set-value spellcheck="false" autocomplete="off" inputmode="text" value="" placeholder={signed ? '-3' : '13'} /></label>
+        <button class="btn small" type="button" data-set>Set</button>
+      </div>
+      <div class="controls">
+        <label>add <input type="text" data-add-value spellcheck="false" autocomplete="off" inputmode="text" value="" placeholder="5" /></label>
+        <button class="btn small" type="button" data-add>Add</button>
+        <button class="btn small" type="button" data-plus>+ 1</button>
+        <button class="btn small" type="button" data-minus>- 1</button>
+      </div>
+      <p class="bl-status" data-status role="status">Press a switch, or type a number.</p>
+    </div>
+    {mission && <div data-mission-panel></div>}
+  </div>
+</div>
+
+<script>
+  import { BIT_MISSIONS, asCharacter, bitAt, bitState, describeAdd, describeWidth, doAdd, doClear, doFlipAll, doNegate, doToggle, doType, doWidth, grouped, hexOf, parseWhole, read, type BitState, type Width } from '../lib/cs/bits.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-bitlab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const signed = root.dataset.signed === '1';
+    const mission = root.dataset.mission ? BIT_MISSIONS[root.dataset.mission] : undefined;
+    if (root.dataset.mission && !mission) throw new Error(`BitLab: no mission called ${root.dataset.mission}`);
+    const state: BitState = mission ? mission.setup() : bitState(signed);
+    const refresh = mission ? mountMission(q('[data-mission-panel]'), mission, () => state) : () => {};
+    const status = q('[data-status]'), readout = q('[data-read]'), box = q('[data-switches]');
+
+    const say = (text: string, kind = '') => { status.textContent = text; status.className = `bl-status ${kind}`; };
+
+    // All 32 exist from the start and stay put: rebuilding them on each click drops the next click on WebKit.
+    const switches = Array.from({ length: 32 }, (_, i) => {
+      const value = el('b', {}), place = el('span', {});
+      const b = el('button', { type: 'button', class: 'bl-bit', 'data-bit': String(i) }, value, ' ', place);
+      b.addEventListener('click', () => { doToggle(state, i); say(`Bit ${i} is now ${bitAt(state.value, i)}.`); render(); });
+      return { b, value, place };
+    });
+    box.append(...[...switches].reverse().map((s) => s.b));
+
+    const rows = new Map<string, HTMLElement>();
+    const row = (key: string, label: string) => {
+      const dd = el('dd', { 'data-reading': key });
+      readout.append(el('dt', {}, label), dd);
+      rows.set(key, dd);
+    };
+    row('binary', 'Binary');
+    row('hex', 'Hex');
+    if (signed) {
+      row('unsigned', 'With no negatives');
+      row('twos', "Two's complement");
+      row('sign', 'Sign and magnitude');
+      row('ones', "One's complement");
+    } else {
+      row('unsigned', 'Decimal');
+      row('char', 'As a character');
+    }
+
+    function render() {
+      const w = state.width, u = state.value;
+      switches.forEach((s, i) => {
+        const on = i < w;
+        s.b.hidden = !on;
+        if (!on) return;
+        const bit = bitAt(u, i);
+        s.b.classList.toggle('on', bit === 1);
+        s.b.setAttribute('aria-pressed', bit ? 'true' : 'false');
+        s.value.textContent = String(bit);
+        const worth = 2 ** i;
+        const top = signed && i === w - 1;
+        // A 32-bit place value doesn't fit under a switch on a phone, so past 16 bits the power stands in for it.
+        const text = w > 16 ? `2^${i}` : fmt(worth);
+        s.place.textContent = top ? `-${text}` : text;
+        s.b.setAttribute('aria-label', `${bit} ${s.place.textContent}: bit ${i} is ${bit}, worth ${top ? 'minus ' : ''}${fmt(worth)}`);
+      });
+      rows.get('binary')!.textContent = grouped(u, w);
+      rows.get('hex')!.textContent = `0x${hexOf(u, w)}`;
+      rows.get('unsigned')!.textContent = fmt(u);
+      if (signed) {
+        for (const how of ['twos', 'sign', 'ones'] as const) rows.get(how)!.textContent = read(u, w, how).text;
+      } else {
+        const c = asCharacter(u, w);
+        rows.get('char')!.textContent = w !== 8 ? 'Shown at 8 bits only' : c === null ? `chr(${u}) has nothing to show` : `"${c}", chr(${u})`;
+      }
+      refresh();
+    }
+
+    const widthSelect = q<HTMLSelectElement>('[data-width]');
+    widthSelect.addEventListener('change', () => {
+      const before = state.value, fromWidth = state.width;
+      doWidth(state, Number(widthSelect.value) as Width);
+      const d = describeWidth(before, fromWidth, state.value, state.width, state.signed);
+      say(d.text, d.kind);
+      render();
+    });
+    q('[data-clear]').addEventListener('click', () => { doClear(state); say('All off.'); render(); });
+    q('[data-flip]').addEventListener('click', () => { doFlipAll(state); say('Every bit flipped.'); render(); });
+    root.querySelector('[data-negate]')?.addEventListener('click', () => {
+      const before = state.value;
+      doNegate(state);
+      const was = read(before, state.width, 'twos').value, now = read(state.value, state.width, 'twos').value;
+      if (before === state.value && was !== 0) say(`Negating ${was} gave ${now} back. There is no +${-was} in ${state.width} bits for it to become.`, 'bad');
+      else say(`Flip every bit and add 1: ${was} became ${now}.`);
+      render();
+    });
+
+    const setValue = q<HTMLInputElement>('[data-set-value]'), addValue = q<HTMLInputElement>('[data-add-value]');
+    const doSet = () => {
+      const error = doType(state, setValue.value);
+      if (error) say(error, 'warn'); else say(`Set. ${grouped(state.value, state.width)}.`);
+      render();
+    };
+    q('[data-set]').addEventListener('click', doSet);
+    setValue.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSet(); } });
+    const adding = (text: string) => {
+      const before = state.value;
+      const r = doAdd(state, text);
+      if ('error' in r) { say(r.error, 'warn'); return; }
+      const d = describeAdd(before, parseWhole(text) as number, r, state.width, state.signed);
+      say(d.text, d.kind);
+      render();
+    };
+    q('[data-add]').addEventListener('click', () => adding(addValue.value));
+    addValue.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); adding(addValue.value); } });
+    q('[data-plus]').addEventListener('click', () => adding('1'));
+    q('[data-minus]').addEventListener('click', () => adding('-1'));
+
+    render();
+  }
+</script>
+
+<style is:global>
+  .bitlab .bl-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 980px) { .bitlab .bl-grid:has([data-mission-panel]) { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .bitlab .bl-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .bitlab .bl-switches { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  .bitlab .bl-bit { min-width: 0; min-height: 52px; padding: 4px 1px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg-2); color: var(--ink); cursor: pointer; font: inherit; }
+  .bitlab .bl-bit[hidden] { display: none; }
+  .bitlab .bl-bit b { font: 700 1.05rem var(--mono); }
+  .bitlab .bl-bit span { font-size: 0.64rem; color: var(--ink-2); overflow-wrap: anywhere; line-height: 1.1; }
+  .bitlab .bl-bit.on { background: var(--bamboo-soft); border-color: var(--bamboo); }
+  .bitlab .bl-bit.on b { color: var(--bamboo); }
+  .bitlab .bl-read { margin: 0; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 3px 12px; font-size: 0.9rem; }
+  .bitlab .bl-read dt { color: var(--ink-2); }
+  .bitlab .bl-read dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0; }
+  .bitlab input[type="text"] { font: inherit; font-family: var(--mono); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); width: 9em; max-width: 100%; min-width: 0; }
+  .bitlab .bl-status { margin: 0; font-size: 0.92rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .bitlab .bl-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .bitlab .bl-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .bitlab .bl-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+</style>

@@ -1,0 +1,180 @@
+---
+title: Fetch, decode, execute
+summary: In 2023 researchers at Google found instructions that sent some Intel processors into a state where normal rules stopped applying. Learn the loop every CPU runs, read real RISC-V instructions down to their bits, and write a program that a real instruction set executes one step at a time.
+minutes: 24
+xp: 65
+tiers: [browser]
+builds_on: [computer/clocks-and-memory]
+sources:
+  - title: Tavis Ormandy - Reptar (2023)
+    url: https://lock.cmpxchg8b.com/reptar.html
+  - title: NVD - CVE-2023-23583 (the API record)
+    url: https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2023-23583
+  - title: The RISC-V Instruction Set Manual, Volume I, version 20240411 (free)
+    url: https://github.com/riscv/riscv-isa-manual/releases/download/20240411/unpriv-isa-asciidoc.pdf
+  - title: John von Neumann - First Draft of a Report on the EDVAC (1945, the 1993 corrected edition)
+    url: https://web.mit.edu/STS.035/www/PDFs/edvac.pdf
+  - title: The RISC-V Instruction Set Manual, Volume II, privileged architecture, version 20240411 (free)
+    url: https://github.com/riscv/riscv-isa-manual/releases/download/20240411/priv-isa-asciidoc.pdf
+  - title: Linux kernel documentation - The Linux Microcode Loader
+    url: https://docs.kernel.org/arch/x86/microcode.html
+---
+
+"We have a CPU mystery! We found a way to cause some processors to enter a glitch state where the normal rules don't apply, but what does that mean…?"
+
+That's how Tavis Ormandy opened his 2023 write-up of a bug he named Reptar. His team tests processors by generating random programs in two forms that ought to end the same way, and comparing the results. One day the results differed. Adding a redundant prefix, a byte that normally changes nothing, to one particular instruction made some Intel processors behave impossibly. He saw "branches to unexpected locations, unconditional branches being ignored", and "a debugger reporting impossible states". On some machines, when two cores (a CPU's independent workers) hit it at once, the processor would halt with a hardware error. It also worked from inside a virtual machine, software that acts as a separate computer, which is why he says it "has serious security implications for cloud providers".
+
+The US National Vulnerability Database lists it as CVE-2023-23583, in Intel's own words: "Sequence of processor instructions leads to unexpected behavior for some Intel(R) Processors". And the fix wasn't a new chip. "Intel have published updated microcode for all affected processors."
+
+So a processor can be patched and a stream of bytes can confuse it, and the researchers' best theory is that what went wrong was the part that reads an instruction and works out what it means. This lesson is about that part. It's simpler than you'd think, and the machine you'll program here does what a real one does, one step at a time.
+
+## One loop, forever
+
+A CPU spends its working life in this loop:
+
+1. **Fetch.** Read the instruction at the address in a special register called the **program counter**, `pc`.
+2. **Decode.** Work out what those bits mean: which operation, which registers, which number.
+3. **Execute.** Do it. That may change a register, read or write memory, or put a new address in `pc`.
+
+Then go again. There's no step where it understands your program. It doesn't know it's in a loop or a function, or that a program exists at all. The RISC-V manual's description is one sentence: "the program counter pc holds the address of the current instruction."
+
+A **register** is the row of flip-flops from the last lesson, sitting inside the CPU. This machine has 32 of them, each 32 bits wide, plus `pc`. **Memory** is far bigger and further away, a long row of numbered bytes. On this machine, instructions can do arithmetic only on registers. To work on a value in memory they have to load it into a register first and store it back afterwards.
+
+## Code is just more data
+
+Here's a real instruction: `add a0, a0, a1`, which means "set `a0` to `a0` plus `a1`". This is how it looks in memory, as 32 bits:
+
+```text
+0000000  01011  01010  000     01010  0110011
+funct7   rs2    rs1    funct3  rd     opcode
+                                      (a register operation)
+         x11    x10    with    x10
+         (a1)   (a0)   funct7  (a0)
+                       = add
+```
+
+Each field is a small piece of the job. `opcode` says what family it is, `rd` is the register to write, `rs1` and `rs2` are the two to read, and `funct3` and `funct7` pick which operation. In hex it's `0x00b50533`, and a 32-bit chunk like this is called a **word**. Decoding, on this machine, is nothing more than pulling those groups of bits apart, and gates can do that directly.
+
+That word sits in the same memory as your data. On this machine, nothing marks it as code. It's code only because `pc` points at it.
+
+Keeping instructions in the same memory as data is the **stored program** idea. It's named the **von Neumann architecture** after John von Neumann, whose 1945 draft report on a machine called EDVAC described it: the orders "come from M, i.e. from the same place where the numerical material is stored". (M is the memory, and an order is an instruction.) The name is a simplification of who did what, but it's the one you'll meet.
+
+His design differs from this lab in one way that matters here. It did mark each word. In the draft, "each minor cycle must contain a distinguishing mark which indicates whether it is a standard number or an order", and a minor cycle is its name for a word. The mark was the word's first bit: "i₀ = 0 is to designate a standard number, and i₀ = 1 an order". RISC-V keeps no such bit: the 32 bits above are all instruction, and a number with the same bits looks exactly the same. Many real systems can still stop memory being run, by whole areas and not word by word. On RISC-V, a page of memory (a block of it, usually 4 KB) has permission bits, and the privileged manual says "Attempting to fetch an instruction from a page that does not have execute permissions raises a fetch page-fault exception". This lab has no pages.
+
+Try the consequence yourself. This program overwrites its own next instruction, with a number, while running. Run it and look at `a0`. The line labelled `patch` says `nop`, which means "do nothing". (`la` puts a label's address in a register, and `sw` stores a word at an address. There's a table of instructions further down.)
+
+<MachineLab code={`# 0x02950513 is the bits of: addi a0, a0, 41
+    li a0, 1
+    li t0, 0x02950513
+    la t1, patch
+    sw t0, 0(t1)      # write those bits over the nop
+patch:
+    nop
+    ebreak            # stop here
+`} rows={9} />
+
+It ends with 42 in `a0`, from a line that says `nop`. The machine ran what was in memory, not what was on the page. And if you change `0x02950513` to `0xffffffff`, the bits at `patch` no longer mean anything, and the machine refuses, with the address and a reason.
+
+<Callout kind="real" title="This is a real instruction set, with some of it left out">
+This lab runs **RV32I**, the base 32-bit integer instructions of **RISC-V**, an open instruction set whose manual is free. The manual says "RV32I contains 40 unique instructions", and this machine runs 38 of them. It leaves out `ecall` and `fence`, and refuses them by name, because it has no operating system to call and only one core. The assembler also takes the common shorthands, such as `li` and `mv`, and it refuses the rest. This site's tests hold 37 of the instructions against Unicorn, a CPU emulator built from QEMU, on 2,220 random cases and 40 random programs, and they check the encodings against the Capstone disassembler. The 38th, `ebreak`, stops the run here. "The EBREAK instruction is used to return control to a debugging environment", and this lab is that environment.
+
+It's still a simplification of a real machine. Each step here is one whole instruction with no timing, no caches and no other cores, and the addresses are this lab's own: code at 0x0000, data at 0x2000, stack up to 0xFFFF. On a real system, a program overwriting its own code may need an extra instruction to synchronise, and operating systems can mark memory as not executable.
+</Callout>
+
+## Three kinds of instruction
+
+Nearly everything falls into one of three groups:
+
+| Group | What it does | Example | Reads as |
+|---|---|---|---|
+| Compute | Works on registers | `addi a0, a0, 1` | `a0 = a0 + 1` |
+| Memory | Moves between registers and memory | `lw t0, 8(sp)` | Load the word at address `sp + 8` into `t0` |
+| Control | Chooses the next `pc` | `beq a0, a1, done` | If they're equal, jump to `done` |
+
+**A few things to notice:**
+
+- The last column of a compute instruction can hold a number right in the instruction, which is called an **immediate**. That's how `addi a0, a0, 1` gets its 1. It has only 12 bits for it, so it can reach from -2048 to 2047. Larger numbers take two instructions, which `li` writes for you.
+- The ways of saying where a value is are called **addressing modes**, and RV32I has few of them: in a register, in the instruction, at a register plus an offset (`8(sp)`), or at `pc` plus an offset, as branches use. Other instruction sets have more.
+- `x0`, also called `zero`, is special. The manual says "Register x0 is hardwired with all bits equal to 0." Writing to it does nothing, silently, and that's by design: `j label` is really `jal x0, label`, a jump that throws away its return address.
+
+An **instruction set** is the contract between software and a family of chips. It lists the instructions and what each one does. Your laptop's chip follows a different contract from this lab's, and it will likely be x86 or Arm, and Reptar's prefixes come from x86's more complicated format. A program written for one doesn't run on another without being translated. Inside the contract, though, the chip's builders are free: anything goes, provided that a program on one core sees results as if each instruction ran in order.
+
+## What's really in there
+
+Every part of this machine is something you've met. An **ALU** (arithmetic logic unit) is adders and other logic gates. The registers are flip-flops. `pc` is one more register, with its own adder that adds 4, because each instruction here is 4 bytes. The wires and switches that connect them are the **datapath**, and on each clock edge the results get stored.
+
+```text
+          +-----> + 4 ------+
+          |                 v
+ pc ---> memory ---> decode ---> registers ---> ALU ---> memory
+  ^                                              |
+  +------------- branch or jump target <---------+
+```
+
+The part that sets those switches is the **control unit**, and there are two ways to build it. **Hardwired** control is more gates, turning `opcode` and `funct3` straight into switch settings. **Microcoded** control is a tiny program inside the CPU, in its own memory, with one sequence of small steps for each instruction.
+
+Intel's fix for Reptar was a microcode update, which doesn't by itself say the fault was in the microcode. Linux's documentation describes the routine side of it, where the kernel is the core of the operating system: "The kernel can update microcode very early during boot." On how it really works, Ormandy is blunt: "how microcode works in modern systems is a closely guarded secret. We can only theorize about the root cause based on observations."
+
+## Try it: teach it to count
+
+Press **Step** and watch it work. It shows the three steps for each instruction, with the bits it decoded, and the registers that changed. The value in `a0` here comes from the box under the program, so you can change it. These are the instructions you'll want for this mission, and the manual lists the rest:
+
+| Instruction | What it does |
+|---|---|
+| `li rd, number` | Puts a number in a register |
+| `mv rd, rs` | Copies one register to another |
+| `add rd, rs1, rs2` and `addi rd, rs1, number` | Add two registers, or a register and a number |
+| `beq a, b, label` and `bne a, b, label` | Jump if `a` and `b` are equal, or not equal |
+| `blt`, `ble`, `bgt` and `bge`, written the same way | Jump if `a < b`, `a <= b`, `a > b` or `a >= b` |
+| `j label` | Always jump |
+| `la rd, label` | Puts a label's address in a register |
+| `lw rd, offset(rs)` and `sw rs2, offset(rs1)` | Load a word from memory, or store one to it |
+| `ebreak` | Stop here |
+
+At the bottom of the starter, `.data` starts a section of data rather than code, and `total: .word 0` sets aside one word holding 0, with the label `total` on it.
+
+<MachineLab mission="cpu-count-up" />
+
+<Callout kind="trap" title="Registers are not your program's variables">
+Python gave you as many names as you wanted. This machine has 32 registers, one of them always zero, and most of the others have conventional jobs. When they run out, or when a value has to outlive the moment, it goes to memory. The word `total` lives in memory, at an address you can see in the panel, and `a0` is a register. Nothing stops you from losing a value by writing over its register, and nothing warns you either.
+</Callout>
+
+<GoDeeper title="The six instruction formats">
+Every RV32I instruction is 32 bits, and the manual defines six layouts. **R** has two source registers and a destination, as in `add`. **I** has one source and a 12-bit immediate, as in `addi` and `lw`. **S** has two sources and a 12-bit immediate split in two, as in `sw`. **B** is like S with the immediate scrambled, and counts in steps of two bytes, as in `beq`. **U** has a 20-bit immediate, as in `lui`. **J** has a scrambled 20-bit immediate, as in `jal`.
+
+The scrambling looks odd, and it's for the hardware. Across the formats, `rs1`, `rs2` and `rd` stay in the same bit positions, so a chip can start reading the registers before it has finished working out what the instruction is, and the sign bit is always the top bit.
+
+Press Step in the lab and it shows you the fields of each word as it decodes it. A branch's `imm scattered` is exactly this.
+</GoDeeper>
+
+<Quiz
+  id="comp-cpu-1"
+  q="On this lab's machine, the bytes at some address in memory could be data or could be an instruction. What decides which they are?"
+  options={["A flag stored beside each byte that marks it as code", "Whether pc ever points at them when the CPU fetches: to the fetch step, they're an instruction", "The section the assembler put them in, because the CPU checks that"]}
+  answer={1}
+  explain="That's how this machine works, and the patching program above shows it. It isn't the only way to build a stored-program machine: von Neumann's own draft kept a bit in each word for number or order. Real systems can also mark whole pages of memory as not to be run, and then a fetch from there is refused."
+/>
+
+<Quiz
+  id="comp-cpu-2"
+  q="What does add zero, a1, a2 do?"
+  options={["Raises an error, because zero can't be written", "Adds a1 and a2 and throws the result away, because x0 stays 0", "Sets a1 and a2 to zero"]}
+  answer={1}
+  explain="It runs, and nothing visibly happens. The manual hardwires x0 to 0. That's handy for j, which is a jal that discards its return address, and it's also an easy way to lose a result without a word of warning."
+/>
+
+<Quiz
+  id="comp-cpu-3"
+  q="Your mission's program ran correctly on n = 5. Why was it also checked on inputs you couldn't see?"
+  options={["Because li a0, 15 also gives 15 for n = 5, and it isn't a counting program at all", "Because the machine might be slower on bigger numbers", "Because a0 can't hold 5"]}
+  answer={0}
+  explain="One visible answer can come from a program that doesn't do the job. Trying inputs it hasn't seen, including the edge at n = 0, is how you catch a program that only looks right. It isn't proof: the next input could still fail, which is why reading the code matters too."
+/>
+
+## What to remember
+
+- A CPU runs one loop: fetch the instruction at pc, decode its bits, execute it. It has no idea what your program is about.
+- Code and data share memory. On this machine, bytes are an instruction because pc points at them.
+- An instruction set is a contract. What's inside can change, and even be patched, provided a program sees results as if its instructions ran in order.
+- Registers are few and fast, memory is big and slower, and a load or store moves values between them.
+- A loop is just an instruction that writes an earlier address into pc.

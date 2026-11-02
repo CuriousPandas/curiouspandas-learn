@@ -146,7 +146,7 @@ print(hash(1), hash(1.0), hash(True))
 print(hash(-1))
 `} />
 
-That's the same output as real Python, on any run. The `-2` is the one exception to "hashes to itself": the docs' rule is "If the resulting hash is -1, replace it with -2", because Python's C code keeps -1 to mean an error. So the keyed hash you just credited with ending the flood does nothing here. On real CPython, inserting these keys looks like this (Windows laptop, Python 3.11.9, one run, so read the shape, not the seconds):
+That's the same output as real Python, on any run. The `-2` is the one exception to "hashes to itself": the docs' rule is "If the resulting hash is -1, replace it with -2", because Python's C code keeps -1 to mean an error. So the keyed hash you just credited with ending the flood does nothing here. On real CPython, inserting these keys looks like this (one Windows machine, Python 3.11.9, one run, so read the shape, not the seconds):
 
 | Keys | All hashing to 0 | Other integers of the same size | Ratio |
 |---|---|---|---|
@@ -295,7 +295,7 @@ And the theorem needs the function to be *chosen at random*, unknown to whoever 
   q="Your Python service stores values in a dict, keyed by a large integer ID taken straight from each request. You're on the current version of Python, and string hashes are randomised. Is it safe from hash flooding?"
   options={["Yes: hash randomisation has been on by default since Python 3.3", "Not by that alone: randomisation covers str and bytes, while integers hash to themselves modulo a public prime, so an attacker can aim integers. Limit the count, or key by the string form", "Yes: Python integers can't collide"]}
   answer={1}
-  explain="The docs promise salting for str and bytes only. Multiples of 2**61 - 1 all hash to 0 on 64-bit CPython, and 20,000 of them took about 3 seconds to insert on a laptop, against 0.003 s for other integers of the same size. A range check alone wouldn't save you: keys that all fit in 32 bits can still be aimed, with no two hashes alike."
+  explain="The docs promise salting for str and bytes only. Multiples of 2**61 - 1 all hash to 0 on 64-bit CPython, and 20,000 of them took about 3 seconds to insert on one machine, against 0.003 s for other integers of the same size. A range check alone wouldn't save you: keys that all fit in 32 bits can still be aimed, with no two hashes alike."
 />
 
 <Quiz

@@ -1,0 +1,239 @@
+---
+import '../styles/widgets.css';
+import { DEFAULT_CONFIG, HIT_NS, LINE_CHOICES, MISS_PENALTY_NS, PATTERNS, SIDES, SIZE_CHOICES, WAY_CHOICES } from '../lib/cs/cache.ts';
+const kb = (b: number) => (b >= 1048576 ? `${b / 1048576} MB` : `${b / 1024} KB`);
+---
+<div class="widget card cachelab" data-cache-lab>
+  <div class="widget-head">
+    <strong>Cache lab</strong>
+    <span class="pill info">written in TypeScript: Python can't lay values side by side at this speed</span>
+  </div>
+  <div class="cc-grid">
+    <div class="cc-main">
+      <section class="cc-panel">
+        <h4>The model <span class="pill">exact counts, checked against a reference by this site's tests</span></h4>
+        <p class="cc-note">One level of cache and nothing else: no address translation and no other core. Each element is 4 bytes. Time uses Norvig's round numbers, {HIT_NS} ns to check the cache and {MISS_PENALTY_NS} ns more for a miss. It isn't your CPU.</p>
+        <div class="controls cc-controls">
+          <label>loop <select data-pattern>{PATTERNS.map((p) => <option value={p.id}>{p.label}</option>)}</select></label>
+          <label>matrix side <select data-side>{SIDES.map((s) => <option value={s} selected={s === 256}>{s} ({kb(s * s * 4)})</option>)}</select></label>
+          <label>passes <select data-passes><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select></label>
+          <label>cache size <select data-size>{SIZE_CHOICES.map((s) => <option value={s} selected={s === DEFAULT_CONFIG.sizeBytes}>{kb(s)}</option>)}</select></label>
+          <label>line size <select data-line>{LINE_CHOICES.map((s) => <option value={s} selected={s === DEFAULT_CONFIG.lineBytes}>{s} bytes</option>)}</select></label>
+          <label>ways <select data-ways>{WAY_CHOICES.map((s) => <option value={s} selected={s === DEFAULT_CONFIG.ways}>{s === 1 ? '1 (direct-mapped)' : s}</option>)}<option value="full">all (fully associative)</option></select></label>
+          <label>replace <select data-policy><option value="lru">least recently used</option><option value="fifo">oldest in</option></select></label>
+          <label>prefetch <select data-prefetch><option value="off">off</option><option value="on">next line, on a miss</option></select></label>
+          <button class="btn small primary" type="button" data-run>Run</button>
+          <button class="btn small" type="button" data-clear>Clear results</button>
+        </div>
+        <p class="cc-status" data-status role="status">Not run yet.</p>
+        <div class="stats" aria-live="polite">
+          <div class="stat">reads<b data-s="accesses">0</b></div>
+          <div class="stat">hits<b data-s="hits">0</b></div>
+          <div class="stat">misses<b data-s="misses">0</b></div>
+          <div class="stat">cold<b data-s="cold">0</b></div>
+          <div class="stat">capacity<b data-s="capacity">0</b></div>
+          <div class="stat">conflict<b data-s="conflict">0</b></div>
+          <div class="stat">average read, model<b data-s="amat">0</b></div>
+        </div>
+        <div class="cc-scroll">
+          <table class="cc-table">
+            <thead><tr><th scope="col">Loop</th><th scope="col">Side</th><th scope="col">Cache</th><th scope="col">Misses</th><th scope="col">Cold</th><th scope="col">Capacity</th><th scope="col">Conflict</th><th scope="col">Average</th></tr></thead>
+            <tbody data-history><tr><td colspan="8" class="muted">Nothing run yet.</td></tr></tbody>
+          </table>
+        </div>
+        <h4 class="cc-sub">Where one address goes</h4>
+        <div class="controls"><label>address <input type="text" data-addr value="0x12345" spellcheck="false" autocapitalize="off" autocomplete="off" /></label></div>
+        <p class="cc-note" data-split role="status"></p>
+      </section>
+
+      <section class="cc-panel" data-machine>
+        <h4>Your machine <span class="pill gold">shown, never checked: this is your hardware today</span></h4>
+        <p class="cc-note">The same walk loop on your device, once with each next item at the next address and once with them scattered, then a matrix read both ways. 20,000,000 steps a point, so it takes a little while. It pauses while it's off screen. It allocates up to about 130 MB, and a phone may refuse. A ratio near 1x is an honest result too.</p>
+        <div class="controls"><button class="btn small primary" type="button" data-machine-run>Run on my machine</button></div>
+        <p class="cc-note" data-machine-status role="status">Not run yet.</p>
+        <div class="cc-scroll">
+          <table class="cc-table">
+            <thead><tr><th scope="col">Loop</th><th scope="col">Memory</th><th scope="col">Friendly order, ns</th><th scope="col">Unfriendly order, ns</th><th scope="col">Ratio</th></tr></thead>
+            <tbody data-machine-rows><tr><td colspan="5" class="muted">No measurements yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { CACHE_MISSION, PATTERNS, arraysOverlap, fullWays, runPattern, shapeOf, splitAddress, type CacheConfig, type Pattern, type Policy } from '../lib/cs/cache.ts';
+  import { chase, makeCycle, makeInOrder } from '../lib/cs/layout.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const size = (b: number) => (b >= 1048576 ? `${b / 1048576} MB` : `${b / 1024} KB`);
+  const STEPS = 20_000_000, CHUNK = 2_000_000;
+  const WALK_SIZES = [1_000, 100_000, 1_000_000, 16_000_000];
+  const MATRIX_SIDES = [256, 1024, 4096];
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-cache-lab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = CACHE_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), CACHE_MISSION, () => state);
+    const status = q('[data-status]');
+    const sel = (s: string) => q<HTMLSelectElement>(`[data-${s}]`).value;
+    const setStatus = (text: string, kind = '') => { status.textContent = text; status.className = `cc-status ${kind}`; };
+
+    function config(): CacheConfig {
+      const sizeBytes = Number(sel('size')), lineBytes = Number(sel('line'));
+      const ways = sel('ways') === 'full' ? fullWays({ sizeBytes, lineBytes }) : Number(sel('ways'));
+      return { sizeBytes, lineBytes, ways, policy: sel('policy') as Policy, prefetch: sel('prefetch') === 'on' };
+    }
+    const wayText = (c: CacheConfig) => (c.ways === c.sizeBytes / c.lineBytes ? 'fully associative' : c.ways === 1 ? 'direct-mapped' : `${c.ways} ways`);
+
+    function showSplit() {
+      const box = q('[data-split]');
+      const text = q<HTMLInputElement>('[data-addr]').value.trim();
+      if (!/^(0x[0-9a-fA-F]+|\d+)$/.test(text)) { box.textContent = `"${text}" isn't an address. Write a whole number, such as 74565 or 0x12345.`; return; }
+      const addr = Number(text);
+      if (addr > 0xffffffff) { box.textContent = 'This model uses 32-bit addresses, and that one is bigger.'; return; }
+      try {
+        const c = config(), p = splitAddress(addr, c), s = shapeOf(c);
+        box.textContent = `With ${fmt(s.lines)} lines of ${c.lineBytes} bytes in ${fmt(s.sets)} set${s.sets === 1 ? '' : 's'}: the low ${p.offsetBits} bits pick byte ${p.offset} in the line, the next ${p.indexBits} pick set ${fmt(p.set)}, and the rest, ${fmt(p.tag)}, are the tag stored to recognise this line later.`;
+      } catch (e) { box.textContent = (e as Error).message; }
+    }
+
+    function run() {
+      let cfg: CacheConfig;
+      try { cfg = config(); shapeOf(cfg); } catch (e) { setStatus(`${(e as Error).message}. Nothing ran.`, 'bad'); return; }
+      const r = runPattern(sel('pattern') as Pattern, Number(sel('side')), Number(sel('passes')), cfg);
+      state.runs.push(r);
+      const x = r.result;
+      for (const k of ['accesses', 'hits', 'misses', 'cold', 'capacity', 'conflict'] as const) q(`[data-s="${k}"]`).textContent = fmt(x[k]);
+      q('[data-s="amat"]').textContent = `${x.amatNs.toFixed(2)} ns`;
+      setStatus(`${fmt(x.accesses)} reads, ${fmt(x.misses)} misses (${(100 * x.misses / x.accesses).toFixed(1)}%). ${cfg.prefetch ? `The prefetcher fetched ${fmt(x.prefetches)} extra lines. ` : ''}${cfg.policy === 'fifo' ? 'Capacity and conflict here are judged against a fully associative cache that also throws out the oldest in. ' : ''}${r.pattern === 'two-arrays' && arraysOverlap(r.side, cfg.sizeBytes) ? `At this size the two arrays overlap: each is ${size(Math.floor((r.side * r.side) / 2) * 4)}, and they start only ${size(cfg.sizeBytes)} apart, so this isn't really two arrays. Try a smaller side or a bigger cache. ` : ''}Counts are exact for this model, and the time is only Norvig's round numbers.`);
+      q('[data-history]').replaceChildren(...state.runs.slice(-10).reverse().map((h) => el('tr', {},
+        el('td', {}, PATTERNS.find((p) => p.id === h.pattern)!.label), el('td', {}, String(h.side)),
+        el('td', {}, `${size(h.cfg.sizeBytes)}, ${h.cfg.lineBytes} B, ${wayText(h.cfg)}${h.cfg.policy === 'fifo' ? ', oldest in' : ''}${h.cfg.prefetch ? ', prefetch' : ''}`),
+        el('td', {}, fmt(h.result.misses)), el('td', {}, fmt(h.result.cold)), el('td', {}, fmt(h.result.capacity)), el('td', {}, fmt(h.result.conflict)), el('td', {}, `${h.result.amatNs.toFixed(2)} ns`))));
+      showSplit();
+      refresh();
+    }
+
+    q('[data-run]').addEventListener('click', () => {
+      try { run(); } catch (e) {
+        const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        setStatus(`This is a bug in this page's model. Details for a bug report: ${detail}`, 'warn');
+        console.error(`The cache lab failed: ${detail}`);
+      }
+    });
+    q('[data-clear]').addEventListener('click', () => {
+      state.runs.length = 0;
+      q('[data-history]').replaceChildren(el('tr', {}, el('td', { colspan: '8', class: 'muted' }, 'Nothing run yet.')));
+      for (const k of ['accesses', 'hits', 'misses', 'cold', 'capacity', 'conflict', 'amat']) q(`[data-s="${k}"]`).textContent = '0';
+      setStatus('Not run yet.');
+      refresh();
+    });
+    for (const k of ['size', 'line', 'ways']) q(`[data-${k}]`).addEventListener('change', showSplit);
+    q('[data-addr]').addEventListener('input', showSplit);
+    showSplit();
+
+    // ---- your machine -----------------------------------------------------------
+    // Never asserted, by the site's tests or by this page. It reports what it saw.
+    let visible = true, running = false, sink = 0;
+    new IntersectionObserver((es) => { visible = es.some((e) => e.isIntersecting); }).observe(q('[data-machine]'));
+    const pause = () => new Promise<void>((done) => {
+      const wait = () => (visible ? done() : setTimeout(wait, 200));
+      setTimeout(wait, 0);
+    });
+    async function timeWalk(next: Int32Array) {
+      let total = 0, at = 0;
+      for (let left = STEPS; left > 0; left -= CHUNK) {
+        await pause();
+        const t = performance.now();
+        at = chase(next, at, Math.min(left, CHUNK));
+        total += performance.now() - t;
+      }
+      sink ^= at;
+      return total * 1e6 / STEPS;
+    }
+    async function timeMatrix(side: number) {
+      const m = new Int32Array(side * side);
+      for (let i = 0; i < m.length; i++) m[i] = i & 7;
+      const rows = () => { let s = 0; for (let r = 0; r < side; r++) for (let c = 0; c < side; c++) s += m[r * side + c]; return s; };
+      const cols = () => { let s = 0; for (let c = 0; c < side; c++) for (let r = 0; r < side; r++) s += m[r * side + c]; return s; };
+      // Warm up both, so neither is timed while the engine is still compiling it.
+      rows(); cols();
+      await pause();
+      let t = performance.now(); const a = rows(); const ta = performance.now() - t;
+      await pause();
+      t = performance.now(); const b = cols(); const tb = performance.now() - t;
+      if (a !== b) throw new Error('the two orders gave different sums');
+      sink ^= a;
+      return [ta * 1e6 / m.length, tb * 1e6 / m.length];
+    }
+    const mem = (bytes: number) => (bytes >= 1e6 ? `${Math.round(bytes / 1e6)} MB` : `${Math.round(bytes / 1e3)} KB`);
+    const machineBtn = q<HTMLButtonElement>('[data-machine-run]');
+    machineBtn.addEventListener('click', async () => {
+      if (running) return;
+      running = true;
+      machineBtn.disabled = true;
+      const rows = q('[data-machine-rows]'), st = q('[data-machine-status]');
+      rows.replaceChildren();
+      const row = (name: string, bytes: number) => {
+        const tr = el('tr', {}, el('td', {}, name), el('td', {}, mem(bytes)), el('td', {}, '…'), el('td', {}, '…'), el('td', {}, '…'));
+        rows.append(tr);
+        return tr.querySelectorAll('td');
+      };
+      const fill = (cells: NodeListOf<HTMLTableCellElement>, a: number, b: number) => {
+        cells[2].textContent = a.toFixed(2);
+        cells[3].textContent = b.toFixed(2);
+        cells[4].textContent = a > 0 ? `${(b / a).toFixed(1)}x` : 'too fast to time';
+      };
+      try {
+        for (const n of WALK_SIZES) {
+          st.textContent = `Timing a walk of ${fmt(n)} elements…`;
+          const cells = row(`walk, ${fmt(n)} elements`, n * 4);
+          await pause();
+          const a = await timeWalk(makeInOrder(n));
+          cells[2].textContent = a.toFixed(2);
+          await pause();
+          const b = await timeWalk(makeCycle(n, 1));
+          fill(cells, a, b);
+        }
+        for (const s of MATRIX_SIDES) {
+          st.textContent = `Timing a matrix with a side of ${fmt(s)}…`;
+          const cells = row(`matrix, side ${fmt(s)}: rows, then columns`, s * s * 4);
+          await pause();
+          const [a, b] = await timeMatrix(s);
+          fill(cells, a, b);
+        }
+        st.textContent = `Done. One run, on this device, in this browser, today. Run it again and the numbers will move. (Everything ended at ${sink}, so the engine had to do the work.)`;
+      } catch (e) {
+        // A phone can refuse the memory. Say so, rather than leave a table that looks finished.
+        st.textContent = `Stopped: this browser refused the measurement (${(e as Error).message}). The rows above are all that ran.`;
+      }
+      running = false;
+      machineBtn.disabled = false;
+    });
+
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .cachelab .cc-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .cachelab .cc-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .cachelab .cc-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
+  .cachelab .cc-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .cachelab h4 { margin: 0 0 6px; font-size: 0.95rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .cachelab h4 .pill { font-weight: 600; white-space: normal; }
+  .cachelab .cc-sub { margin-top: 12px; }
+  .cachelab .cc-note { margin: 0 0 8px; font-size: 0.86rem; color: var(--ink-2); overflow-wrap: anywhere; }
+  .cachelab .cc-status { margin: 8px 0; font-size: 0.9rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .cachelab .cc-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .cachelab .cc-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .cachelab .controls input[type="text"] { font: 13px var(--mono); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); width: 9em; max-width: 100%; }
+  .cachelab .cc-scroll { overflow-x: auto; }
+  .cachelab table.cc-table { display: table; width: 100%; border-collapse: collapse; font-size: 0.82rem; font-variant-numeric: tabular-nums; margin: 0; }
+  .cachelab table.cc-table th, .cachelab table.cc-table td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
+  .cachelab table.cc-table thead th { font-weight: 600; }
+</style>

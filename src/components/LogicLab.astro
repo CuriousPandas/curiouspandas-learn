@@ -1,0 +1,465 @@
+---
+import '../styles/widgets.css';
+interface Props {
+  /** Which set of puzzles: a key in PUZZLES (src/lib/cs/logic-missions.ts). */
+  set: 'gates' | 'adder';
+  /** A key in LOGIC_MISSIONS. */
+  mission: string;
+}
+const { set, mission } = Astro.props;
+---
+<div class="widget card logiclab" data-logiclab data-set={set} data-mission={mission}>
+  <div class="widget-head">
+    <strong>Logic Lab</strong>
+    <span class="pill info">Simulated on this page. Every part here runs as NAND gates, and every input combination is tried</span>
+  </div>
+  <div class="ll-grid">
+    <div class="ll-main">
+      <div class="ll-tabs" data-tabs role="group" aria-label="Puzzles"></div>
+      <p class="ll-brief" data-brief></p>
+      <div class="ll-switches" data-switches role="group" aria-label="Input switches"></div>
+      <div class="ll-scroll" data-circuit tabindex="0" role="group" aria-label="Circuit diagram. It scrolls sideways when it is wide."></div>
+      <section class="ll-panel">
+        <h4>Parts <span class="muted" data-counts></span></h4>
+        <div class="ll-gates" data-gates></div>
+        <div class="controls ll-shelf" data-shelf></div>
+      </section>
+      <section class="ll-panel">
+        <h4>Outputs</h4>
+        <div class="ll-outs" data-outs></div>
+      </section>
+      <div class="controls">
+        <button class="btn small" type="button" data-reset>Start this puzzle over</button>
+        <label class="ll-slow"><input type="checkbox" data-slow /> one gate delay at a time</label>
+        <button class="btn small" type="button" data-delay hidden>One gate delay</button>
+      </div>
+      <p class="ll-delay" data-delay-note role="status" hidden></p>
+      <p class="ll-verdict" data-verdict role="status"></p>
+      <div class="ll-scroll" data-table tabindex="0" role="group" aria-label="Truth table: what the puzzle wants, and what your circuit does"></div>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { LOGIC_MISSIONS, PUZZLES, describeBits, record, type Puzzle } from '../lib/cs/logic-missions.ts';
+  import { columns, delay, flatten, freshNets, hasLoop, pinsOf, readOutputs, settle, sourcesOf, validate, type Bit, type Circuit, type Flat, type Inputs, type Verdict } from '../lib/cs/logic.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const SVG = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag: string, attrs: Record<string, string | number>, text?: string) => {
+    const e = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const clone = (c: Circuit): Circuit => JSON.parse(JSON.stringify(c));
+  const labelOf = (s: string) => (s === '0' ? 'always 0' : s === '1' ? 'always 1' : s.replace('.', ' '));
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-logiclab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const puzzles = PUZZLES[root.dataset.set!];
+    const mission = LOGIC_MISSIONS[root.dataset.mission!];
+    if (!puzzles || !mission) throw new Error(`LogicLab: no puzzles ${root.dataset.set} or mission ${root.dataset.mission}`);
+    const state = mission.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), mission, () => state);
+
+    const circuits = new Map<string, Circuit>(puzzles.map((p) => [p.id, clone(p.starter!)]));
+    let puzzle: Puzzle = puzzles[0];
+    let inputs: Inputs = {};
+    let flat: Flat | null = null;
+    let nets: Uint8Array | null = null;
+    let verdict: Verdict | null = null;
+    let slowSteps = 0;
+    let slowPending = false;
+
+    const circuit = () => circuits.get(puzzle.id)!;
+    const slowBox = q<HTMLInputElement>('[data-slow]');
+    const delayBtn = q<HTMLButtonElement>('[data-delay]'), delayNote = q('[data-delay-note]');
+
+    // ---- tabs -----------------------------------------------------------------------
+    const tabs = puzzles.map((p) => {
+      const b = el('button', { type: 'button', class: 'btn small ll-tab', 'data-puzzle': p.id }, p.title);
+      b.addEventListener('click', () => { puzzle = p; switchPuzzle(); });
+      return b;
+    });
+    q('[data-tabs]').append(...tabs);
+
+    // ---- switches ---------------------------------------------------------------------
+    function buildSwitches() {
+      inputs = Object.fromEntries(puzzle.spec.inputs.map((n) => [n, 0 as Bit]));
+      q('[data-switches]').replaceChildren(...puzzle.spec.inputs.map((name) => {
+        const b = el('button', { type: 'button', class: 'll-switch', 'data-switch': name, 'aria-pressed': 'false' }, `${name} = 0`);
+        b.addEventListener('click', () => {
+          inputs[name] = (inputs[name] ^ 1) as Bit;
+          b.textContent = `${name} = ${inputs[name]}`;
+          b.classList.toggle('on', inputs[name] === 1);
+          b.setAttribute('aria-pressed', inputs[name] ? 'true' : 'false');
+          afterInput();
+        });
+        return b;
+      }));
+    }
+
+    // ---- the parts list ---------------------------------------------------------------
+    const pickSources = (select: HTMLSelectElement, current: string, allowed: string[]) => {
+      const want = ['', ...allowed];
+      const have = [...select.options].map((o) => o.value);
+      if (want.join('|') !== have.join('|')) select.replaceChildren(...want.map((s) => el('option', { value: s }, s ? labelOf(s) : 'choose...')));
+      select.value = want.includes(current) ? current : '';
+    };
+
+    const rows = new Map<string, { row: HTMLElement; selects: HTMLSelectElement[] }>();
+
+    function buildGateRow(id: string) {
+      const g = circuit().gates.find((x) => x.id === id)!;
+      const pins = pinsOf(g.part)!;
+      const selects = pins.inputs.map((pin, i) => {
+        const s = el('select', { 'data-pin': String(i), 'aria-label': `Input ${pin} of ${id}` }) as HTMLSelectElement;
+        s.addEventListener('change', () => {
+          const gate = circuit().gates.find((x) => x.id === id);
+          if (gate) { gate.in[i] = s.value; changed(); }
+        });
+        return el('label', {}, el('span', { class: 'muted' }, pin), s);
+      });
+      const remove = el('button', { type: 'button', class: 'btn small ll-remove', 'aria-label': `Remove ${id}`, 'data-remove': id }, '×');
+      remove.addEventListener('click', () => {
+        const c = circuit();
+        c.gates = c.gates.filter((x) => x.id !== id);
+        // Anything reading the removed part is now unwired, not silently wired to something else.
+        const gone = (s: string) => s === id || s.startsWith(`${id}.`);
+        for (const x of c.gates) x.in = x.in.map((s) => (gone(s) ? '' : s));
+        for (const o of c.outputs) if (gone(o.from)) o.from = '';
+        rows.get(id)?.row.remove();
+        rows.delete(id);
+        changed();
+      });
+      const row = el('div', { class: 'll-gate', 'data-gate': id }, el('strong', {}, `${id}`), el('span', { class: 'pill' }, g.part), ...selects, remove);
+      rows.set(id, { row, selects: selects.map((l) => l.querySelector('select') as HTMLSelectElement) });
+      q('[data-gates]').append(row);
+    }
+
+    const nextId = () => {
+      const used = new Set(circuit().gates.map((g) => g.id));
+      for (let i = 1; ; i++) if (!used.has(`g${i}`)) return `g${i}`;
+    };
+
+    const outSelects = new Map<string, HTMLSelectElement>();
+    function buildOutputs() {
+      outSelects.clear();
+      q('[data-outs]').replaceChildren(...circuit().outputs.map((o) => {
+        const s = el('select', { 'data-output-select': o.name, 'aria-label': `What drives output ${o.name}` }) as HTMLSelectElement;
+        s.addEventListener('change', () => {
+          const out = circuit().outputs.find((x) => x.name === o.name);
+          if (out) { out.from = s.value; changed(); }
+        });
+        outSelects.set(o.name, s);
+        const value = el('b', { 'data-output-value': o.name }, '?');
+        return el('label', { class: 'll-out', 'data-output': o.name }, el('span', {}, o.name), s, value);
+      }));
+    }
+
+    function buildShelf() {
+      q('[data-shelf]').replaceChildren(el('span', { class: 'muted' }, 'Add:'), ...puzzle.parts.map((part) => {
+        const b = el('button', { type: 'button', class: 'btn small', 'data-add': part }, part);
+        b.addEventListener('click', () => {
+          const pins = pinsOf(part)!;
+          const id = nextId();
+          circuit().gates.push({ id, part, in: pins.inputs.map(() => '') });
+          buildGateRow(id);
+          changed();
+        });
+        return b;
+      }));
+    }
+
+    // ---- simulation --------------------------------------------------------------------
+    function compute() {
+      flat = null;
+      nets = null;
+      slowSteps = 0;
+      slowPending = false;
+      delayNote.hidden = true;
+      if (validate(circuit()).length) return;
+      const f = flatten(circuit());
+      if (hasLoop(f)) return;
+      flat = f;
+      nets = settle(f, inputs).nets;
+    }
+
+    function afterInput() {
+      if (!flat) { render(); return; }
+      if (slowBox.checked) {
+        nets = freshNets(flat, inputs, nets!);
+        slowSteps = 0;
+        slowPending = true;
+        delayNote.hidden = false;
+        delayNote.textContent = 'The input changed, and nothing else has yet. Press One gate delay.';
+      } else {
+        nets = settle(flat, inputs, { from: nets! }).nets;
+      }
+      render();
+    }
+
+    delayBtn.addEventListener('click', () => {
+      if (!flat || !nets) return;
+      const moved = delay(flat, nets);
+      delayNote.hidden = false;
+      if (moved) {
+        slowSteps++;
+        delayNote.textContent = `${slowSteps} gate delay${slowSteps === 1 ? '' : 's'} so far, and still changing.`;
+      } else if (slowPending) {
+        slowPending = false;
+        delayNote.textContent = `Settled after ${slowSteps} gate delay${slowSteps === 1 ? '' : 's'}.`;
+        // Only a correct circuit counts: a settle on a wrong one shows nothing about the adder it was meant to be.
+        if (verdict?.ok) state.watched.push({ puzzle: puzzle.id, steps: slowSteps });
+      } else delayNote.textContent = 'Nothing is changing. Flip an input first.';
+      render();
+    });
+    slowBox.addEventListener('change', () => {
+      delayBtn.hidden = !slowBox.checked;
+      delayNote.hidden = true;
+      if (!slowBox.checked && flat && nets) { nets = settle(flat, inputs, { from: nets }).nets; slowPending = false; render(); }
+    });
+
+    // ---- drawing -----------------------------------------------------------------------
+    const COL = 128, BOX_W = 74, TOP = 24, LEFT = 52;
+    function drawDiagram() {
+      const c = circuit();
+      const col = columns(c);
+      const maxCol = Math.max(0, ...col.values());
+      const byCol = new Map<number, string[]>();
+      for (const g of c.gates) { const k = col.get(g.id) ?? 1; byCol.set(k, [...(byCol.get(k) ?? []), g.id]); }
+      const inputY = (i: number) => TOP + i * 34;
+      const pos = new Map<string, { x: number; y: number; h: number }>();
+      // Each column in turn, nearest the inputs first. A part sits level with the wires
+      // it reads, so a carry chain runs as a diagonal rather than a tangle along one row.
+      for (const k of [...byCol.keys()].sort((a, b) => a - b)) {
+        const wanted = byCol.get(k)!.map((id) => {
+          const g = c.gates.find((x) => x.id === id)!;
+          const ys = g.in.flatMap((s) => {
+            const i = c.inputs.indexOf(s);
+            if (i >= 0) return [inputY(i)];
+            const from = pos.get(s.split('.')[0]);
+            return from ? [from.y + from.h / 2] : [];
+          });
+          const pins = pinsOf(g.part)!;
+          const h = Math.max(pins.inputs.length, pins.outputs.length) * 16 + 14;
+          return { id, h, y: (ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : TOP) - h / 2 };
+        }).sort((a, b) => a.y - b.y);
+        let floor = 6;
+        for (const w of wanted) {
+          const y = Math.max(w.y, floor);
+          pos.set(w.id, { x: LEFT + 30 + (k - 1) * COL, y, h: w.h });
+          floor = y + w.h + 14;
+        }
+      }
+      const outX = LEFT + 30 + maxCol * COL;
+      const tall = Math.max(c.inputs.length * 34, c.outputs.length * 34, ...[...pos.values()].map((p) => p.y + p.h));
+      const width = outX + 80, height = tall + TOP;
+      const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': `Diagram of ${c.gates.length} part${c.gates.length === 1 ? '' : 's'}. The parts list below says the same in words.` });
+      // Wires go in first, so a part is always drawn on top of whatever passes behind it.
+      const wires = svgEl('g', {});
+      svg.append(wires);
+
+      const at = (source: string): { x: number; y: number } | null => {
+        const inIdx = c.inputs.indexOf(source);
+        if (inIdx >= 0) return { x: LEFT, y: inputY(inIdx) };
+        const [id, o] = source.split('.');
+        const p = pos.get(id);
+        if (!p) return null;
+        const g = c.gates.find((x) => x.id === id)!;
+        const names = pinsOf(g.part)!.outputs;
+        const i = o ? names.indexOf(o) : 0;
+        return { x: p.x + BOX_W, y: p.y + 15 + i * 16 };
+      };
+      const valueOf = (source: string): number | null => (flat && nets && source in flat.tap ? nets[flat.tap[source]] : null);
+      const wire = (from: { x: number; y: number }, x: number, y: number, v: number | null) => {
+        const mid = Math.max(from.x + 16, (from.x + x) / 2);
+        wires.append(svgEl('path', { d: `M${from.x} ${from.y} C${mid} ${from.y} ${mid} ${y} ${x} ${y}`, class: `ll-wire ${v === 1 ? 'on' : v === 0 ? 'off' : 'unknown'}` }));
+      };
+
+      c.inputs.forEach((name, i) => {
+        const v = valueOf(name);
+        svg.append(svgEl('text', { x: LEFT - 8, y: inputY(i) + 4, 'text-anchor': 'end', class: 'll-label' }, `${name}`));
+        svg.append(svgEl('circle', { cx: LEFT, cy: inputY(i), r: 5, class: `ll-dot ${v === 1 ? 'on' : 'off'}` }));
+      });
+      for (const g of c.gates) {
+        const p = pos.get(g.id);
+        if (!p) continue;
+        g.in.forEach((s, i) => {
+          const y = p.y + 15 + i * 16;
+          if (s === '0' || s === '1') {
+            svg.append(svgEl('text', { x: p.x - 6, y: y + 4, 'text-anchor': 'end', class: 'll-const' }, s));
+            return;
+          }
+          const from = s ? at(s) : null;
+          if (from) wire(from, p.x, y, valueOf(s));
+          else svg.append(svgEl('circle', { cx: p.x - 6, cy: y, r: 3, class: 'll-dot missing' }));
+        });
+        svg.append(svgEl('rect', { x: p.x, y: p.y, width: BOX_W, height: p.h, rx: 7, class: 'll-box' }));
+        svg.append(svgEl('text', { x: p.x + BOX_W / 2, y: p.y + p.h / 2 - 2, 'text-anchor': 'middle', class: 'll-part' }, g.part));
+        svg.append(svgEl('text', { x: p.x + BOX_W / 2, y: p.y + p.h / 2 + 11, 'text-anchor': 'middle', class: 'll-id' }, g.id));
+      }
+      c.outputs.forEach((o, i) => {
+        const y = TOP + i * 34;
+        if (o.from === '0' || o.from === '1') svg.append(svgEl('text', { x: outX - 6, y: y + 4, 'text-anchor': 'end', class: 'll-const' }, o.from));
+        else {
+          const from = o.from ? at(o.from) : null;
+          if (from) wire(from, outX, y, valueOf(o.from));
+        }
+        const v = o.from ? valueOf(o.from) : null;
+        svg.append(svgEl('circle', { cx: outX, cy: y, r: 5, class: `ll-dot ${v === 1 ? 'on' : v === 0 ? 'off' : 'missing'}` }));
+        svg.append(svgEl('text', { x: outX + 9, y: y + 4, class: 'll-label' }, o.name));
+      });
+      q('[data-circuit]').replaceChildren(svg);
+    }
+
+    // ---- the verdict and the table ------------------------------------------------------
+    const MAX_FULL_TABLE = 16, MAX_WRONG_SHOWN = 8;
+    function drawTable() {
+      const box = q('[data-table]');
+      box.replaceChildren();
+      if (!verdict || !verdict.rows.length) return;
+      const spec = puzzle.spec;
+      if (verdict.total <= MAX_FULL_TABLE) {
+        const headIn = spec.inputs.map((n) => el('th', { scope: 'col' }, n));
+        const headWant = spec.outputs.map((n) => el('th', { scope: 'col', class: 'll-want' }, `want ${n}`));
+        const headGot = spec.outputs.map((n) => el('th', { scope: 'col' }, `yours ${n}`));
+        const body = verdict.rows.map((r) => el('tr', { class: r.right ? '' : 'bad' },
+          ...spec.inputs.map((n) => el('td', {}, String(r.inputs[n]))),
+          ...spec.outputs.map((n) => el('td', { class: 'll-want' }, String(r.want[n]))),
+          ...spec.outputs.map((n) => el('td', {}, String(r.got[n] ?? '?'))),
+          el('td', {}, r.right ? 'right' : 'wrong')));
+        box.append(el('table', { class: 'll-table' }, el('thead', {}, el('tr', {}, ...headIn, ...headWant, ...headGot, el('th', { scope: 'col' }, ''))), el('tbody', {}, ...body)));
+      } else {
+        const bad = verdict.rows.filter((r) => !r.right).slice(0, MAX_WRONG_SHOWN);
+        if (!bad.length) return;
+        box.append(el('ul', { class: 'll-wrong' }, ...bad.map((r) => el('li', {}, `${describeBits(r.inputs, spec.inputs)}: wants ${describeBits(r.want, spec.outputs)}, yours gives ${describeBits(r.got, spec.outputs)}`))));
+      }
+    }
+
+    function render() {
+      const c = circuit();
+      const allowed = sourcesOf(c);
+      for (const g of c.gates) {
+        const r = rows.get(g.id);
+        if (r) r.selects.forEach((s, i) => pickSources(s, g.in[i], allowed));
+      }
+      for (const o of c.outputs) {
+        const s = outSelects.get(o.name);
+        if (s) pickSources(s, o.from, allowed);
+        const v = o.from && flat && nets && o.from in flat.tap ? String(nets[flat.tap[o.from]]) : '?';
+        root.querySelector(`[data-output-value="${o.name}"]`)!.textContent = v;
+      }
+      q('[data-counts]').textContent = verdict && flat ? `${verdict.nands} NAND${verdict.nands === 1 ? '' : 's'} underneath, a change settles within ${verdict.settlesWithin} gate delay${verdict.settlesWithin === 1 ? '' : 's'}` : '';
+      // Only the real NAND counts: wiring the output to "always 0" also shows a 0, and shows nothing about the gate.
+      if (puzzle.id === 'nand' && verdict?.ok && flat && nets && readOutputs(flat, nets).out === 0) state.sawNandLow = true;
+      tabs.forEach((t, i) => {
+        const p = puzzles[i];
+        t.classList.toggle('current', p === puzzle);
+        t.classList.toggle('solved', state.solved.has(p.id));
+        t.setAttribute('aria-current', p === puzzle ? 'true' : 'false');
+      });
+      drawDiagram();
+      refresh();
+    }
+
+    function showVerdict() {
+      const box = q('[data-verdict]');
+      if (!verdict) return;
+      if (verdict.problem) { box.textContent = `Not finished: ${verdict.problem}`; box.className = 'll-verdict warn'; }
+      else if (verdict.ok) { box.textContent = `Right on all ${verdict.total} input combination${verdict.total === 1 ? '' : 's'}.`; box.className = 'll-verdict ok'; }
+      else { box.textContent = `Wrong on ${verdict.wrong} of ${verdict.total} input combinations.`; box.className = 'll-verdict bad'; }
+      drawTable();
+    }
+
+    function changed() {
+      // Whose fault it is, in the first words: a thrown error here must not read as a wrong circuit, or leave the lab silently stale.
+      try {
+        verdict = record(state, puzzle, circuit());
+        compute();
+        showVerdict();
+        render();
+      } catch (e) {
+        const box = q('[data-verdict]');
+        box.textContent = `This is a bug in this page's simulator, not in your circuit. Start this puzzle over to carry on. Details for a bug report: ${e instanceof Error ? e.message : String(e)}`;
+        box.className = 'll-verdict warn';
+        console.error(`The logic lab failed: ${e instanceof Error ? e.stack : String(e)}`);
+      }
+    }
+
+    function switchPuzzle() {
+      q('[data-brief]').textContent = puzzle.brief;
+      rows.clear();
+      q('[data-gates]').replaceChildren();
+      for (const g of circuit().gates) buildGateRow(g.id);
+      buildSwitches();
+      buildOutputs();
+      buildShelf();
+      changed();
+    }
+
+    q('[data-reset]').addEventListener('click', () => {
+      circuits.set(puzzle.id, clone(puzzle.starter!));
+      switchPuzzle();
+    });
+
+    switchPuzzle();
+  }
+</script>
+
+<style is:global>
+  .logiclab .ll-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1020px) { .logiclab .ll-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .logiclab .ll-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .logiclab .ll-tabs { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .logiclab .ll-tab.current { border-color: var(--bamboo); font-weight: 700; }
+  .logiclab .ll-tab.solved::before { content: "✓ "; color: var(--bamboo); }
+  .logiclab .ll-brief { margin: 0; font-size: 0.93rem; }
+  .logiclab .ll-switches { display: flex; flex-wrap: wrap; gap: 6px; }
+  .logiclab .ll-switch { font: 600 0.88rem var(--mono); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--ink); cursor: pointer; }
+  .logiclab .ll-switch.on { background: var(--bamboo-soft); border-color: var(--bamboo); color: var(--bamboo); }
+  .logiclab .ll-scroll { overflow: auto; min-width: 0; max-height: 460px; }
+  .logiclab [data-circuit] { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 4px; }
+  .logiclab svg { display: block; max-width: none; }
+  .logiclab .ll-wire { fill: none; stroke-width: 2; }
+  .logiclab .ll-wire.on { stroke: var(--bamboo); stroke-width: 3; }
+  .logiclab .ll-wire.off { stroke: var(--muted); }
+  .logiclab .ll-wire.unknown { stroke: var(--line-2); stroke-dasharray: 4 3; }
+  .logiclab .ll-dot.on { fill: var(--bamboo); }
+  .logiclab .ll-dot.off { fill: var(--muted); }
+  .logiclab .ll-dot.missing { fill: var(--berry); }
+  .logiclab .ll-box { fill: var(--panel); stroke: var(--line-2); stroke-width: 1.5; }
+  .logiclab .ll-part { font: 700 12px var(--mono); fill: var(--ink); }
+  .logiclab .ll-id { font: 11px var(--mono); fill: var(--ink-2); }
+  .logiclab .ll-label { font: 600 12px var(--mono); fill: var(--ink); }
+  .logiclab .ll-const { font: 700 12px var(--mono); fill: var(--ink-2); }
+  .logiclab .ll-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+  .logiclab h4 { margin: 0; font-size: 0.95rem; }
+  .logiclab h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .logiclab .ll-gates { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .logiclab .ll-gates:empty { display: none; }
+  .logiclab .ll-gate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 0.88rem; min-width: 0; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
+  .logiclab .ll-gate strong { font-family: var(--mono); }
+  .logiclab .ll-gate label { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .logiclab select { font: inherit; padding: 3px 6px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); min-width: 0; max-width: 100%; }
+  .logiclab .ll-remove { margin-left: auto; padding: 0 10px; }
+  .logiclab .ll-outs { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .logiclab .ll-out { display: inline-flex; align-items: center; gap: 6px; font-size: 0.88rem; min-width: 0; }
+  .logiclab .ll-out span { font-family: var(--mono); font-weight: 600; }
+  .logiclab .ll-out b { font-family: var(--mono); }
+  .logiclab .ll-slow { display: inline-flex; align-items: center; gap: 6px; }
+  .logiclab .ll-delay { margin: 0; font-size: 0.9rem; padding: 6px 10px; border-radius: 8px; background: var(--bg-2); }
+  .logiclab .ll-delay[hidden], .logiclab [data-delay][hidden] { display: none; }
+  .logiclab .ll-verdict { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; font-weight: 600; }
+  .logiclab .ll-verdict.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .logiclab .ll-verdict.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .logiclab .ll-verdict.bad { background: var(--berry-soft); color: var(--berry); }
+  .widget.logiclab table.ll-table { display: table; border-collapse: collapse; font-size: 0.84rem; margin: 0; font-variant-numeric: tabular-nums; }
+  .logiclab .ll-table th, .logiclab .ll-table td { text-align: center; padding: 2px 9px; border-bottom: 1px solid var(--line); white-space: nowrap; font-family: var(--mono); }
+  .logiclab .ll-table th { font-weight: 600; font-size: 0.76rem; }
+  .logiclab .ll-table .ll-want { background: var(--bg-2); }
+  .logiclab .ll-table tr.bad td { color: var(--berry); font-weight: 650; }
+  .logiclab .ll-wrong { margin: 0; padding-left: 18px; font-size: 0.86rem; display: grid; gap: 2px; color: var(--berry); }
+</style>

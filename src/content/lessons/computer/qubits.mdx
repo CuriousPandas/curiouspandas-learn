@@ -1,0 +1,167 @@
+---
+title: A qubit in your browser
+summary: In 2019 a quantum computer did in 200 seconds what its makers said a supercomputer would need 10,000 years for, and by 2024 a classical run was reported to beat that time. Simulate qubits exactly, watch answers cancel, and learn what quantum computers have and haven't been shown to do.
+minutes: 24
+xp: 60
+tiers: [browser]
+builds_on: [computer/gates]
+sources:
+  - title: Arute et al., Google - Quantum supremacy using a programmable superconducting processor (Nature, 2019)
+    url: https://www.nature.com/articles/s41586-019-1666-5
+  - title: Pednault et al., IBM - Leveraging Secondary Storage to Simulate Deep 54-qubit Sycamore Circuits (2019)
+    url: https://arxiv.org/abs/1910.09534
+  - title: Pan, Chen and Zhang - Solving the Sampling Problem of the Sycamore Quantum Circuits (posted 2021; Physical Review Letters, 2022)
+    url: https://arxiv.org/abs/2111.03011
+  - title: Zhao et al. - Leapfrogging Sycamore (posted June 2024; National Science Review, September 2024)
+    url: https://arxiv.org/abs/2406.18889
+  - title: Peter Shor - Polynomial-Time Algorithms for Prime Factorization and Discrete Logarithms on a Quantum Computer (1995)
+    url: https://arxiv.org/abs/quant-ph/9508027
+  - title: Lov Grover - A fast quantum mechanical algorithm for database search (1996)
+    url: https://arxiv.org/abs/quant-ph/9605043
+  - title: Bennett, Bernstein, Brassard and Vazirani - Strengths and Weaknesses of Quantum Computing (1997)
+    url: https://arxiv.org/abs/quant-ph/9701001
+  - title: Google Quantum AI - Quantum error correction below the surface code threshold (2024)
+    url: https://arxiv.org/abs/2408.13687
+  - title: Craig Gidney - How to factor 2048 bit RSA integers with less than a million noisy qubits (2025)
+    url: https://arxiv.org/abs/2505.15917
+  - title: Webster et al., Iceberg Quantum - The Pinnacle Architecture (2026 preprint)
+    url: https://arxiv.org/abs/2602.11457
+  - title: Cain et al., Oratomic - Shor's algorithm is possible with as few as 10,000 reconfigurable atomic qubits (2026 preprint)
+    url: https://arxiv.org/abs/2603.28627
+  - title: Smolin, Smith and Vargo - Oversimplifying quantum factoring (2013)
+    url: https://arxiv.org/abs/1301.7007
+  - title: NIST - FIPS 203, a post-quantum standard (August 2024)
+    url: https://csrc.nist.gov/pubs/fips/203/final
+  - title: NIST IR 8547 - Transition to Post-Quantum Cryptography Standards (final, October 2026)
+    url: https://nvlpubs.nist.gov/nistpubs/ir/2026/NIST.IR.8547.pdf
+  - title: King et al., D-Wave - Beyond-classical computation in quantum simulation (posted 2024; Science, 2025)
+    url: https://arxiv.org/abs/2403.00910
+  - title: Tindall et al. - Dynamics of disordered quantum systems with two- and three-dimensional tensor networks (posted 2025; Science, 2026)
+    url: https://arxiv.org/abs/2503.05693
+  - title: D-Wave - D-Wave's Quantum Supremacy Result Stands (press release, 26 May 2026, as filed with the SEC)
+    url: https://www.boardroomalpha.com/sec/qbts-8-k-2026-05-26-0001907982-26-000071/exh_991xresponse.htm
+  - title: Wootters and Zurek - A single quantum cannot be cloned (Nature, 1982)
+    url: https://www.nature.com/articles/299802a0
+  - title: Bennett et al. - Teleporting an unknown quantum state (Physical Review Letters, 1993)
+    url: https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.70.1895
+---
+
+In October 2019, Google reported that its 53-qubit processor had done something a classical computer practically couldn't. "Our Sycamore processor takes about 200 seconds to sample one instance of a quantum circuit a million times", it wrote, and "our benchmarks currently indicate that the equivalent task for a state-of-the-art classical supercomputer would take approximately 10,000 years".
+
+IBM disputed the number that same month. Its researchers estimated that a supercomputer with enough disk could do it "in a matter of days", about two and a half, and said plainly: "While we did not carry out these computations". In late 2021 a team in Beijing did carry out a version, published in 2022, reporting samples produced "in about 15 hours" on 512 GPUs. That didn't undo the original: the quantum run was still far faster, and comparisons depend on the quality of the samples and on what counts as the same task. Then in June 2024 a paper sharing some of those authors, published that September in *National Science Review*, reported 1,432 GPUs doing the job "7 times faster than" Sycamore, with a "higher linear cross entropy score", a measure of sample quality. Its authors call that the "first unambiguous experimental evidence to refute" Sycamore's claim. That's their own wording, and it's about one 53-qubit experiment from 2019, not later and larger processors. Either way, "10,000 years" turned out to be a statement about the classical methods known in 2019. The task itself, sampling from a random circuit, was picked because it's hard to simulate, not because anyone needed its answers.
+
+That's a good way to start, because a topic this hyped needs its claims checked one at a time. So first let's see what a qubit is, by running them.
+
+## A qubit is a bit with amplitudes
+
+A bit is 0 or 1. A **qubit**'s state is written as two numbers, one for each outcome, called **amplitudes**. When you read the qubit, which is called **measuring**, you get 0 or 1, and the chance of each is its amplitude squared. So amplitudes of 0.6 and 0.8 mean a 36% chance of 0 and a 64% chance of 1. The squares always add up to 1.
+
+Having both amplitudes non-zero is called **superposition**. That part sounds like a coin in mid-air. But chances can only add up, and amplitudes can be negative, so they can **cancel**. That's the difference this lesson starts from.
+
+A **gate** changes the amplitudes. This lesson uses a few:
+
+- **X** swaps the two amplitudes, like the NOT gate.
+- **Z** flips the sign of the second amplitude. No chance changes.
+- **H**, the Hadamard gate, mixes them: the new first amplitude is `(a + b) / √2`, and the new second is `(a - b) / √2`.
+- **CNOT** works on two qubits: it flips the second wherever the first is 1. **CZ** flips the sign of the amplitude where both are 1.
+
+Try H on a qubit at 0, whose amplitudes are 1 and 0. You get 0.707 and 0.707: an even split. Now apply H again. The first is `(0.707 + 0.707) / √2`, which is 1. The second is `(0.707 - 0.707) / √2`, which is 0. It's back to a certain 0. A coin tossed twice is still random. This isn't, because the two routes to outcome 1 cancelled. That's **interference**.
+
+With two qubits, there are four amplitudes, one each for 00, 01, 10 and 11. With `n` qubits there are `2^n`. That's why this page can simulate two without effort, and why simulating this way gets out of reach: at 16 bytes per amplitude, 30 qubits take 16 GiB, and each extra qubit doubles it.
+
+## Try it
+
+This is ordinary arithmetic on four numbers, in this page. No quantum effect happens on your device. Its results are checked exactly against known answers and, for random circuits, against a separate simulator run in real Python. The chances shown are the exact answer. The lab writes an outcome as `|00>`, which only means both qubits read 0, with qubit 0 on the left. A **shot** is one run ended by one measurement, and the shots use a random generator you can restart from a number, called a **seed**, so the same seed repeats the same counts.
+
+The last step of the mission is a search. The **oracle** is a black box that flips the sign of one secret item's amplitude, without telling you which, so the table hides that sign until your next gate. **Diffusion** is a fixed set of ordinary gates, H H X X CZ X X H H, that makes that item's amplitude grow at the expense of the others.
+
+<QubitLab />
+
+<Callout kind="trap">
+"A quantum computer tries all the answers at once" is the most common description, and it's wrong in the way that matters. A superposition does have amplitudes on many answers. But if you measure it, you get one answer at random, which you could have had from a coin. The work of a quantum algorithm is steering amplitudes so that wrong answers cancel and right ones build up. On a plain list that saves a square root at best, as Grover's search below shows, and getting more than that takes a problem with a structure to exploit. Your Z and your diffusion step did that. They didn't try anything.
+</Callout>
+
+## Entanglement, and what it doesn't do
+
+H and then CNOT gave you a state where outcomes 00 and 11 each have a 50% chance and 01 and 10 have none. No way of writing that gives each qubit its own separate state: this is **entanglement**. Read one, and you know what the other will read.
+
+It's tempting to think that sends a message. It doesn't. Each side alone reads a fair coin, and they only find the pattern when they compare results by ordinary means. Measuring qubit 0 in the lab shows this: the other qubit's outcome is fixed by it, and which value you got was out of your hands.
+
+The lab also shows something you can't do. CNOT copies a 0 or a 1 onto a blank qubit. Try it on a superposition, and if it were a real copy, you'd have two separate coins, and all four outcomes. You get two outcomes instead: the same entangled state, known as a Bell state. That's the concrete form of the **no-cloning theorem**, from Wootters and Zurek in 1982, in a paper titled "A single quantum cannot be cloned". No circuit copies an unknown state, and it's one reason quantum error correction is hard: you can't just keep backups.
+
+## What the algorithms really offer
+
+Two results get quoted most. Each has an exact claim, so it's worth having that claim and not the headline.
+
+**Shor's algorithm (1994).** Finds the factors of a large whole number. In his paper's words, these algorithms "take a number of steps polynomial in the input size, e.g., the number of digits of the integer to be factored". **Polynomial** means the steps grow like a fixed power of the number of digits, rather than multiplying each time you add a digit. The best known classical method takes more than polynomial time. That's an enormous gap, and much of the encryption used to set up secure connections has relied on factoring (or a related problem) being hard, which is why the move away from it described below has begun. Note what isn't proven: nobody has shown that a fast classical factoring method doesn't exist.
+
+**Grover's algorithm (1996).** Searches an unstructured list of `N` items for a marked one. It takes about `π/4 × √N` looks, where a classical search needs about `N / 2` on average. So a million items takes about 800 looks rather than about 500,000. That's a **quadratic** speedup: useful, modest, and not the exponential kind. It also has a catch you can compute: run too many rounds and the chance of the right answer falls again. Our tests run the search for real at sizes up to 1,024 items and compare it with the formula.
+
+And what isn't there: **NP** is the class of problems whose answers are quick to check, even if they seem to need a huge search to find, and there's no known quantum algorithm that solves the hardest of them in polynomial time. In 1997 Bennett, Bernstein, Brassard and Vazirani showed that any method treating the problem as a black box can't beat Grover's rate, since relative to a random oracle, "the class NP cannot be solved on a quantum Turing machine in time o(2^(n/2))". In plainer words: a random oracle is the black box chosen at random, a quantum Turing machine is the mathematical model of a quantum computer, and `o(...)` means "grows more slowly than". With `n`-bit answers there are `N = 2^n` possibilities, so `2^(n/2)` is `√N`. That's a result about black-box methods. It doesn't rule out a cleverer method that looks inside the problem, and nobody has one. So "a quantum computer will solve every hard problem" has no support, and the reasons are specific.
+
+## Where the hardware is
+
+Real qubits are physical things, and there are several kinds in use: superconducting circuits, trapped ions and neutral atoms among them. All of them are noisy: a gate has a real chance of being wrong, and the estimates below assume about 0.1% per gate. **Quantum error correction** spreads one reliable **logical qubit** across many physical ones, and it only helps if the physical error rate is already below a threshold.
+
+This table was written in November 2026 and this field moves fast, so treat each row as what it says at its date.
+
+| Date, source | What was shown or claimed | What it doesn't show |
+|---|---|---|
+| 2024, Google Quantum AI | A 105-qubit processor showing error correction getting better as more qubits are added: "below threshold". | This is one protected memory qubit. It isn't a useful computation. |
+| 2013, Smolin, Smith and Vargo | Past factoring demonstrations used a "compiled" version of Shor's algorithm, built knowing the answer. They factor large numbers with two qubits to make the point. | Their paper isn't an algorithm: it's a warning about what past demos meant. |
+| 2024, D-Wave, with a dispute | King et al., posted in 2024 and published in *Science* in 2025, claim a quantum annealer did a simulation that "several leading approximate methods" can't match "within a reasonable time frame". **Annealing** is a different approach from the gates here, with no error correction. Tindall et al., posted in 2025 and published in *Science* in 2026, reported reaching "state-of-the-art accuracies" on those models "with modest computational resources". In May 2026 D-Wave said recent classical work "does not overturn" its result. | An argument still running at the time of writing, about a physics simulation. |
+
+**How close is breaking RSA?** RSA is a widely used encryption scheme whose security rests on factoring being hard. Published estimates of the hardware needed have fallen quickly. In 2019 Gidney and Ekerå estimated 20 million noisy qubits to break 2048-bit RSA in eight hours. In 2025 Gidney estimated "less than a week by a quantum computer with less than a million noisy qubits". Two 2026 preprints go lower, on their own assumptions, both from people at quantum-computing companies, going by the papers' own affiliations. Iceberg Quantum's claims fewer than 100,000 physical qubits in about a month, if one cycle of error correction takes a microsecond. The other, whose authors say they hold shares in Oratomic, has the headline "as few as 10,000 reconfigurable atomic qubits". Its smallest figure, 9,739 qubits, is for a different problem, breaking elliptic-curve encryption. For RSA-2048 its Figure 3 runs from about 11,000 qubits taking about 43,000 days, roughly 118 years, to about 102,000 qubits taking 97 days. So more qubits buy less time. The fast end assumes many operations run in parallel, and the paper says "these estimates are preliminary". All of its figures assume a cycle takes a millisecond, which it says may need further development.
+
+These are estimates of machines nobody has built, with assumed error rates, and we haven't verified them. The second paper itself says today's processors are "limited to at most a few hundred physical qubits". It also cites arrays holding up to 6,100 atoms "without yet realizing quantum computation", and holding atoms isn't computing with them. Google's 105-qubit processor in the table is a long way from those sizes, and it's a different kind of count from the qubits in D-Wave's annealer. When the gap closes, if it does, isn't known, so any single year someone gives you is a guess.
+
+The response hasn't waited for an answer. In August 2024 NIST published standards for **post-quantum cryptography**, including FIPS 203: ordinary classical algorithms designed to resist known quantum attacks. NIST's report on the move, finalised in October 2026, keeps 2035 as the US federal target for finishing it ("That overall goal remains in place"), and says newer directives require the most sensitive systems to go sooner: 2030 for setting up keys and 2031 for signatures. NIST's reason for not waiting is what it calls the "harvest now, decrypt later" threat: data recorded today could be decrypted once a machine exists.
+
+<Callout kind="real">
+A two-qubit simulator gets a lot right and hides a lot. Nothing in it is noisy, gates are perfect, and it can read out the whole state, which a real machine can't: you get one sample per run, and you'd have to run many times just to estimate these bars. The search's single oracle call only gives certainty because four items is a lucky size. And this lab's numbers are floating-point, so a value that should be exactly 0 can differ by 1 part in about 10^16, which is why the tests compare to within a tiny tolerance.
+</Callout>
+
+<GoDeeper title="Complex numbers, tensor products, the Bloch sphere and teleportation">
+Amplitudes are in general **complex numbers**: `a + bi`, where `i² = -1`. The chance is then `|a + bi|² = a² + b²`. The lab only uses real amplitudes, because H, X, Z and CNOT stay real. The S and T gates, which multiply the second amplitude by `i` and by `(1 + i)/√2`, do not, and the simulator supports them and is tested on them.
+
+Every gate is a **unitary matrix**: one whose conjugate transpose is its inverse, which is what keeps the chances adding to 1, and it's why every gate can be undone. The state of two separate qubits is the **tensor product** of their states: `(a, b) ⊗ (c, d) = (ac, ad, bc, bd)`. A state is entangled exactly when it can't be written that way. For the Bell state `(1, 0, 0, 1)/√2` you would need `ad = 0` and `bc = 0`, with `ac` and `bd` non-zero, and that can't happen.
+
+A single qubit's state can be drawn as a point on the **Bloch sphere**: `cos(θ/2)|0> + e^(iφ) sin(θ/2)|1>`, with 0 at the north pole, 1 at the south pole, and even splits on the equator, where `φ` is the phase that measuring can't see. Gates are rotations of the sphere: H turns it so as to swap the north pole with a point on the equator.
+
+**Teleportation** (Bennett et al., 1993) moves an unknown state from one place to another using a shared entangled pair and two classical bits. It's consistent with what's above. The original is destroyed, so nothing is cloned. And the two classical bits have to travel by ordinary means, so nothing goes faster than light.
+
+Grover's round is two reflections, and together they're a rotation by `2θ` where `sin θ = 1/√N`. After `k` rounds the chance is `sin²((2k + 1)θ)`, which is exactly why it overshoots. It's also why `N = 4` is special: `θ` is 30°, and one round lands at 90°.
+</GoDeeper>
+
+<Quiz
+  id="comp-qubit-1"
+  q="A qubit has amplitudes 0.707 and -0.707, and another has 0.707 and 0.707. What's different if you measure each right now?"
+  options={["The first gives 1 more often, since its second amplitude is negative", "Nothing: the chances are the squares, so both are 50/50. The sign only matters once another gate lets the amplitudes interfere", "The first can't be measured, since a chance can't be negative"]}
+  answer={1}
+  explain="Squaring removes the sign, so measuring can't see it. Apply H and they end up in different certain states, 1 and 0. That's the phase at work, and you did it in the lab."
+/>
+
+<Quiz
+  id="comp-qubit-2"
+  q="Which statement about Grover's algorithm is correct?"
+  options={["It checks all the items at once, so it's done in one step", "It takes about √N looks for a list of N items, a quadratic speedup, and running more rounds than the best number makes the answer less likely", "It gives an exponential speedup over any classical search"]}
+  answer={1}
+  explain="The speedup is real and quadratic. The best number of rounds is about π/4 × √N, and past that the amplitude swings away again. Four items is a lucky size that happens to give certainty in one round."
+/>
+
+<Quiz
+  id="comp-qubit-3"
+  q="A headline says a quantum computer is 'millions of times faster' than a supercomputer. What are the first things to ask?"
+  options={["Faster at what task, whether anyone needs that task, whether the classical side was run or estimated, and whether anyone has since matched it", "How many qubits it has, since more qubits means faster at everything", "Nothing, if it's published in a good journal"]}
+  answer={0}
+  explain="Sycamore's 200 seconds and 10,000 years was peer-reviewed and real, and it was about one sampling task with an estimate on the classical side, which later work overtook. Only the specifics can tell you what a claim means."
+/>
+
+## What to remember
+
+- Amplitudes can be negative, so they can cancel. Interference is the resource, not "trying everything".
+- `n` qubits take `2^n` amplitudes to simulate this way, and you only get one sample out per run.
+- Entanglement doesn't send messages, and an unknown state can't be copied.
+- Shor: polynomial steps for factoring, with no proof that classical methods can't match it. Grover: about √N, a quadratic speedup. Neither solves every hard problem.
+- "Quantum advantage" claims need a task, a date and the dispute. Hardware estimates are moving, and they're estimates.
+- This lab is ordinary arithmetic. Nothing quantum happened on your device.

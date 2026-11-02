@@ -1,0 +1,168 @@
+---
+title: Text, Unicode and pictures as bytes
+summary: Two web addresses can look identical and be different, because letters are numbers underneath. Learn what Unicode and UTF-8 are, why text turns to garbage when two programs disagree, and how a picture is one long row of bytes.
+minutes: 20
+xp: 55
+tiers: [browser]
+builds_on: [computer/bits-and-bases]
+sources:
+  - title: Xudong Zheng - Phishing with Unicode Domains (2017)
+    url: https://www.xudongz.com/blog/2017/idn-phishing/
+  - title: The Unicode Standard - Glossary
+    url: https://www.unicode.org/glossary/
+  - title: The Unicode Standard - General Structure (chapter 2)
+    url: https://www.unicode.org/versions/latest/core-spec/chapter-2/
+  - title: Unicode - UTF and BOM FAQ
+    url: https://www.unicode.org/faq/utf_bom.html
+  - title: RFC 3629 - UTF-8, a transformation format of ISO 10646
+    url: https://www.rfc-editor.org/rfc/rfc3629
+  - title: Python documentation - Unicode HOWTO
+    url: https://docs.python.org/3/howto/unicode.html
+  - title: W3C - Portable Network Graphics (PNG) Specification
+    url: https://www.w3.org/TR/png-3/
+---
+
+In 2017 a security researcher, Xudong Zheng, registered a web address that looked exactly like `apple.com` in the address bar of Chrome and Firefox. It wasn't. He explains a smaller version of the trick: "It may not be obvious at first glance, but "аpple.com" uses the Cyrillic "а" (U+0430) rather than the ASCII "a" (U+0061)."
+
+Browsers already watched for a mix of alphabets. So he replaced every letter with a lookalike from one alphabet, and the protection "fails if every characters is replaced with a similar character from a single foreign language". He reported it to both, and it "was fixed in the Chrome trunk on March 24". Firefox was another matter. When he wrote, in April 2017: "The problem remains in Firefox as they decided that it is a problem for domain registrars to deal with." The trick works because of what a letter is to a computer:
+
+<CodeLab code={`latin = "a"
+cyrillic = chr(1072)     # The same shape, from a different alphabet.
+
+print(latin, cyrillic)
+print(ord(latin), ord(cyrillic))
+print(latin == cyrillic)
+`} />
+
+They look the same to you, and they're different numbers to a computer. This lesson is about those numbers, and about what happens to them on the way to a disk or across a network.
+
+## Characters are numbers
+
+`ord` gives a character's number, and `chr` goes the other way. A table has to say which number means which character, and for that the world has settled on **Unicode**.
+
+An earlier table called **ASCII** covered 128 characters: English letters, digits, punctuation and some control codes. It fit in 7 bits, and it's still the start of Unicode, so `A` is 65 in both.
+
+Unicode's aim is to cover every writing system. Each entry is a **code point**, which the Python docs describe this way: "A code point value is an integer in the range 0 to 0x10FFFF (about 1.1 million values, the actual number assigned is less than that)." It's written `U+` and then hex, so `A` is U+0041. That's all Unicode is, in the first place: a very long, carefully argued list of numbers.
+
+<Callout kind="trap" title="What looks like one character may not be">
+Unicode has more than one way to write some things, so two strings that look identical can fail `==`. Run the lab below to see it.
+
+And one "character" on screen can be several code points. A flag, or a family emoji, is a sequence of them joined together. So `len` tells you how many code points there are, not how many symbols a person would count. For comparing text properly, real Python has `unicodedata.normalize`, which needs `import`.
+</Callout>
+
+<CodeLab code={`one = chr(233)                # é as a single code point.
+two = "e" + chr(769)          # e, plus a combining accent.
+
+print(one, two)
+print(one == two)
+print(len(one), len(two))
+`} />
+
+## From numbers to bytes
+
+A code point can go up to 1,114,111, which doesn't fit in a byte. So how do you store a list of them as bytes? That's a separate decision, called an **encoding**. The obvious answer is four bytes per code point, but it would quadruple every ASCII file, and as the Python docs note, it isn't compatible with a lot of existing software.
+
+The usual answer now is **UTF-8**, which the Python docs call "one of the most commonly used encodings". It uses as few bytes as each code point needs, from one to four. The table is short enough to read, and this is the whole of it, from the standard that defines it, RFC 3629:
+
+| Code point | Bytes, where x is a bit of the code point |
+|---|---|
+| U+0000 to U+007F | `0xxxxxxx` |
+| U+0080 to U+07FF | `110xxxxx 10xxxxxx` |
+| U+0800 to U+FFFF | `1110xxxx 10xxxxxx 10xxxxxx` |
+| U+10000 to U+10FFFF | `11110xxx 10xxxxxx 10xxxxxx 10xxxxxx` |
+
+Three useful things follow from that table. **ASCII text is unchanged,** so a file that was pure ASCII was already UTF-8. **The first byte says how many bytes this code point takes.** And **every following byte starts with `10`,** so a program that lands in the middle of a code point can find the next one.
+
+Now try it. Type anything: other alphabets, or an emoji if your keyboard has them.
+
+<TextBytesLab />
+
+## When two programs disagree
+
+The word for that garbage is **mojibake**, and you've seen it on real pages and emails: `CafÃ©`, where someone wrote `Café`.
+
+Nothing was damaged. `é` is two bytes in UTF-8, `C3 A9`. An older encoding called **Windows-1252** gives nearly every byte one character, so it reads `C3` as `Ã` and `A9` as `©`. **The bytes were right, and the reading was wrong,** the same kind of mistake as on Ariane. There was no error, because in that table those bytes are perfectly valid.
+
+Pure ASCII survives, since UTF-8 and Windows-1252 agree on the first 128 values. English isn't always pure ASCII, though: a curly apostrophe turns `don’t` into `donâ€™t`. So a program can pass all its tests on ASCII text, and then break on the first customer called José.
+
+<Callout kind="trap" title="Whether the repair works">
+You just repaired `CafÃ©` by turning it back into bytes with the wrong rule and reading them with the right one. It works until a byte has actually gone. Windows-1252 has five byte values with no character, and on those Python's `errors="replace"`, which this lab copies, writes the replacement character �, U+FFFD. That's what happened with `Á`. Now the original byte has been thrown away, and no repair can recover it. Not every program goes that way: a browser's version of Windows-1252 maps those five bytes to invisible control characters, and strict Python raises an error. But text that has been through a replacing step has values only the original data can fix.
+</Callout>
+
+Counts mislead here too. `len("😀")` is 1 in Python, while it's four bytes in UTF-8, and `.length` gives 2 in JavaScript, which counts in another encoding's units. So when a system says "at most 255", find out what it's counting: it could be bytes, units, code points or what a person would call characters, and systems differ. Write the byte count yourself:
+
+<CodeLab mission="comp-text-utf8" />
+
+<Callout kind="real">
+This page's Python has `chr`, `ord` and `len`, and they match real Python 3.12. It has no `.encode()`, `.decode()` or `bytes`, and it refuses those by name, so the Text Bytes Lab does that part. It's a small model of three encodings, not Python's whole codec library, and this site's tests hold it to the real `.encode()` and `.decode(errors="replace")` on thousands of hostile inputs. On a real install, you'd do it like this, and we ran this on Python 3.12:
+
+```python
+text = "Café"
+data = text.encode("utf-8")
+print(list(data))
+print(data.decode("cp1252"))
+print(data.decode("cp1252").encode("cp1252").decode("utf-8"))
+```
+</Callout>
+
+## A picture is a row of bytes
+
+Text was numbers with an agreement on top, and a picture is too. A **pixel** can be stored as three bytes: how much red, how much green and how much blue, each from 0 to 255. So `FF 00 00` is pure red, and `FF FF FF` is white. Put pixels end to end, left to right and row after row, and you have a raw image.
+
+Memory is one long row of bytes, and it has no rows or columns of its own. So the width is an agreement as well: to find the pixel at some row and column, you compute where it starts, `(row × width + column) × 3`.
+
+Here's a picture of 192 bytes. Break it three ways without changing a single byte.
+
+<PixelLab />
+
+That formula is worth a second look, because you've just met two of the most common ideas in how programs hold data. Each pixel is a **record**, a fixed set of fields at known positions: red first, then green, then blue. The picture is an **array**, a run of same-sized items, where finding one is a multiplication and an addition, however long the array is. That's why looking up an item in an array takes the same arithmetic for any position. [Arrays and lists](/learn/algorithms/arrays-and-lists/) goes further into what that layout buys you.
+
+Raw pictures get big quickly. A 4K screen is 3840 × 2160 pixels, so at 3 bytes each one frame is 24,883,200 bytes, about 25 MB. Which is why most image files compress. PNG, for example, is described by its specification as a format for "lossless, portable, well-compressed storage of static and animated raster images", and it also stores the width and other settings at the start of the file, so the reader doesn't have to guess. Other formats, such as JPEG, save more space by discarding detail you're unlikely to notice. Sound and video are numbers in the same way, with their own agreements.
+
+<GoDeeper title="Why JavaScript says 2, and what a surrogate is">
+Some systems hold text in 16-bit units, and JavaScript's strings are one example. The encoding is **UTF-16**. A 16-bit unit reaches only as far as U+FFFF, so a code point above that becomes a pair of units from a reserved range, U+D800 to U+DFFF, called **surrogates**.
+
+Those reserved numbers aren't characters, and they have no UTF-8 form. RFC 3629 forbids encoding them, and the Unicode FAQ says a UTF maps "every Unicode code point (except surrogate code points)". Real Python's `chr(0xD800).encode()` raises an error, and so does this page's model.
+
+So `"😀".length` is 2 in JavaScript, because it counts UTF-16 units, and `len` is 1 in Python, because it counts code points. Both are right, about different things. This site's tests run both.
+</GoDeeper>
+
+<Quiz
+  id="comp-text-1"
+  q="A form limits names to 10 bytes in UTF-8. Which name doesn't fit?"
+  options={["José (4 characters)", "日本語の名前 (6 characters)", "Marie-Anne (10 characters)"]}
+  answer={1}
+  explain="Each of those Japanese characters takes 3 bytes in UTF-8, so that's 18. José is 5 bytes, since only é takes 2, and Marie-Anne is plain ASCII at exactly 10. Counting characters would have let the long one through."
+/>
+
+<Quiz
+  id="comp-text-2"
+  q="A page shows CafÃ© where it should say Café. What happened to the bytes on the way?"
+  options={["Nothing: the UTF-8 bytes arrived intact, and something read them as Windows-1252", "The network corrupted the é", "Unicode doesn't include é, so it was replaced"]}
+  answer={0}
+  explain="C3 A9 is é in UTF-8, and those same two bytes are Ã and © in Windows-1252. No byte changed, which is also why this kind of damage can often be undone."
+/>
+
+<Quiz
+  id="comp-text-3"
+  q="Why does a test suite that only uses plain ASCII text miss encoding bugs?"
+  options={["ASCII text is checked by a different code path", "UTF-8 and Windows-1252 agree on the first 128 values, so ASCII reads correctly even under the wrong rule", "UTF-8 doesn't work on non-English text"]}
+  answer={1}
+  explain="ASCII characters are the same single bytes in both, so a wrong setting has no visible effect until someone's name has an accent, or a sentence has a curly apostrophe. Test with é, 日 and an emoji as well."
+/>
+
+<Quiz
+  id="comp-text-4"
+  q="A raw picture is 100 pixels wide, with 3 bytes a pixel. At which byte does row 2, column 5 start? Rows and columns count from 0."
+  options={["205", "615", "2005"]}
+  answer={1}
+  explain="(row × width + column) × 3 = (200 + 5) × 3 = 615. Forgetting the × 3 gives 205, and that's a classic bug, because it's still a valid place in the picture."
+/>
+
+## What to remember
+
+- A character is a number from a table, and Unicode is that table. Two things that look the same may be different numbers.
+- An encoding turns code points into bytes. UTF-8 takes one to four bytes per code point, and ASCII is unchanged in it.
+- Garbled text usually means the bytes were right and the reading was wrong. Once a byte has been replaced, it's gone.
+- Characters, code points and bytes are different counts. Know which one a limit is in.
+- A picture is an array of records in one long row of bytes. Its width is an agreement, and so is everything else about it.

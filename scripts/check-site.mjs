@@ -2971,6 +2971,1172 @@ def test_parse_expense():`);
   });
 }
 
+// ---- How a Machine Computes: bits to adder -----------------------------------
+// Each lab driven by its controls, with its refusals, and each mission to its debrief.
+await scenario('comp-bit-lab', '/learn/computer/bits-and-bases/', async (page) => {
+  const r = '[data-bitlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} .widget-head`, /emulated/);
+  const set = async (v) => { await page.locator(`${r} [data-set-value]`).fill(v); await page.click(`${r} [data-set]`); };
+  // Switches, the way a person would: 8 + 4 + 1.
+  for (const i of [3, 2, 0]) await page.click(`${r} [data-bit="${i}"]`);
+  await expectText(page, `${r} [data-reading="unsigned"]`, /^13$/);
+  await expectText(page, `${r} [data-reading="binary"]`, /0000 1101/);
+  // A number that doesn't fit is refused by name, and nothing changes.
+  await set('256');
+  await expectText(page, `${r} [data-status]`, /does not fit in 8 bits/);
+  await expectText(page, `${r} [data-reading="unsigned"]`, /^13$/);
+  await set('pizza');
+  await expectText(page, `${r} [data-status]`, /not a whole number/);
+  await debriefHidden(page, r);
+  await set('255');
+  await page.click(`${r} [data-plus]`);
+  await expectText(page, `${r} [data-status]`, /256, which needs 9 bits.*read 0/);
+  await set('0xA5');
+  await expectText(page, `${r} [data-reading="hex"]`, /0xa5/);
+  await set('65');
+  await expectText(page, `${r} [data-reading="char"]`, /"A", chr\(65\)/);
+  // Minus on an unsigned row talks about subtracting, not "65 + 255 is 320".
+  await page.click(`${r} [data-minus]`);
+  await expectText(page, `${r} [data-status]`, /65 - 1 = 64/);
+  await set('0');
+  await page.click(`${r} [data-minus]`);
+  await expectText(page, `${r} [data-status]`, /0 - 1 is -1.*wrapped round to 255/);
+  await debriefHidden(page, r);
+  await page.selectOption(`${r} [data-width]`, '16');
+  await set('65535');
+  await debriefShows(page, r);
+  // 32 switches, none of them off the screen on a phone: the width check below covers that.
+  await page.selectOption(`${r} [data-width]`, '32');
+  await expectText(page, `${r} [data-status]`, /Now 32 bits/);
+  const shown = await page.locator(`${r} .bl-bit:visible`).count();
+  if (shown !== 32) throw new Error(`${shown} switches at 32 bits`);
+  const c = mission('comp-bits-digits');
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} [data-out]`, /0b1101 0xff 13/);
+  await setCode(page, c, 'def to_digits(n, base):\n    if n == 0:\n        return [0]\n    d = []\n    while n > 0:\n        d.insert(0, n % base)\n        n = n // base\n    return d\n\ndef from_digits(digits, base):\n    v = 0\n    for x in digits:\n        v = v * base + x\n    return v\n');
+  await page.click(`${c} [data-run]`);
+  await debriefShows(page, c);
+});
+
+await scenario('comp-bit-lab-signed', '/learn/computer/negative-numbers/', async (page) => {
+  const r = '[data-bitlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const set = async (v) => { await page.locator(`${r} [data-set-value]`).fill(v); await page.click(`${r} [data-set]`); };
+  const addIt = async (v) => { await page.locator(`${r} [data-add-value]`).fill(v); await page.click(`${r} [data-add]`); };
+  await set('-1');
+  await expectText(page, `${r} [data-reading="binary"]`, /1111 1111/);
+  await expectText(page, `${r} [data-reading="twos"]`, /^-1$/);
+  await expectText(page, `${r} [data-reading="sign"]`, /^-127$/);
+  await expectText(page, `${r} [data-reading="ones"]`, /^-0$/);
+  await set('-129');
+  await expectText(page, `${r} [data-status]`, /-128 to 127/);
+  await set('-3');
+  await addIt('5');
+  await expectText(page, `${r} [data-status]`, /-3 \+ 5 = 2\. A carry fell off the top/);
+  await set('127');
+  await page.click(`${r} [data-plus]`);
+  await expectText(page, `${r} [data-status]`, /127 \+ 1 is 128.*read -128/);
+  await set('-128');
+  await page.click(`${r} [data-negate]`);
+  await expectText(page, `${r} [data-status]`, /gave -128 back/);
+  await debriefHidden(page, r);
+  // -1 widened to 16 bits really reads 255 here, and this used to say only "Now 16 bits".
+  await set('-1');
+  await page.selectOption(`${r} [data-width]`, '16');
+  await expectText(page, `${r} [data-reading="twos"]`, /^255$/);
+  await expectText(page, `${r} [data-status]`, /Now 16 bits\. The new top bits are 0, so two's complement changed from -1 to 255/);
+  await page.selectOption(`${r} [data-width]`, '8');
+  await expectText(page, `${r} [data-status]`, /Now 8 bits\.$|Now 8 bits\. Only the low bits/);
+  await expectText(page, `${r} [data-reading="twos"]`, /^-1$/);
+  await page.selectOption(`${r} [data-width]`, '16');
+  await set('32767');
+  await page.click(`${r} [data-plus]`);
+  await expectText(page, `${r} [data-reading="twos"]`, /^-32768$/);
+  await debriefShows(page, r);
+  const c = mission('comp-neg-emulate');
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} [data-out]`, /^32768/);
+  // Clamping is the tempting wrong answer, and the panel says which input it failed.
+  await setCode(page, c, 'print(32768)\ndef wrap(n, bits):\n    top = 2 ** (bits - 1)\n    return max(-top, min(top - 1, n))\n\ndef fits(n, bits):\n    return True\n');
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} .m-steps li.current .m-why`, /wrap\(32768, 16\) returned 32767; expected -32768/);
+  await setCode(page, c, 'print(32768)\ndef wrap(n, bits):\n    u = n % 2 ** bits\n    return u - 2 ** bits if u >= 2 ** (bits - 1) else u\n\ndef fits(n, bits):\n    return wrap(n, bits) == n\n');
+  await page.click(`${c} [data-run]`);
+  await debriefShows(page, c);
+});
+
+await scenario('comp-float-lab', '/learn/computer/floating-point/', async (page) => {
+  const r = '[data-floatlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} [data-exact]`, /0\.1000000000000000055511151231257827021181583404541015625/);
+  const store = async (v) => { await page.locator(`${r} [data-value]`).fill(v); await page.click(`${r} [data-store]`); };
+  await store('pizza');
+  await expectText(page, `${r} [data-status]`, /not a number this lab reads/);
+  await store('0.1');
+  await expectText(page, `${r} [data-status]`, /Not exact/);
+  await expectText(page, `${r} [data-hex]`, /0x1\.999999999999ap-4/);
+  await store('0.75');
+  await expectText(page, `${r} [data-status]`, /Stored exactly/);
+  await store('9007199254740993');
+  await expectText(page, `${r} [data-exact]`, /^9007199254740992$/);
+  await page.click(`${r} [data-next="up"]`);
+  await expectText(page, `${r} [data-exact]`, /^9007199254740994$/);
+  await expectText(page, `${r} [data-status]`, /Moved by 2\.0/);
+  await debriefHidden(page, r);
+  // A flipped bit changes the number on screen: the sign bit of 1.0.
+  await store('1');
+  await page.click(`${r} [data-fbit="0"]`);
+  await expectText(page, `${r} [data-repr]`, /^-1\.0$/);
+  // Zero is exact however wild the exponent: "0e9999" once read "Not exact".
+  await store('0e9999');
+  await expectText(page, `${r} [data-status]`, /Stored exactly/);
+  // The word inf shows infinity and doesn't count, and the lab says why.
+  await store('inf');
+  await expectText(page, `${r} [data-status]`, /asks for it by name/);
+  await debriefHidden(page, r);
+  // The route the lesson describes: all 1s in the exponent, then clear the fraction. From 0.1 it
+  // passes through NaN, and the last flip goes from NaN to infinity, which once ticked nothing.
+  await store('0.1');
+  const flipTo = async (from, to, want) => {
+    for (let i = from; i < to; i++) {
+      if ((await page.locator(`${r} [data-fbit="${i}"]`).innerText()).trim() === want) await page.click(`${r} [data-fbit="${i}"]`);
+    }
+  };
+  await flipTo(1, 12, '0');
+  await expectText(page, `${r} [data-status]`, /It is NaN now/);
+  // WebKit and Firefox would wipe a NaN's fraction if the page read its bits back from the number. 0.1's fraction starts 1001.
+  const fractionStart = await page.locator(`${r} .fl-bit.frac`).evaluateAll((all) => all.slice(0, 4).map((b) => b.textContent).join(''));
+  if (fractionStart !== '1001') throw new Error(`a NaN's fraction was changed: it starts ${fractionStart}, not 1001`);
+  await flipTo(12, 64, '1');
+  await expectText(page, `${r} [data-kind]`, /Infinity/);
+  await expectText(page, `${r} [data-status]`, /It is infinity now/);
+  await debriefShows(page, r);
+  await store('1e309');
+  await expectText(page, `${r} [data-kind]`, /Infinity/);
+  await expectText(page, `${r} [data-status]`, /outside what 64 bits can hold/);
+  // The edge of the edge: nothing beyond infinity, and back down to the largest number.
+  await page.click(`${r} [data-next="up"]`);
+  await expectText(page, `${r} [data-status]`, /end of the line/);
+  await page.click(`${r} [data-next="down"]`);
+  await expectText(page, `${r} [data-repr]`, /1\.7976931348623157e\+308/);
+  const c = mission('comp-float-close');
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} [data-out]`, /^False/);
+  // A fixed tolerance looks right and isn't.
+  await setCode(page, c, 'print(False)\ndef close(a, b):\n    return abs(a - b) < 1e-9\n\ndef split(cents, people):\n    return [cents // people] * people\n');
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} .m-steps li.current .m-why`, /returned False; expected True|returned True; expected False/);
+  await setCode(page, c, 'print(False)\ndef close(a, b):\n    return abs(a - b) <= 1e-9 * max(abs(a), abs(b))\n\ndef split(cents, people):\n    return [cents // people] * people\n');
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} .m-steps li.current .m-why`, /went missing/);
+  await setCode(page, c, 'print(False)\ndef close(a, b):\n    return abs(a - b) <= 1e-9 * max(abs(a), abs(b))\n\ndef split(cents, people):\n    each = cents // people\n    extra = cents % people\n    return [each + 1 if i < extra else each for i in range(people)]\n');
+  await page.click(`${c} [data-run]`);
+  await debriefShows(page, c);
+});
+
+await scenario('comp-text-lab', '/learn/computer/text-and-images-as-bytes/', async (page) => {
+  const r = '[data-textbytes]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} [data-count]`, /4 code points, 5 bytes/);
+  await expectText(page, `${r} [data-rows]`, /U\+00E9\s+233\s+C3 A9/);
+  const type = async (t) => { await page.locator(`${r} [data-text]`).fill(t); };
+  const read = async (enc) => { await page.selectOption(`${r} [data-encoding]`, enc); };
+  await page.click(`${r} [data-repair]`);
+  await expectText(page, `${r} [data-repaired]`, /Nothing here is garbled/);
+  await type('€');
+  await expectText(page, `${r} [data-count]`, /1 code point, 3 bytes/);
+  // One flag on screen, and two code points: this once read "2 characters".
+  await type('\u{1F1EC}\u{1F1E7}');
+  await expectText(page, `${r} [data-count]`, /2 code points, 8 bytes/);
+  await type('Café');
+  await read('cp1252');
+  await expectText(page, `${r} [data-result]`, /CafÃ©/);
+  await type('Cafe');
+  await expectText(page, `${r} [data-result]`, /same/);
+  await type('Café');
+  await page.click(`${r} [data-repair]`);
+  await expectText(page, `${r} [data-repaired]`, /Café\. Identical to the original/);
+  await debriefHidden(page, r);
+  await type('Á');
+  await expectText(page, `${r} [data-result]`, /replaced with the character/);
+  await page.click(`${r} [data-repair]`);
+  await expectText(page, `${r} [data-repaired]`, /Can't be repaired.*replacement character/);
+  await debriefShows(page, r);
+
+  const p = '[data-pixellab]';
+  await page.locator(p).scrollIntoViewIfNeeded();
+  await expectText(page, `${p} [data-status]`, /^192 bytes read as 64 pixels, 8 wide and 8 tall\.$/);
+  await expectText(page, `${p} [data-at]`, /Row 0, column 0 starts at byte 0/);
+  await page.locator(`${p} [data-width]`).fill('99');
+  await expectText(page, `${p} [data-status]`, /whole number from 1 to 24/);
+  await page.locator(`${p} [data-width]`).fill('7');
+  await expectText(page, `${p} [data-status]`, /64 pixels, 7 wide and 10 tall: the last row is short, with 1 pixel\. That changed the reading, and not one byte/);
+  await page.click(`${p} [data-paint]`);
+  await expectText(page, `${p} [data-at]`, /Put the settings right/);
+  await expectText(page, `${p} [data-status]`, /Nothing was painted, so not one byte changed/);
+  await page.selectOption(`${p} [data-channels]`, '1');
+  await expectText(page, `${p} [data-status]`, /192 pixels/);
+  await page.selectOption(`${p} [data-channels]`, '3');
+  await page.selectOption(`${p} [data-offset]`, '1');
+  await expectText(page, `${p} [data-status]`, /2 bytes left over/);
+  await debriefHidden(page, p);
+  await page.selectOption(`${p} [data-offset]`, '0');
+  await page.locator(`${p} [data-width]`).fill('8');
+  await page.selectOption(`${p} [data-row]`, '1');
+  await page.selectOption(`${p} [data-col]`, '2');
+  await expectText(page, `${p} [data-at]`, /starts at byte 30/);
+  await page.click(`${p} [data-paint]`);
+  await expectText(page, `${p} [data-at]`, /FF 00 00/);
+  // The status once said "The bytes have not changed" right here, above the three that just had.
+  await expectText(page, `${p} [data-status]`, /Painting wrote bytes 30, 31 and 32: F5 F5 F5 became FF 00 00\. The other 189 bytes are as they were/);
+  await debriefShows(page, p);
+  await page.click(`${p} [data-paint]`);
+  await expectText(page, `${p} [data-status]`, /already held FF 00 00, so no byte changed/);
+
+  const c = mission('comp-text-utf8');
+  await page.locator(c).scrollIntoViewIfNeeded();
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} [data-out]`, /233 8364 128512/);
+  await setCode(page, c, 'print(128512)\ndef utf8_len(text):\n    return len(text)\n\ndef utf8_bytes(ch):\n    return [ord(ch)]\n');
+  await page.click(`${c} [data-run]`);
+  await expectText(page, `${c} .m-steps li.current .m-why`, /returned 1; expected 2/);
+  await setCode(page, c, 'print(128512)\ndef utf8_bytes(ch):\n    n = ord(ch)\n    if n < 128:\n        return [n]\n    if n < 2048:\n        return [192 + n // 64, 128 + n % 64]\n    if n < 65536:\n        return [224 + n // 4096, 128 + (n // 64) % 64, 128 + n % 64]\n    return [240 + n // 262144, 128 + (n // 4096) % 64, 128 + (n // 64) % 64, 128 + n % 64]\n\ndef utf8_len(text):\n    total = 0\n    for c in text:\n        total = total + len(utf8_bytes(c))\n    return total\n');
+  await page.click(`${c} [data-run]`);
+  await debriefShows(page, c);
+});
+
+// Parts are added and wired the way a person does it, through the selects.
+const addPart = async (page, r, part, ...wires) => {
+  await page.click(`${r} [data-shelf] [data-add="${part}"]`);
+  const row = page.locator(`${r} [data-gates] .ll-gate`).last();
+  for (let i = 0; i < wires.length; i++) await row.locator(`select[data-pin="${i}"]`).selectOption(wires[i]);
+};
+const output = (page, r, name, from) => page.locator(`${r} [data-output-select="${name}"]`).selectOption(from);
+
+await scenario('comp-logic-gates', '/learn/computer/gates/', async (page) => {
+  const r = '[data-logiclab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await expectText(page, `${r} [data-verdict]`, /Right on all 4/);
+  await expectText(page, `${r} [data-output-value="out"]`, /^1$/);
+  // Wiring the output to "always 0" shows a 0, and shows nothing about the gate.
+  await output(page, r, 'out', '0');
+  await expectText(page, `${r} [data-verdict]`, /Wrong on 3 of 4/);
+  if (await page.locator(`${r} .m-steps li.done`).count()) throw new Error('a constant 0 ticked the NAND step');
+  await output(page, r, 'out', 'g1');
+  await page.click(`${r} [data-switch="a"]`);
+  await page.click(`${r} [data-switch="b"]`);
+  await expectText(page, `${r} [data-output-value="out"]`, /^0$/);
+  await page.click(`${r} [data-puzzle="not"]`);
+  // Nothing wired is refused by name, not read as a wrong answer or as 0.
+  await expectText(page, `${r} [data-verdict]`, /Not finished: Output out isn't connected/);
+  await output(page, r, 'out', 'a');
+  await expectText(page, `${r} [data-verdict]`, /Wrong on 2 of 2/);
+  await addPart(page, r, 'NAND', 'a');
+  await expectText(page, `${r} [data-verdict]`, /Input b of g1 isn't connected/);
+  await page.locator(`${r} [data-gate="g1"] select[data-pin="1"]`).selectOption('a');
+  await expectText(page, `${r} [data-verdict]`, /Wrong on 2 of 2/);
+  await output(page, r, 'out', 'g1');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 2/);
+  // A loop is refused here, with the reason.
+  await page.locator(`${r} [data-gate="g1"] select[data-pin="1"]`).selectOption('g1');
+  await expectText(page, `${r} [data-verdict]`, /loops back/);
+  await page.locator(`${r} [data-gate="g1"] select[data-pin="1"]`).selectOption('1');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 2/);
+
+  await page.click(`${r} [data-puzzle="and"]`);
+  await addPart(page, r, 'NAND', 'a', 'b');
+  await addPart(page, r, 'NOT', 'g1');
+  await output(page, r, 'out', 'g2');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 4/);
+  await page.click(`${r} [data-puzzle="or"]`);
+  await addPart(page, r, 'NOT', 'a');
+  await addPart(page, r, 'NOT', 'b');
+  await addPart(page, r, 'NAND', 'g1', 'g2');
+  await output(page, r, 'out', 'g3');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 4/);
+  await expectText(page, `${r} [data-counts]`, /3 NANDs underneath/);
+  // Removing a part unwires what read it, rather than leaving it wired to something else.
+  await page.click(`${r} [data-remove="g2"]`);
+  await expectText(page, `${r} [data-verdict]`, /Input b of g3 isn't connected/);
+  await addPart(page, r, 'NOT', 'b');
+  await page.locator(`${r} [data-gate="g3"] select[data-pin="1"]`).selectOption('g2');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 4/);
+  await page.click(`${r} [data-puzzle="xor"]`);
+  await addPart(page, r, 'OR', 'a', 'b');
+  await addPart(page, r, 'NAND', 'a', 'b');
+  await addPart(page, r, 'AND', 'g1', 'g2');
+  await output(page, r, 'out', 'g1');
+  await expectText(page, `${r} [data-verdict]`, /Wrong on 1 of 4/);
+  await expectText(page, `${r} [data-table] tr.bad`, /wrong/);
+  await output(page, r, 'out', 'g3');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 4/);
+  await debriefHidden(page, r);
+  await page.click(`${r} [data-puzzle="mux"]`);
+  await addPart(page, r, 'NOT', 'sel');
+  await addPart(page, r, 'AND', 'a', 'g1');
+  await addPart(page, r, 'AND', 'b', 'sel');
+  await addPart(page, r, 'OR', 'g2', 'g3');
+  await output(page, r, 'out', 'g4');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 8/);
+  await debriefShows(page, r);
+  // Going back to break a solved puzzle doesn't untick it, and starting over works.
+  await page.click(`${r} [data-puzzle="not"]`);
+  await page.click(`${r} [data-reset]`);
+  await expectText(page, `${r} [data-verdict]`, /Output out isn't connected/);
+  await debriefShows(page, r);
+});
+
+await scenario('comp-logic-adder', '/learn/computer/adder/', async (page) => {
+  const r = '[data-logiclab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await addPart(page, r, 'OR', 'a', 'b');
+  await addPart(page, r, 'AND', 'a', 'b');
+  await output(page, r, 'sum', 'g1');
+  await output(page, r, 'carry', 'g2');
+  await expectText(page, `${r} [data-verdict]`, /Wrong on 1 of 4/);
+  await page.locator(`${r} [data-gate="g1"]`).locator('[data-remove]').click();
+  await addPart(page, r, 'XOR', 'a', 'b');
+  await output(page, r, 'sum', 'g1');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 4/);
+
+  await page.click(`${r} [data-puzzle="full"]`);
+  await addPart(page, r, 'HALF', 'a', 'b');
+  await addPart(page, r, 'HALF', 'g1.sum', 'cin');
+  await addPart(page, r, 'OR', 'g1.carry', 'g2.carry');
+  await output(page, r, 'sum', 'g2.sum');
+  await output(page, r, 'carry', 'g3');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 8/);
+
+  await page.click(`${r} [data-puzzle="add4"]`);
+  await expectText(page, `${r} [data-verdict]`, /Output s1 isn't connected/);
+  await addPart(page, r, 'FULL', 'a1', 'b1', 'g1.carry');
+  await addPart(page, r, 'FULL', 'a2', 'b2', 'g2.carry');
+  await addPart(page, r, 'FULL', 'a3', 'b3', 'g3.carry');
+  await output(page, r, 's1', 'g2.sum');
+  await output(page, r, 's2', 'g3.sum');
+  await output(page, r, 's3', 'g4.sum');
+  await output(page, r, 'carry', '0');
+  // Right on every sum that fits, wrong on the 120 that don't: a small test would miss it.
+  await expectText(page, `${r} [data-verdict]`, /Wrong on 120 of 256/);
+  await expectText(page, `${r} [data-table] li`, /a = 8, b = 8: wants s = 0, carry = 1, yours gives s = 0, carry = 0/);
+  await output(page, r, 'carry', 'g4.carry');
+  await expectText(page, `${r} [data-verdict]`, /Right on all 256/);
+  await expectText(page, `${r} [data-counts]`, /60 NANDs underneath, a change settles within 16 gate delays/);
+
+  // Watch it settle: a carry running up through all four columns.
+  for (const s of ['a0', 'a1', 'a2', 'a3']) await page.click(`${r} [data-switch="${s}"]`);
+  await page.check(`${r} [data-slow]`);
+  await page.click(`${r} [data-switch="b0"]`);
+  await expectText(page, `${r} [data-delay-note]`, /nothing else has yet/);
+  await expectText(page, `${r} [data-output-value="carry"]`, /^0$/);
+  let settled = false;
+  for (let i = 0; i < 40 && !settled; i++) {
+    await page.click(`${r} [data-delay]`);
+    settled = /Settled after/.test(await page.locator(`${r} [data-delay-note]`).innerText());
+  }
+  if (!settled) throw new Error('never settled');
+  // The panel above and this note must give one number: they once said 19 and 16.
+  await expectText(page, `${r} [data-delay-note]`, /Settled after 16 gate delays/);
+  await expectText(page, `${r} [data-output-value="carry"]`, /^1$/);
+  await page.uncheck(`${r} [data-slow]`);
+  await debriefHidden(page, r);
+
+  await page.click(`${r} [data-puzzle="addsub"]`);
+  for (let i = 0; i < 4; i++) await addPart(page, r, 'XOR', `b${i}`, 'sub');
+  await addPart(page, r, 'FULL', 'a0', 'g1', 'sub');
+  await addPart(page, r, 'FULL', 'a1', 'g2', 'g5.carry');
+  await addPart(page, r, 'FULL', 'a2', 'g3', 'g6.carry');
+  await addPart(page, r, 'FULL', 'a3', 'g4', 'g7.carry');
+  for (let i = 0; i < 4; i++) await output(page, r, `s${i}`, `g${5 + i}.sum`);
+  await expectText(page, `${r} [data-verdict]`, /Right on all 512/);
+  await debriefShows(page, r);
+});
+
+// ---- How a Machine Computes: the machine, the clock, the pipeline, the cache ----
+const machineLab = (id) => `[data-machine-lab][data-mission="${id}"]`;
+const machineRun = async (page, r, src) => {
+  if (await page.locator(`${r} [data-edit-btn]`).isVisible()) await page.click(`${r} [data-edit-btn]`);
+  if (src !== undefined) await page.locator(`${r} [data-src]`).fill(src);
+  await page.click(`${r} [data-run]`);
+};
+const ticked = (page, r) => page.locator(`${r} .m-steps li.done`).count();
+const waitTicks = (page, r, n) => page.waitForFunction(([sel, want]) => document.querySelectorAll(`${sel} .m-steps li.done`).length === want, [r, n]);
+
+await scenario('clock-lab', '/learn/computer/clocks-and-memory/', async (page) => {
+  const r = '[data-clock-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // The latch remembers with nothing pressed, and both-at-once is reported, not hidden.
+  await page.click(`${r} [data-sr="set"]`);
+  await expectText(page, `${r} [data-q]`, /^1$/);
+  await page.click(`${r} [data-sr="release"]`);
+  await expectText(page, `${r} [data-q]`, /^1$/);
+  await expectText(page, `${r} [data-sr-note]`, /still 1/);
+  await waitTicks(page, r, 1);
+  await page.click(`${r} [data-sr="both"]`);
+  await page.click(`${r} [data-sr="release"]`);
+  await expectText(page, `${r} [data-sr-note]`, /never settles/);
+  // The bench: raising the clock and changing D moves the latch and not the flip-flop.
+  await page.click(`${r} [data-raise]`);
+  await page.click(`${r} [data-flip-d]`);
+  await expectText(page, `${r} [data-e="latchQ"]`, /^1$/);
+  await expectText(page, `${r} [data-e="ffQ"]`, /^0$/);
+  await waitTicks(page, r, 2);
+  if (!(await page.locator(`${r} [data-edge-wave] svg path`).count())) throw new Error('the bench drew no waveform');
+  const run = async (p) => { await page.locator(`${r} [data-period]`).fill(String(p)); await page.click(`${r} [data-run-counter]`); };
+  await run(30);
+  await expectText(page, `${r} [data-verdict]`, /Every read was right at 30/);
+  await waitTicks(page, r, 3);
+  // Failure case: one delay under the limit, with the exact wrong reading from the model.
+  await debriefHidden(page, r);
+  await run(12);
+  await expectText(page, `${r} [data-verdict]`, /Wrong at 12.*After 6 it should read 7, and it read 15.*2 of these 17 reads are wrong.*nothing checks/);
+  if (await page.locator(`${r} [data-reads] li.wrong`).count() < 1) throw new Error('no read is marked wrong at period 12');
+  await debriefHidden(page, r);
+  await run(13);
+  await expectText(page, `${r} [data-verdict]`, /Every read was right at 13/);
+  await debriefShows(page, r);
+  if (!(await page.locator(`${r} [data-wave] svg path`).count())) throw new Error('the counter drew no waveform');
+  const code = page.locator('[data-codelab]').first();
+  await code.locator('[data-run]').click();
+  await expectText(page, '[data-codelab] [data-out]', /4 green/);
+});
+
+await scenario('machine-lab-fetch', '/learn/computer/toy-cpu/', async (page) => {
+  const r = machineLab('cpu-count-up');
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // Step shows what it decoded, and the panel follows the real registers.
+  await page.click(`${r} [data-step]`);
+  await expectText(page, `${r} [data-status]`, /nothing has run yet/);
+  await page.click(`${r} [data-step]`);
+  await expectText(page, `${r} [data-decode]`, /addi t0, zero, 0/);
+  await expectText(page, `${r} [data-fetch]`, /0x0000/);
+  if ((await page.locator(`${r} [data-bits] .ml-field`).count()) !== 5) throw new Error('the decode panel does not show an I-format word');
+  for (let i = 0; i < 40 && (await ticked(page, r)) < 1; i++) await page.click(`${r} [data-step]`);
+  await waitTicks(page, r, 1);
+  await expectText(page, `${r} [data-pc]`, /0x00/);
+  // Back to editing, and a run from the top on the visible input: the starter's off-by-one, 10 and not 15.
+  await machineRun(page, r);
+  await expectText(page, `${r} [data-reg="10"]`, /a0\s*10/);
+  // A shortcut for the visible answer must not pass, and it has to say why.
+  await machineRun(page, r, 'li a0, 15\nebreak\n');
+  await expectText(page, `${r} [data-reg="10"]`, /15/);
+  await expectText(page, `${r} .m-why:not([hidden])`, /you can't see/);
+  if ((await ticked(page, r)) !== 1) throw new Error('hard-coding 15 ticked a step');
+  // Invalid program: refused with the line number, and no run.
+  await machineRun(page, r, 'li a0, 1\nfrobnicate a0\n');
+  await expectText(page, `${r} [data-errors]`, /Line 2:.*frobnicate/);
+  await expectText(page, `${r} [data-status]`, /didn't assemble/);
+  // Runaway: stops at the budget, with buttons restored.
+  await machineRun(page, r, 'spin:\n  j spin\n');
+  await expectText(page, `${r} [data-status]`, /Line 2: stopped after 200,000 steps/);
+  // A wild jump and an empty box each say what really happened.
+  await machineRun(page, r, 'li t0, 0x3000\njr t0\n');
+  await expectText(page, `${r} [data-status]`, /Line 2: jumped to 0x3000, where nothing has been written/);
+  await machineRun(page, r, '# nothing\n');
+  await expectText(page, `${r} [data-status]`, /no instructions/);
+  if (await page.locator(`${r} [data-run]`).isDisabled()) throw new Error('Run stays disabled after the budget');
+  // Bad inputs are refused rather than ignored.
+  await page.locator(`${r} [data-inputs]`).fill('q9=1');
+  await machineRun(page, r);
+  await expectText(page, `${r} [data-status]`, /"q9" isn't a register/);
+  await page.locator(`${r} [data-inputs]`).fill('a0=5');
+  // Play it to the end with a real solution.
+  const fixed = (await page.locator(`${r} [data-reset]`).click(), await page.locator(`${r} [data-src]`).inputValue()).replace('bge t1, a0, done', 'bgt t1, a0, done');
+  await machineRun(page, r, fixed);
+  await expectText(page, `${r} [data-reg="10"]`, /15/);
+  await waitTicks(page, r, 2);
+  await debriefHidden(page, r);
+  await machineRun(page, r, fixed.replace('    mv a0, t0\n', '    mv a0, t0\n    la t2, total\n    sw t0, 0(t2)\n'));
+  await debriefShows(page, r);
+  await expectText(page, `${r} [data-data]`, /15/);
+  // The patch sample: a0 ends as 42, from a line that says nop.
+  const first = '[data-machine-lab] >> nth=0';
+  await page.locator(first).locator('[data-run]').click();
+  await expect42(page);
+});
+async function expect42(page) {
+  const text = await page.locator('[data-machine-lab]').first().locator('[data-reg="10"]').innerText();
+  if (!/42/.test(text)) throw new Error(`the patched nop left a0 as ${text}`);
+}
+
+await scenario('machine-lab-calls', '/learn/computer/assembly/', async (page) => {
+  const r = machineLab('asm-calls');
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const start = await page.locator(`${r} [data-src]`).inputValue();
+  await machineRun(page, r);
+  await expectText(page, `${r} [data-status]`, /stopped after 200,000 steps/);
+  await waitTicks(page, r, 1);
+  // A fix that saves ra and not s0 still fails, and the reason names the input.
+  const sumTo = `sum_to:
+    beqz a0, base
+    addi sp, sp, -16
+    sw ra, 12(sp)
+    sw s0, 8(sp)
+    mv s0, a0
+    addi a0, a0, -1
+    call sum_to
+    add a0, a0, s0
+    lw s0, 8(sp)
+    lw ra, 12(sp)
+    addi sp, sp, 16
+    ret
+base:
+    ret
+`;
+  const main = start.slice(0, start.indexOf('# sum_to(n)'));
+  const noS0 = sumTo.replace('    sw s0, 8(sp)\n', '').replace('    lw s0, 8(sp)\n', '');
+  await machineRun(page, r, `${main}${noS0}\nfib:\n    ret\n`);
+  await expectText(page, `${r} .m-why:not([hidden])`, /sum_to\(\d+\)/);
+  // An 8-byte frame gets the right answer and breaks the convention, and it's told which rule.
+  await machineRun(page, r, `${main}${sumTo.replaceAll('-16', '-8').replaceAll('sp, sp, 16', 'sp, sp, 8').replaceAll('12(sp)', '4(sp)').replaceAll('8(sp)', '0(sp)')}\nfib:\n    ret\n`);
+  await expectText(page, `${r} .m-why:not([hidden])`, /isn't a multiple of 16/);
+  await machineRun(page, r, `${main}${sumTo}\nfib:\n    ret\n`);
+  await expectText(page, `${r} [data-reg="10"]`, /10/);
+  await waitTicks(page, r, 2);
+  await debriefHidden(page, r);
+  const fib = `fib:
+    li t0, 2
+    blt a0, t0, small
+    addi sp, sp, -16
+    sw ra, 12(sp)
+    sw s0, 8(sp)
+    sw s1, 4(sp)
+    mv s0, a0
+    addi a0, s0, -1
+    call fib
+    mv s1, a0
+    addi a0, s0, -2
+    call fib
+    add a0, a0, s1
+    lw s1, 4(sp)
+    lw s0, 8(sp)
+    lw ra, 12(sp)
+    addi sp, sp, 16
+small:
+    ret
+`;
+  await machineRun(page, r, `${main}${sumTo}\n${fib}`);
+  await debriefShows(page, r);
+  // Stepping into a call shows the saved return address on the stack panel.
+  await page.click(`${r} [data-edit-btn]`).catch(() => {});
+  await page.click(`${r} [data-step]`);
+  for (let i = 0; i < 8; i++) await page.click(`${r} [data-step]`);
+  await expectText(page, `${r} [data-stack]`, /a return to line/);
+  await expectText(page, `${r} [data-frames]`, /sum_to/);
+  await page.click(`${r} [data-edit-btn]`);
+  // The stack smash: three words comes back, and a fourth takes over the return.
+  const smash = page.locator('[data-machine-lab]', { hasText: 'Machine lab' }).filter({ has: page.locator('[data-inputs][value="a1=3"]') });
+  await smash.locator('[data-run]').click();
+  if ((await smash.locator('[data-out]').innerText()).trim() !== 'K') throw new Error('copy with 3 words did not come back');
+  await smash.locator('[data-inputs]').fill('a1=4');
+  await smash.locator('[data-run]').click();
+  if ((await smash.locator('[data-out]').innerText()).trim() !== 'X') throw new Error('a fourth word did not take over the return');
+  // Reset puts the whole lab back: it used to leave a1=4 in the box, so the "as it is" run printed X.
+  await smash.locator('[data-reset]').click();
+  if ((await smash.locator('[data-inputs]').inputValue()) !== 'a1=3') throw new Error('Reset left the changed input in the box');
+  if ((await smash.locator('[data-out]').innerText()).trim() !== '') throw new Error('Reset left the old output on screen');
+  if (!/Nothing here yet/.test(await smash.locator('[data-data]').innerText())) throw new Error('Reset left the old data on screen');
+  if (!/0xffff/.test(await smash.locator('[data-reg="1"]').innerText())) throw new Error('Reset left the old ra on screen');
+  await smash.locator('[data-run]').click();
+  if ((await smash.locator('[data-out]').innerText()).trim() !== 'K') throw new Error('after Reset, the run as it was did not print K');
+  // The stack overflow reports its line and its depth.
+  const runaway = page.locator('[data-machine-lab]').nth(3);
+  await runaway.locator('[data-run]').click();
+  const status = await runaway.locator('[data-status]').innerText();
+  if (!/guard area/.test(status) || !/Line 4/.test(status)) throw new Error(`stack overflow reported: ${status}`);
+  if (!/2,048 calls deep/.test(await runaway.locator('[data-frames]').innerText())) throw new Error('the depth of the overflow is not shown');
+});
+
+await scenario('pipeline-lab', '/learn/computer/pipelining/', async (page) => {
+  const r = '[data-pipe-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const cycles = async () => Number((await page.locator(`${r} [data-s="cycles"]`).innerText()).replace(/,/g, ''));
+  const run = () => page.click(`${r} [data-run]`);
+  // The exact counts from the reference, through the real page.
+  await page.selectOption(`${r} [data-forwarding]`, 'off');
+  await run();
+  if (await cycles() !== 15) throw new Error(`chain with no forwarding: ${await cycles()} cycles, the model says 15`);
+  await debriefHidden(page, r);
+  await page.selectOption(`${r} [data-forwarding]`, 'on');
+  await run();
+  if (await cycles() !== 9) throw new Error(`chain with forwarding: ${await cycles()} cycles, the model says 9`);
+  await waitTicks(page, r, 1);
+  // Failure case: with no hazard handling the same program gives a wrong answer and no error.
+  await page.click(`${r} [data-unprotected]`);
+  await expectText(page, `${r} [data-status]`, /a0 is 1, and should be 8/);
+  // Registers that all match don't clear a stale store or a stale print. This used to say "happens to come out right".
+  const chainSrc = await page.locator(`${r} [data-src]`).inputValue();
+  await page.locator(`${r} [data-src]`).fill('li t0, 7\nli t1, 0x2000\nsw t0, 0(t1)\nebreak\n');
+  await page.click(`${r} [data-unprotected]`);
+  await expectText(page, `${r} [data-status]`, /the word at 0x2000 is 0x00000000, and should be 0x00000007.*registers all match/);
+  await page.locator(`${r} [data-src]`).fill("li t1, 0x10000000\nnop\nnop\nli t0, 'A'\nsb t0, 0(t1)\nebreak\n");
+  await page.click(`${r} [data-unprotected]`);
+  await expectText(page, `${r} [data-status]`, /it printed "\\0", and should have printed "A"/);
+  await page.locator(`${r} [data-src]`).fill('li t0, 5\nnop\nnop\nli t1, 1\nnop\nnop\nebreak\n');
+  await page.click(`${r} [data-unprotected]`);
+  await expectText(page, `${r} [data-status]`, /ended the same in everything compared here: registers, all of memory, what it printed, and where it stopped/);
+  await page.locator(`${r} [data-src]`).fill(chainSrc);
+  // The diagram really draws, stalls included.
+  await page.selectOption(`${r} [data-forwarding]`, 'off');
+  await run();
+  if (await page.locator(`${r} td.stall`).count() !== 6) throw new Error('the diagram does not show the 6 stalls');
+  await page.selectOption(`${r} [data-forwarding]`, 'on');
+  // The reorder: a shortcut fails on hidden values, a nop doesn't save a cycle, a reorder passes.
+  await page.selectOption(`${r} [data-program]`, 'reorder');
+  await run();
+  if (await cycles() !== 14) throw new Error(`reorder starter: ${await cycles()} cycles`);
+  await expectText(page, `${r} .m-why:not([hidden])`, /14 cycles/);
+  await page.locator(`${r} [data-src]`).fill('li t0, 30\nsw t0, 12(a0)\nli t0, 40\nsw t0, 16(a0)\nebreak\n');
+  await run();
+  await expectText(page, `${r} .m-why:not([hidden])`, /values you can't see/);
+  if ((await ticked(page, r)) !== 1) throw new Error('hard-coding the visible answers ticked the reorder step');
+  await page.locator(`${r} [data-src]`).fill('lw t1, 0(a0)\nlw t2, 4(a0)\nlw t4, 8(a0)\nadd t3, t1, t2\nsw t3, 12(a0)\nadd t5, t1, t4\nsw t5, 16(a0)\nebreak\n');
+  await run();
+  if (await cycles() !== 12) throw new Error(`reordered: ${await cycles()} cycles`);
+  await waitTicks(page, r, 2);
+  await debriefHidden(page, r);
+  // Refused, with a line.
+  await page.locator(`${r} [data-src]`).fill('frob\n');
+  await run();
+  await expectText(page, `${r} [data-status]`, /Line 1:.*frob/);
+  await page.selectOption(`${r} [data-program]`, 'loop');
+  await page.selectOption(`${r} [data-predictor]`, 'two-bit');
+  await page.selectOption(`${r} [data-order]`, 'shuffled');
+  await run();
+  if (await cycles() !== 1938) throw new Error(`shuffled, two-bit: ${await cycles()} cycles`);
+  await debriefHidden(page, r);
+  await page.selectOption(`${r} [data-order]`, 'sorted');
+  await run();
+  if (await cycles() !== 1690) throw new Error(`sorted, two-bit: ${await cycles()} cycles`);
+  await debriefShows(page, r);
+  // Your machine: filled in with numbers, and judged by nothing.
+  await page.locator(`${r} [data-machine]`).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-machine-run]`);
+  await expectText(page, `${r} [data-machine-status]`, /One run, on this device/, 120000);
+});
+
+await scenario('cache-lab', '/learn/computer/caches/', async (page) => {
+  const r = '[data-cache-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  const set = (k, v) => page.selectOption(`${r} [data-${k}]`, v);
+  const run = async (pattern) => { await set('pattern', pattern); await page.click(`${r} [data-run]`); };
+  const stat = async (k) => Number((await page.locator(`${r} [data-s="${k}"]`).innerText()).replace(/,/g, ''));
+  await run('rows');
+  if (await stat('misses') !== 8192) throw new Error(`rows: ${await stat('misses')} misses, the model says 8,192`);
+  await run('cols');
+  if (await stat('misses') !== 131072) throw new Error(`columns: ${await stat('misses')} misses, the model says 131,072`);
+  if (await stat('conflict') !== 122880) throw new Error(`columns: ${await stat('conflict')} conflict misses`);
+  await waitTicks(page, r, 1);
+  await expectText(page, `${r} [data-s="amat"]`, /100\.50 ns/);
+  // Failure case: a cache too small for the matrix doesn't tick the step about fitting.
+  await set('size', '65536');
+  await run('cols');
+  if ((await ticked(page, r)) !== 1) throw new Error('a cache too small ticked the fitting step');
+  await set('size', '262144');
+  await run('cols');
+  if (await stat('capacity') !== 0 || await stat('conflict') !== 0) throw new Error('a cache that fits still shows capacity or conflict misses');
+  await waitTicks(page, r, 2);
+  await set('size', '32768');
+  await set('side', '64');
+  await set('ways', '1');
+  await run('two-arrays');
+  if (await stat('conflict') !== 7936) throw new Error(`two arrays, direct-mapped: ${await stat('conflict')} conflict misses`);
+  await set('ways', '2');
+  await run('two-arrays');
+  if (await stat('conflict') !== 0) throw new Error('two ways did not clear the conflict misses');
+  await waitTicks(page, r, 3);
+  await debriefHidden(page, r);
+  await set('side', '256');
+  await set('passes', '1');
+  await set('ways', '8');
+  await run('walk-order');
+  await set('prefetch', 'on');
+  await run('walk-order');
+  if (await stat('misses') !== 2048) throw new Error(`prefetched walk: ${await stat('misses')} misses`);
+  await run('walk-scattered');
+  if (await stat('misses') !== 57517) throw new Error(`prefetched scattered walk: ${await stat('misses')} misses`);
+  await set('prefetch', 'off');
+  await run('walk-scattered');
+  await debriefShows(page, r);
+  // A nonsense address is refused, and a good one is cut into its parts.
+  await page.locator(`${r} [data-addr]`).fill('nonsense');
+  await expectText(page, `${r} [data-split]`, /isn't an address/);
+  await page.locator(`${r} [data-addr]`).fill('0x12345');
+  await expectText(page, `${r} [data-split]`, /byte 5 in the line.*set 13/);
+  // A fully associative choice with a size the select offers still works.
+  await set('ways', 'full');
+  await set('prefetch', 'off');
+  await set('passes', '2');
+  await run('cols');
+  if (await stat('conflict') !== 0) throw new Error('a fully associative cache has conflict misses');
+  // The same with oldest-in, which used to show them, and the page says what it judged against.
+  await set('policy', 'fifo');
+  await set('side', '128');
+  await run('walk-scattered');
+  if (await stat('conflict') !== 0) throw new Error('a fully associative oldest-in cache has conflict misses');
+  await expectText(page, `${r} [data-status]`, /also throws out the oldest in/);
+  await set('policy', 'lru');
+  await set('side', '256');
+  // Two arrays at this size run into each other, and the page says so rather than call them two arrays.
+  await set('ways', '8');
+  await set('size', '32768');
+  await run('two-arrays');
+  await expectText(page, `${r} [data-status]`, /the two arrays overlap/);
+  await set('ways', 'full');
+  // The learner's own simulator, in the code lab: a shortcut fails, a real one passes.
+  const lab = mission('computer-cache-sim');
+  await page.locator(lab).scrollIntoViewIfNeeded();
+  await setCode(page, lab, 'def count_misses(addresses, lines, line_size):\n    seen = set()\n    for a in addresses:\n        seen.add(a // line_size)\n    return len(seen)\n');
+  await page.click(`${lab} [data-run]`);
+  await expectText(page, `${lab} .m-why:not([hidden])`, /expected/);
+  await setCode(page, lab, 'def count_misses(addresses, lines, line_size):\n    cache = [None] * lines\n    misses = 0\n    for address in addresses:\n        line = address // line_size\n        if cache[line % lines] != line:\n            misses += 1\n            cache[line % lines] = line\n    return misses\n\ndef count_misses_lru(addresses, lines, line_size):\n    cache = []\n    misses = 0\n    for address in addresses:\n        line = address // line_size\n        if line in cache:\n            cache.remove(line)\n        else:\n            misses += 1\n            if len(cache) == lines:\n                cache.pop(0)\n        cache.append(line)\n    return misses\n');
+  await page.click(`${lab} [data-run]`);
+  await debriefShows(page, lab);
+  // Your machine: filled in with numbers, and judged by nothing. No ratio is checked.
+  await page.locator(`${r} [data-machine]`).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-machine-run]`);
+  await expectText(page, `${r} [data-machine-status]`, /(^Done\. One run|^Stopped: this browser refused)/, 240000);
+  if (!(await page.locator(`${r} [data-machine-rows] tr`).count())) throw new Error('the machine panel shows no rows');
+});
+
+await scenario('latency-lab', '/learn/computer/latency-numbers/', async (page) => {
+  const r = '[data-latency-lab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // Every row has a source link and a date, on the page.
+  const rows = page.locator(`${r} [data-row]`);
+  if (await rows.count() !== 13) throw new Error(`${await rows.count()} rows`);
+  if (await page.locator(`${r} [data-row] .lt-src a`).count() !== 13) throw new Error('a row has no source link');
+  await expectText(page, `${r} [data-row="coast"]`, /69 ms[\s\S]*30 days to 2026-07-30/);
+  await expectText(page, `${r} [data-row="mem"] [data-scaled]`, /3\.33 minutes/);
+  await page.selectOption(`${r} [data-unit]`, '100');
+  await expectText(page, `${r} [data-row="l1"] [data-scaled]`, /less than a second/);
+  await expectText(page, `${r} [data-row="mem"] [data-scaled]`, /1 second/);
+  const plan = async (writes, place, batch) => {
+    await page.locator(`${r} [data-writes]`).fill(String(writes));
+    await page.selectOption(`${r} [data-place]`, place);
+    await page.selectOption(`${r} [data-batch]`, String(batch));
+    await page.click(`${r} [data-plan]`);
+  };
+  await plan(40, 'dc', 1);
+  await expectText(page, `${r} [data-verdict]`, /40 round trips.*20 ms/);
+  await waitTicks(page, r, 1);
+  await plan(40, 'coast', 1);
+  await expectText(page, `${r} [data-verdict]`, /2,760 ms.*over 300/);
+  await waitTicks(page, r, 2);
+  // Failure cases: fewer writes isn't the fix, and nonsense is refused.
+  await plan(4, 'coast', 1);
+  await expectText(page, `${r} .m-why:not([hidden])`, /36 never happen/);
+  await debriefHidden(page, r);
+  await plan(-3, 'coast', 1);
+  await expectText(page, `${r} [data-verdict]`, /whole number from 0 to 1,000/);
+  await plan(40, 'coast', 10);
+  await expectText(page, `${r} [data-verdict]`, /4 round trips.*276 ms/);
+  await debriefShows(page, r);
+});
+
+// ---- computer: compiler to qubits (writer computer-c)
+{
+  const compile = async (page, r, text) => { await page.fill(`${r} [data-text]`, text); await page.click(`${r} [data-compile]`); };
+  const codeMission = async (page, id, src) => {
+    const lab = `[data-codelab][data-mission="${id}"]`;
+    await page.locator(lab).scrollIntoViewIfNeeded();
+    if (src !== undefined) await page.fill(`${lab} [data-src]`, src);
+    await page.click(`${lab} [data-run]`);
+    return lab;
+  };
+
+  const PARSER_FIXED = `def tokens(text):
+    out = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == " ":
+            i += 1
+        elif c.isdigit():
+            j = i
+            while j < len(text) and text[j].isdigit():
+                j += 1
+            out.append(int(text[i:j]))
+            i = j
+        else:
+            out.append(c)
+            i += 1
+    return out
+
+def atom(toks):
+    if toks[0] == "(":
+        toks.pop(0)
+        inner = expr(toks)
+        toks.pop(0)
+        return inner
+    return toks.pop(0)
+
+def term(toks):
+    left = atom(toks)
+    while len(toks) > 0 and toks[0] in ("*", "/"):
+        op = toks.pop(0)
+        left = (op, left, atom(toks))
+    return left
+
+def expr(toks):
+    left = term(toks)
+    while len(toks) > 0 and toks[0] in ("+", "-"):
+        op = toks.pop(0)
+        left = (op, left, term(toks))
+    return left
+
+def calc(tree):
+    if type(tree) == int:
+        return tree
+    op, a, b = tree
+    a = calc(a)
+    b = calc(b)
+    return {"+": a + b, "-": a - b, "*": a * b}[op] if op != "/" else a / b
+
+def value(text):
+    return calc(expr(tokens(text)))
+
+print(value("10 - 3 - 2"))
+`;
+
+  await scenario('compiler-parse-lab', '/learn/computer/tiny-compiler-parse/', async (page) => {
+    const r = '[data-complab]';
+    await page.locator(r).scrollIntoViewIfNeeded();
+    await compile(page, r, '1 + 2 * 3');
+    await expectText(page, `${r} [data-brackets]`, /\(1 \+ \(2 \* 3\)\)/);
+    await expectText(page, `${r} [data-mine]`, /^7$/);
+    await expectText(page, `${r} [data-py]`, /^7$/);
+    if (await page.locator(`${r} [data-tree] svg circle`).count() !== 5) throw new Error('the tree did not draw five nodes');
+    // The failure case: it says where.
+    await compile(page, r, '1 + * 2');
+    await expectText(page, `${r} [data-point]`, /1 \+ \* 2\n {4}\^/);
+    await compile(page, r, '(1 + 2');
+    await expectText(page, `${r} [data-point]`, /never closed/);
+    await compile(page, r, '2 ^ 3');
+    await expectText(page, `${r} [data-point]`, /\*\*/);
+    await expectText(page, `${r} [data-verdict]`, /Refused by name/);
+    const mode = (m) => page.selectOption(`${r} [data-mode]`, m);
+    await mode('flat');
+    await compile(page, r, '1 + 2 * 3');
+    await expectText(page, `${r} [data-mine]`, /^9$/);
+    await expectText(page, `${r} [data-py]`, /^7$/);
+    await expectText(page, `${r} [data-verdict]`, /tree is wrong/);
+    await mode('right');
+    await compile(page, r, '10 - 3 - 2');
+    await expectText(page, `${r} [data-mine]`, /^9$/);
+    await expectText(page, `${r} [data-py]`, /^5$/);
+    await compile(page, r, '1 + 2 + 3');
+    await expectText(page, `${r} [data-verdict]`, /Same answer from the wrong tree/);
+    await expectText(page, `${r} .m-debrief`, /The tree is the meaning/);
+    await mode('excel');
+    await compile(page, r, '-2 ** 2');
+    await expectText(page, `${r} [data-mine]`, /^4$/);
+    await expectText(page, `${r} [data-py]`, /^-4$/);
+    await expectText(page, `${r} [data-verdict]`, /neither program is broken/);
+    await expectText(page, `${r} [data-verdict]`, /didn't run in Excel/);
+    await expectText(page, `${r} [data-brackets]`, /\(\(-2\) \*\* 2\)/);
+    await expectText(page, `${r} [data-excel-note]`, /only the order from Microsoft's table/);
+    // The failure this rule shipped with: the minus vanished, and the verdict called it a difference of opinion.
+    await compile(page, r, '-5');
+    await expectText(page, `${r} [data-mine]`, /^-5$/);
+    await compile(page, r, '2 * -3');
+    await expectText(page, `${r} [data-mine]`, /^-6$/);
+    await expectText(page, `${r} [data-verdict]`, /same tree as Python/);
+    await compile(page, r, '-3 ** 3');
+    await expectText(page, `${r} [data-mine]`, /^-27$/);
+    await compile(page, r, '-2 ^ 2');
+    await expectText(page, `${r} [data-point]`, /type \*\* here/);
+    await compile(page, r, '7 % 2');
+    await expectText(page, `${r} [data-point]`, /percent mark/);
+    // One side refused means no second answer to differ from.
+    await compile(page, r, '-8 ** 0.5');
+    await expectText(page, `${r} [data-verdict]`, /aren't two answers to compare/);
+    await mode('correct');
+    if (await page.locator(`${r} [data-excel-note]`).isVisible()) throw new Error('the Excel note stayed up on the correct parser');
+    // Said only of numbers real Python really reads.
+    await compile(page, r, '1_');
+    await expectText(page, `${r} [data-point]`, /Real Python refuses 1_ too/);
+    await compile(page, r, '1_000');
+    await expectText(page, `${r} [data-point]`, /Real Python reads 1_000 as a number/);
+    // The arithmetic worked and only the printing failed, and the page has to say which.
+    await compile(page, r, '10 ** 4300');
+    await expectText(page, `${r} [data-mine]`, /^ValueError$/);
+    await expectText(page, `${r} [data-verdict]`, /What failed is printing/);
+    // A power too large for the page is refused, never a number.
+    await compile(page, r, '9 ** 9 ** 9');
+    await expectText(page, `${r} [data-verdict]`, /Refused, and nothing was computed/);
+  });
+
+  await scenario('compiler-parse-mission', '/learn/computer/tiny-compiler-parse/', async (page) => {
+    const lab = await codeMission(page, 'comp-parse-fix');
+    await expectText(page, `${lab} [data-out]`, /\('-', 10, \('-', 3, 2\)\)\s+9/);
+    await codeMission(page, 'comp-parse-fix', PARSER_FIXED);
+    await expectText(page, `${lab} [data-out]`, /^5\s*$/);
+    await expectText(page, `${lab} .m-debrief`, /recursive descent/);
+  });
+
+  await scenario('compiler-generate-lab', '/learn/computer/tiny-compiler-generate/', async (page) => {
+    const r = '[data-complab]';
+    await page.locator(r).scrollIntoViewIfNeeded();
+    await compile(page, r, '1 + 2 * 3');
+    for (let i = 0; i < 5; i++) await page.click(`${r} [data-step]`);
+    await expectText(page, `${r} [data-stack]`, /\[ 7 \]/);
+    await page.selectOption(`${r} [data-gen]`, 'swapped');
+    await compile(page, r, '10 - 3');
+    await expectText(page, `${r} [data-mine]`, /^-7$/);
+    await expectText(page, `${r} [data-py]`, /^7$/);
+    await expectText(page, `${r} [data-verdict]`, /wrong way round/);
+    await page.selectOption(`${r} [data-gen]`, 'correct');
+    await page.check(`${r} [data-fold]`);
+    await compile(page, r, 'x + 2 * 3');
+    await expectText(page, `${r} [data-stack-count]`, /3 instructions, 5 before folding/);
+    await expectText(page, `${r} [data-mine]`, /^13$/);
+    await compile(page, r, '1 / 0 + 2');
+    await expectText(page, `${r} [data-mine]`, /ZeroDivisionError/);
+    await expectText(page, `${r} [data-py]`, /ZeroDivisionError/);
+    await page.selectOption(`${r} [data-regs]`, '2');
+    // Folding is still on, as the mission's step before this asks: all-number sums fold away.
+    await compile(page, r, '(1 + 2) * (3 + 4)');
+    await expectText(page, `${r} [data-reg-count]`, /0 values saved to memory/);
+    await compile(page, r, '(x + 1) * (y + 2)');
+    await expectText(page, `${r} [data-reg-count]`, /[1-9]\d* values? saved to memory/);
+    await expectText(page, `${r} .m-debrief`, /Operand order/);
+    // The failure case: no tree, no code, and the buttons still work.
+    await compile(page, r, '1 +');
+    await expectText(page, `${r} [data-point]`, /ended here/);
+    await compile(page, r, 'zebra');
+    await expectText(page, `${r} [data-point]`, /Nothing called zebra/);
+    await compile(page, r, '2 + 2');
+    await expectText(page, `${r} [data-mine]`, /^4$/);
+    // A value too long to print is walked to its end, and the page says what happened.
+    await compile(page, r, '10 ** 4300');
+    await expectText(page, `${r} [data-verdict]`, /What failed is printing/);
+    for (let i = 0; i < 3; i++) await page.click(`${r} [data-step]`);
+    await expectText(page, `${r} [data-stack]`, /too long for Python to print/);
+  });
+
+  await scenario('compiler-generate-mission', '/learn/computer/tiny-compiler-generate/', async (page) => {
+    const lab = await codeMission(page, 'comp-gen-stack');
+    await expectText(page, `${lab} [data-out]`, /-7\s*$/);
+    const fixed = `def gen(tree):
+    if type(tree) == int or type(tree) == float:
+        return [("PUSH", tree)]
+    if type(tree) == str:
+        return [("LOAD", tree)]
+    op, left, right = tree
+    return gen(left) + gen(right) + [(op,)]
+
+def fold(tree):
+    if type(tree) != tuple:
+        return tree
+    op, left, right = tree
+    left = fold(left)
+    right = fold(right)
+    if type(left) not in (str, tuple) and type(right) not in (str, tuple):
+        try:
+            return run(gen((op, left, right)))
+        except ZeroDivisionError:
+            pass
+    return (op, left, right)
+
+print(answer("10 - 3"))
+`;
+    await codeMission(page, 'comp-gen-stack', fixed);
+    await expectText(page, `${lab} [data-out]`, /^7\s*$/);
+    await expectText(page, `${lab} .m-debrief`, /Real Python's own compiler/);
+  });
+
+  await scenario('speculation-lab', '/learn/computer/speculation-leak/', async (page) => {
+    const r = '[data-speclab]';
+    await page.locator(r).scrollIntoViewIfNeeded();
+    const setX = (x) => page.fill(`${r} [data-x]`, String(x));
+    // An empty box must refuse, not quietly call victim(0).
+    await page.fill(`${r} [data-x]`, '');
+    await page.click(`${r} [data-call]`);
+    await expectText(page, `${r} [data-arch]`, /Nothing was called/);
+    await setX(16);
+    await page.click(`${r} [data-call]`);
+    await expectText(page, `${r} [data-arch]`, /returned 0/);
+    // Forgetting the flush is the failure case: training's own lines muddy the reading.
+    await page.click(`${r} [data-train]`);
+    await page.click(`${r} [data-call]`);
+    await page.click(`${r} [data-probe]`);
+    await expectText(page, `${r} [data-read-out]`, /lines are fast/);
+    let digits = '';
+    for (const x of [16, 17, 18, 19]) {
+      await setX(x);
+      await page.click(`${r} [data-round]`);
+      const t = await expectText(page, `${r} [data-read-out]`, /One line stands out: [0-9a-f]/);
+      digits += /stands out: ([0-9a-f])/.exec(t)[1];
+    }
+    await page.fill(`${r} [data-guess]`, 'zzzz');
+    await page.click(`${r} [data-check]`);
+    await expectText(page, `${r} [data-guess-out]`, /^No\./);
+    await page.fill(`${r} [data-guess]`, [...digits].join(', '));
+    await page.click(`${r} [data-check]`);
+    await expectText(page, `${r} [data-guess-out]`, /^Yes/);
+    // Straight after a flush, "wasn't flushed" was simply false.
+    await page.click(`${r} [data-flush]`);
+    await page.click(`${r} [data-probe]`);
+    await expectText(page, `${r} [data-truth]`, /Nothing out of range has run/);
+    await page.selectOption(`${r} [data-defence]`, 'mask');
+    await setX(16);
+    await page.click(`${r} [data-round]`);
+    await expectText(page, `${r} [data-truth]`, /No secret reached the cache/);
+    await page.selectOption(`${r} [data-defence]`, 'barrier');
+    await page.click(`${r} [data-round]`);
+    await expectText(page, `${r} [data-read-out]`, /all slow/);
+    await page.selectOption(`${r} [data-defence]`, 'none');
+    await page.check(`${r} [data-coarse]`);
+    await page.click(`${r} [data-round]`);
+    await expectText(page, `${r} [data-read-out]`, /can't tell a hit from a miss/);
+    // The verdict can't say safe: the mark is still in the cache.
+    await expectText(page, `${r} [data-truth]`, /A secret did mark the cache[\s\S]*still there/);
+    await page.uncheck(`${r} [data-coarse]`);
+    await page.selectOption(`${r} [data-attack]`, 'meltdown');
+    await page.click(`${r} [data-round2]`);
+    await expectText(page, `${r} [data-read-out]`, /One line stands out/);
+    await expectText(page, `${r} [data-arch]`, /faulted/);
+    await page.check(`${r} [data-iso]`);
+    await page.click(`${r} [data-round2]`);
+    await expectText(page, `${r} [data-read-out]`, /all slow/);
+    await expectText(page, `${r} .m-debrief`, /The program never saw the secret/);
+  });
+
+  await scenario('amdahl-lab', '/learn/computer/many-small-brains/', async (page) => {
+    const r = '[data-amlab]';
+    await page.locator(r).scrollIntoViewIfNeeded();
+    const set = async (p, power) => { await page.locator(`${r} [data-p]`).fill(String(p)); await page.locator(`${r} [data-c]`).fill(String(power)); };
+    await set(900, 3);
+    await expectText(page, `${r} [data-speedup]`, /^4\.71$/);
+    await expectText(page, `${r} [data-limit]`, /^10\.00$/);
+    await page.click(`${r} [data-run]`);
+    await expectText(page, `${r} [data-ticks]`, /^4\.69$/);
+    await expectText(page, `${r} [data-sched]`, /213 ticks/);
+    await set(900, 10);
+    await expectText(page, `${r} [data-speedup]`, /^9\.91$/);
+    await set(900, 12);
+    await expectText(page, `${r} [data-speedup]`, /^9\.98$/);
+    await set(970, 6);
+    await expectText(page, `${r} [data-speedup]`, /^22\.15$/);
+    await expectText(page, `${r} .m-debrief`, /nothing buys you more than 10 times/);
+    // The far end: the note used to call a run at a quarter of the formula "a little under".
+    await set(1000, 12);
+    await expectText(page, `${r} [data-speedup]`, /^4096\.00$/);
+    await page.click(`${r} [data-run]`);
+    await expectText(page, `${r} [data-ticks]`, /^1000\.00$/);
+    await expectText(page, `${r} [data-sched]`, /^1 tick instead of[\s\S]*76% under the formula[\s\S]*no use for more than 1,000 cores/);
+    await set(1000, 3);
+    await page.click(`${r} [data-run]`);
+    await expectText(page, `${r} [data-ticks]`, /^8\.00$/);
+    if ((await page.locator(`${r} [data-sched]`).textContent()).includes('under the formula')) throw new Error('the note spoke where the two agree exactly');
+    await expectText(page, `${r} [data-limit]`, /no limit/);
+    await page.selectOption(`${r} [data-pattern]`, 'alternating');
+    await expectText(page, `${r} [data-lane-speed]`, /^4\.00x$/);
+    await expectText(page, `${r} [data-both]`, /^128 of 128$/);
+    await page.selectOption(`${r} [data-pattern]`, 'uniform');
+    await expectText(page, `${r} [data-lane-speed]`, /^8\.00x$/);
+    await page.selectOption(`${r} [data-lanes]`, '1');
+    await expectText(page, `${r} [data-lane-note]`, /ordinary machine/);
+  });
+
+  await scenario('joule-lab', '/learn/computer/energy/', async (page) => {
+    const r = '[data-jlab]';
+    await page.locator(r).scrollIntoViewIfNeeded();
+    const set = async (v, g) => { await page.selectOption(`${r} [data-volts]`, String(v)); await page.selectOption(`${r} [data-ghz]`, String(g)); };
+    await expectText(page, `${r} [data-total]`, /^4\.26 J$/);
+    await page.selectOption(`${r} [data-ghz]`, '2');
+    await expectText(page, `${r} [data-total]`, /^5\.48 J$/);
+    await expectText(page, `${r} [data-verdict]`, /more energy than full speed/);
+    // Asking for a clock the voltage can't reach gets no number at all.
+    await set(0.6, 4.5);
+    await expectText(page, `${r} [data-verdict]`, /can't run/);
+    await expectText(page, `${r} [data-total]`, /no result/);
+    await set(0.8, 2.5);
+    await expectText(page, `${r} [data-total]`, /^2\.80 J$/);
+    await set(0.5, 0.5);
+    await expectText(page, `${r} [data-verdict]`, /misses the deadline/);
+    await set(0.6, 1.5);
+    await expectText(page, `${r} [data-total]`, /^2\.45 J$/);
+    await expectText(page, `${r} .m-debrief`, /It's the voltage that matters/);
+    await expectText(page, `${r} [data-gap]`, /2\.87 × 10\^-21/);
+    await page.selectOption(`${r} [data-op]`, 'dram');
+    await expectText(page, `${r} [data-gap]`, /sets no minimum for the copy itself/);
+    await expectText(page, `${r} [data-gap]`, /those 64 bits is 1\.84 × 10\^-19 J, about 7\.08 × 10\^9 times less/);
+    await page.selectOption(`${r} [data-temp]`, '4');
+    await expectText(page, `${r} [data-gap]`, /at 4 K/);
+  });
+
+  await scenario('qubit-lab', '/learn/computer/qubits/', async (page) => {
+    const r = '[data-qlab]';
+    await page.locator(r).scrollIntoViewIfNeeded();
+    const gate = (g) => page.click(`${r} [data-gate="${g}"]`);
+    const chance = (label, re) => expectText(page, `${r} [data-row="${label}"]`, re);
+    await chance('00', /100\.0%/);
+    await gate('H:0');
+    await chance('00', /50\.0%/);
+    await chance('10', /50\.0%/);
+    await gate('H:0');
+    await chance('00', /100\.0%/);
+    await page.click(`${r} [data-reset]`);
+    await gate('H:0'); await gate('Z:0');
+    await chance('10', /-0\.707[\s\S]*50\.0%/);
+    await gate('H:0');
+    await chance('10', /100\.0%/);
+    await page.click(`${r} [data-reset]`);
+    await gate('H:0');
+    await page.click(`${r} [data-cnot="0:1"]`);
+    await chance('11', /50\.0%/);
+    await chance('01', /0\.0%/);
+    await expectText(page, `${r} [data-note]`, /Entangled/);
+    await page.click(`${r} [data-shoot]`);
+    const first = await expectText(page, `${r} [data-shots]`, /\|01> 0\s+\|10> 0/);
+    await page.click(`${r} [data-shoot]`);
+    const second = await expectText(page, `${r} [data-shots]`, /\|01> 0\s+\|10> 0/);
+    if (first !== second) throw new Error('the same seed gave different shots');
+    await page.fill(`${r} [data-seed]`, '2');
+    await page.click(`${r} [data-shoot]`);
+    const third = await expectText(page, `${r} [data-shots]`, /seed 2:/);
+    if (third === second) throw new Error('a different seed gave identical text');
+    // A real measurement collapses the state, and both qubits now agree.
+    await page.click(`${r} [data-measure="0"]`);
+    await expectText(page, `${r} [data-note]`, /Certain/);
+    await expectText(page, `${r} [data-circuit]`, /Measure\(q0\) read [01]/);
+    // Fresh runs of that circuit: the shots message said so and showed 100% one outcome.
+    await page.click(`${r} [data-reset]`);
+    await gate('H:0');
+    await page.click(`${r} [data-measure="0"]`);
+    await page.selectOption(`${r} [data-count]`, '1000');
+    await page.click(`${r} [data-shoot]`);
+    const fresh = await expectText(page, `${r} [data-shots]`, /fresh run of the circuit above, its measurement included/);
+    const seenCount = (label) => Number(new RegExp(`\\|${label}> (\\d+)`).exec(fresh)[1]);
+    if (seenCount('00') < 300 || seenCount('10') < 300) throw new Error(`H then Measure should be near 50/50 in fresh runs: ${fresh}`);
+    // Reading again changes nothing, and a later gate can make new outcomes.
+    await gate('H:0');
+    await expectText(page, `${r} [data-note]`, /2 outcomes possible/);
+    await page.click(`${r} [data-reset]`);
+    await expectText(page, `${r} [data-shots]`, /No shots yet/);
+    // An entangled state whose chances look independent gets called what it is.
+    await gate('H:0'); await gate('H:1');
+    await page.click(`${r} [data-cz]`);
+    await expectText(page, `${r} [data-note]`, /Entangled: these amplitudes/);
+    await page.click(`${r} [data-reset]`);
+    await gate('H:0'); await gate('H:1');
+    await page.click(`${r} [data-oracle]`);
+    // The table can't hand over the oracle's secret before Diffusion has done anything.
+    await expectText(page, `${r} [data-note]`, /hiding which/);
+    for (const label of ['00', '01', '10', '11']) await chance(label, /±0\.500[\s\S]*25\.0%/);
+    if (await page.locator(`${r} .ql-bar i.neg`).count()) throw new Error('a red bar gave away the marked item before Diffusion');
+    await page.click(`${r} [data-diffusion]`);
+    await expectText(page, `${r} [data-note]`, /Certain/);
+    await expectText(page, `${r} .m-debrief`, /Nothing here tried every answer/);
+  });
+}
+
 await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {
   const r = '[data-strangler]';
   await page.locator(r).scrollIntoViewIfNeeded();

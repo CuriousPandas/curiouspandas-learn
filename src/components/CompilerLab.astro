@@ -1,0 +1,319 @@
+---
+import '../styles/widgets.css';
+interface Props { part?: 'parse' | 'generate' }
+const { part = 'parse' } = Astro.props;
+---
+<div class="widget card complab" data-complab data-part={part}>
+  <div class="widget-head">
+    <strong>{part === 'parse' ? 'Parser lab' : 'Code generator lab'}</strong>
+    <span class="pill info">a tiny compiler in this page. The machines it targets are invented for this lesson</span>
+  </div>
+  <div class="cp-grid">
+    <div class="cp-main">
+      <label class="cp-field">
+        <span class="eyebrow">Expression <span class="muted">x is 7 and y is 2. Operators: + - * / // % ** and brackets</span></span>
+        <input type="text" data-text spellcheck="false" autocapitalize="off" autocomplete="off" value={part === 'parse' ? '1 + 2 * 3' : '1 + 2 * 3'} aria-label="Expression to compile" />
+      </label>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-compile>Compile</button>
+        {part === 'parse' && (
+          <label>Parser
+            <select data-mode>
+              <option value="correct">correct (Python's rules)</option>
+              <option value="flat">broken: no precedence for + - * / // %</option>
+              <option value="right">broken: + and - group from the right</option>
+              <option value="excel">different rule: Excel's table</option>
+            </select>
+          </label>
+        )}
+        {part === 'generate' && (
+          <>
+            <label>Generator
+              <select data-gen>
+                <option value="correct">correct</option>
+                <option value="swapped">broken: right side first</option>
+              </select>
+            </label>
+            <label><input type="checkbox" data-fold /> fold constants</label>
+            <label>Registers
+              <select data-regs>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+                <option value="8">8</option>
+              </select>
+            </label>
+          </>
+        )}
+      </div>
+      {part === 'parse' && (
+        <p class="cp-note" data-excel-note hidden>This rule uses this page's marks, with ** for power, and only the order from Microsoft's table for Excel: negation first, then powers from the left. The arithmetic stays Python's, so 6 / 2 still shows 3.0 and errors keep Python's names. We read the table and didn't run Excel.</p>
+      )}
+      <div class="cp-point" data-point role="status" hidden>
+        <pre data-point-line tabindex="0"></pre>
+        <p data-point-msg></p>
+      </div>
+      <section class="cp-panel">
+        <h4>Tokens <span class="muted">what the scanner made of the characters</span></h4>
+        <div class="cp-tokens" data-tokens></div>
+      </section>
+      <section class="cp-panel" data-tree-panel>
+        <h4>Tree <span class="muted">the operator nearest the top runs last</span></h4>
+        <div class="cp-tree" data-tree></div>
+        <p class="cp-brackets" data-brackets></p>
+      </section>
+      {part === 'generate' && (
+        <section class="cp-panel" data-code-panel>
+          <div class="cp-two">
+            <div>
+              <h4>TSM: stack machine <span class="muted" data-stack-count></span></h4>
+              <ol class="cp-code" data-stack-code start="0"></ol>
+              <div class="controls">
+                <button class="btn small" type="button" data-step>Step</button>
+                <button class="btn small" type="button" data-rewind>Back to start</button>
+              </div>
+              <p class="cp-stack" data-stack aria-live="polite"></p>
+            </div>
+            <div>
+              <h4>TRM: register machine <span class="muted" data-reg-count></span></h4>
+              <ol class="cp-code" data-reg-code start="0"></ol>
+            </div>
+          </div>
+        </section>
+      )}
+      <div class="stats">
+        <div class="stat">this compiler<b data-mine>not run yet</b></div>
+        <div class="stat">the page's Python sandbox<b data-py>not run yet</b></div>
+      </div>
+      <p class="cp-verdict" data-verdict role="status"></p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { PyProgram } from '../lib/py/vm.ts';
+  import { LAB_ENV, LIMIT_NOTE, PRINT_NOTE, TinySyntaxError, bracketed, layout, parseVerdict, sameTree, scan, showReg, showStack, showValue, type GenMode, type GenState, type ParserMode, type Tree } from '../lib/cs/tinycomp.ts';
+  import { GENERATE_MISSION, PARSE_MISSION } from '../lib/cs/tinycomp-missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const SVG = 'http://www.w3.org/2000/svg';
+  const svg = (tag: string, attrs: Record<string, string | number>, text?: string) => {
+    const e = document.createElementNS(SVG, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+
+  /** The same text in the page's Python, the one tests/py-parity.test.ts holds to real Python. */
+  function askPython(text: string): { ok: boolean; text: string } {
+    const prelude = Object.entries(LAB_ENV).map(([k, v]) => `${k} = ${v}`).join('\n');
+    const p = new PyProgram(`${prelude}\nprint(repr(${text}))\n`, { maxOps: 200_000 });
+    p.run();
+    if (p.status === 'done') return { ok: true, text: p.stdout.trim() };
+    return { ok: false, text: p.error ? p.error.type : p.status };
+  }
+
+  function drawTree(host: HTMLElement, t: Tree) {
+    const { nodes, width, depth } = layout(t);
+    const X = 64, Y = 58, R = 20;
+    const w = Math.max(width * X, X), h = (depth + 1) * Y;
+    const root = svg('svg', { viewBox: `0 0 ${w} ${h}`, width: w, height: h, role: 'img', 'aria-label': `Tree: ${bracketed(t)}` });
+    const cx = (x: number) => x * X + X / 2, cy = (y: number) => y * Y + Y / 2;
+    for (const n of nodes) if (n.parent !== null) {
+      const p = nodes[n.parent];
+      root.append(svg('line', { x1: cx(p.x), y1: cy(p.y), x2: cx(n.x), y2: cy(n.y), class: 'cp-edge' }));
+    }
+    for (const n of nodes) {
+      const g = svg('g', { class: `cp-node ${n.kind}` });
+      g.append(svg('circle', { cx: cx(n.x), cy: cy(n.y), r: R }));
+      const size = n.label.length > 5 ? 9 : n.label.length > 3 ? 11 : 14;
+      g.append(svg('text', { x: cx(n.x), y: cy(n.y), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': size }, n.label));
+      root.append(g);
+    }
+    host.replaceChildren(root);
+  }
+
+  function showPointer(box: HTMLElement, text: string, col: number, message: string) {
+    box.hidden = false;
+    box.querySelector('[data-point-line]')!.textContent = `${text}\n${' '.repeat(col)}^`;
+    box.querySelector('[data-point-msg]')!.textContent = message;
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-complab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const part = root.dataset.part;
+    const input = q<HTMLInputElement>('[data-text]');
+    const mineBox = q('[data-mine]'), pyBox = q('[data-py]'), verdict = q('[data-verdict]');
+    const point = q('[data-point]'), tokensBox = q('[data-tokens]'), treeBox = q('[data-tree]'), bracketsBox = q('[data-brackets]');
+
+    const showTokens = (text: string) => {
+      const { tokens, error } = scan(text);
+      tokensBox.replaceChildren(...tokens.filter((t) => t.t !== 'end').map((t) => el('code', { class: `cp-tok ${t.t}` }, t.text)), ...(error ? [el('code', { class: 'cp-tok bad' }, 'stopped here')] : []));
+      if (!tokens.filter((t) => t.t !== 'end').length && !error) tokensBox.replaceChildren(el('span', { class: 'muted' }, 'Nothing yet.'));
+    };
+    const clearTree = () => { treeBox.replaceChildren(el('p', { class: 'muted' }, 'No tree: the text never got that far.')); bracketsBox.textContent = ''; };
+    const showResults = (mine: string, py: { text: string }, cls: string) => { mineBox.textContent = mine; pyBox.textContent = py.text; verdict.className = `cp-verdict ${cls}`; };
+
+    const guard = (fn: () => void) => () => {
+      try { fn(); }
+      catch (e) {
+        verdict.className = 'cp-verdict bad';
+        verdict.textContent = `This is a bug in this page's tiny compiler, not in your expression. Details for a bug report: ${e instanceof Error ? e.message : String(e)}`;
+        console.error(`The compiler lab failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+
+    if (part === 'parse') {
+      const state = PARSE_MISSION.setup();
+      const refresh = mountMission(q('[data-mission-panel]'), PARSE_MISSION, () => state);
+      const mode = q<HTMLSelectElement>('[data-mode]');
+      const go = guard(() => {
+        const text = input.value, m = mode.value as ParserMode;
+        const a = state.lab.try(text, m);
+        showTokens(text);
+        point.hidden = true;
+        if (!a.result.ok) {
+          clearTree();
+          showPointer(point, text, a.result.error.col, a.result.error.message);
+          const kind = a.result.error.kind;
+          showResults('no answer', { text: 'not asked' }, 'warn');
+          // Not every refusal can say what real Python does: = and [ only say this language has none.
+          verdict.textContent = kind === 'refused' ? 'Refused by name: this rule or this tiny language leaves that out, and the message says why.' : kind === 'name' ? 'The text is well formed, and it means nothing here: that name isn\'t defined.' : 'The parser stopped at the first place the text stopped making sense.';
+          refresh();
+          return;
+        }
+        drawTree(treeBox, a.result.tree);
+        bracketsBox.textContent = `Read as: ${bracketed(a.result.tree)}`;
+        const mine = a.result.outcome.ok ? a.result.outcome.text : a.result.outcome.error.type;
+        const py = askPython(text);
+        const sameShape = a.truth.ok && sameTree(a.result.tree, a.truth.tree);
+        const said = parseVerdict(m, a.result.outcome, py, sameShape);
+        showResults(mine, py, said.cls);
+        verdict.textContent = said.text;
+        refresh();
+      });
+      q('[data-compile]').addEventListener('click', go);
+      mode.addEventListener('change', () => { q('[data-excel-note]').hidden = mode.value !== 'excel'; go(); });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      go();
+      // Loading the page shouldn't count as a learner trying the correct parser's example.
+      state.lab.attempts.length = 0;
+      refresh();
+    } else {
+      const state = GENERATE_MISSION.setup();
+      const refresh = mountMission(q('[data-mission-panel]'), GENERATE_MISSION, () => state);
+      const gen = q<HTMLSelectElement>('[data-gen]'), foldBox = q<HTMLInputElement>('[data-fold]'), regs = q<HTMLSelectElement>('[data-regs]');
+      const stackCode = q('[data-stack-code]'), regCode = q('[data-reg-code]'), stackLine = q('[data-stack]');
+      const stepBtn = q<HTMLButtonElement>('[data-step]');
+      let current: GenState | null = null, pc = -1;
+
+      const drawStack = () => {
+        const g = current;
+        if (!g) return;
+        [...stackCode.children].forEach((li, i) => li.classList.toggle('at', i === pc));
+        const s = pc >= 0 ? g.run.trace[pc] : null;
+        if (!s) stackLine.textContent = 'Stack: empty. Press Step.';
+        else if (s.error) { stackLine.textContent = `Stopped here: ${s.error.type}. A failure belongs to the run, not the compile.`; stackLine.className = 'cp-stack bad'; stepBtn.disabled = true; return; }
+        // A value can be right and still too long for Python to print, so the end of the run can't always call it the answer.
+        else stackLine.textContent = `Stack, top on the right: [ ${s.stack.map(showValue).join('  ')} ]${pc === g.run.trace.length - 1 ? (g.run.outcome.ok ? '   That\'s the end: the last value left is the answer.' : '   That\'s the end: the last value left is the answer, and it\'s too long for Python to print.') : ''}`;
+        stackLine.className = 'cp-stack';
+        const atEnd = pc === g.run.trace.length - 1;
+        stepBtn.disabled = atEnd;
+        if (atEnd && !state.lab.steppedToEnd.includes(g)) { state.lab.steppedToEnd.push(g); refresh(); }
+      };
+
+      const go = guard(() => {
+        const text = input.value;
+        const made = state.lab.build(text, { fold: foldBox.checked, mode: gen.value as GenMode, registers: Number(regs.value) });
+        showTokens(text);
+        point.hidden = true;
+        stepBtn.disabled = false;
+        if (made instanceof TinySyntaxError) {
+          current = null; pc = -1;
+          clearTree();
+          stackCode.replaceChildren(); regCode.replaceChildren();
+          q('[data-stack-count]').textContent = ''; q('[data-reg-count]').textContent = '';
+          stackLine.textContent = '';
+          stepBtn.disabled = true;
+          showPointer(point, text, made.col, made.message);
+          showResults('no answer', { text: 'not asked' }, 'warn');
+          verdict.textContent = 'No tree means no code to generate.';
+          refresh();
+          return;
+        }
+        current = made; pc = -1;
+        drawTree(treeBox, made.foldedTree);
+        bracketsBox.textContent = made.fold && !sameTree(made.tree, made.foldedTree) ? `Before folding: ${bracketed(made.tree)}. After: ${bracketed(made.foldedTree)}` : `Read as: ${bracketed(made.tree)}`;
+        stackCode.replaceChildren(...made.stack.map((i) => el('li', {}, el('code', {}, showStack(i)))));
+        regCode.replaceChildren(...made.reg.code.map((i) => el('li', {}, el('code', {}, showReg(i)))));
+        q('[data-stack-count]').textContent = `${made.stack.length} instruction${made.stack.length === 1 ? '' : 's'}${made.fold ? `, ${made.plain.length} before folding` : ''}, stack ${made.run.maxDepth} deep`;
+        q('[data-reg-count]').textContent = `${made.reg.code.length} instructions, ${made.registers} registers, ${made.reg.spills} value${made.reg.spills === 1 ? '' : 's'} saved to memory`;
+        drawStack();
+        const out = made.run.outcome, py = askPython(text);
+        const mine = out.ok ? out.text : out.error.type;
+        const regAns = made.regOutcome.ok ? made.regOutcome.text : made.regOutcome.error.type;
+        const agree = mine === py.text;
+        showResults(mine, py, agree ? 'ok' : 'bad');
+        if (mine === 'SandboxLimit' && py.text === 'SandboxLimit') { verdict.className = 'cp-verdict warn'; verdict.textContent = LIMIT_NOTE; refresh(); return; }
+        if (mine === 'ValueError' && py.text === 'ValueError' && regAns === mine) { verdict.className = 'cp-verdict warn'; verdict.textContent = PRINT_NOTE; refresh(); return; }
+        verdict.textContent = agree
+          ? `Both machines and Python agree${regAns === mine ? '' : ' except the register machine, which is a bug in this page'} for this one expression. That's one check, not a proof.`
+          : made.mode === 'swapped' ? `The tree is right and the instructions aren't: the operands reach the machine the wrong way round. The register machine doesn't use this bug${regAns === py.text ? ', so it still agrees with Python' : ''}.` : 'A different answer from Python: this is a bug in this page, please report it.';
+        refresh();
+      });
+      q('[data-compile]').addEventListener('click', go);
+      [gen, foldBox, regs].forEach((c) => c.addEventListener('change', go));
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      stepBtn.addEventListener('click', guard(() => { if (current && pc < current.run.trace.length - 1) { pc++; drawStack(); } }));
+      q('[data-rewind]').addEventListener('click', guard(() => { pc = -1; stepBtn.disabled = !current; drawStack(); }));
+      go();
+      state.lab.history.length = 0;
+      refresh();
+    }
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the tree, tokens and listings are created by the script. */
+  .complab .cp-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  @media (min-width: 1000px) { .complab .cp-grid { grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr); } }
+  .complab .cp-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .complab .cp-field { display: grid; gap: 4px; }
+  .complab .cp-field .muted { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .complab .cp-field input { font: inherit; font-family: var(--mono); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); width: 100%; box-sizing: border-box; }
+  .complab .cp-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .complab h4 { margin: 0 0 6px; font-size: 0.92rem; }
+  .complab h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .complab .cp-tokens { display: flex; flex-wrap: wrap; gap: 4px; min-height: 1.6em; }
+  .complab .cp-tok { padding: 2px 7px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line); font-size: 0.85rem; }
+  .complab .cp-tok.num { border-color: var(--bamboo); }
+  .complab .cp-tok.name { border-color: var(--sun-text); }
+  .complab .cp-tok.bad { border-color: var(--berry); color: var(--berry); }
+  .complab .cp-tree { overflow-x: auto; max-width: 100%; }
+  .complab .cp-tree svg { display: block; margin: 0 auto; }
+  .complab .cp-edge { stroke: var(--line-2); stroke-width: 2; }
+  .complab .cp-node circle { fill: var(--panel); stroke: var(--ink-2); stroke-width: 2; }
+  .complab .cp-node text { fill: var(--ink); font-family: var(--mono); }
+  .complab .cp-node.num circle { stroke: var(--bamboo); }
+  .complab .cp-node.name circle { stroke: var(--sun-text); }
+  .complab .cp-brackets { margin: 6px 0 0; font-family: var(--mono); font-size: 0.85rem; overflow-wrap: anywhere; }
+  .complab .cp-point { padding: 8px 10px; border-radius: 8px; font-size: 0.85rem; background: var(--berry-soft); color: var(--ink); min-width: 0; }
+  .complab .cp-point pre { margin: 0; padding: 0; background: none; color: inherit; overflow-x: auto; font-size: 0.9rem; }
+  .complab .cp-point p { margin: 4px 0 0; }
+  .complab .cp-point[hidden] { display: none; }
+  .complab .cp-note { margin: 0; font-size: 0.85rem; color: var(--ink-2); }
+  .complab .cp-note[hidden] { display: none; }
+  .complab .cp-two { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  @media (min-width: 620px) { .complab .cp-two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .complab .cp-code { margin: 0 0 8px; padding-left: 28px; font-size: 0.85rem; display: grid; gap: 1px; max-height: 340px; overflow-y: auto; }
+  .complab .cp-code li.at { background: var(--sun-soft); border-radius: 4px; }
+  .complab .cp-code li.at code { color: var(--sun-text); font-weight: 650; }
+  .complab .cp-stack { margin: 8px 0 0; font-size: 0.85rem; font-family: var(--mono); overflow-wrap: anywhere; min-height: 1.4em; }
+  .complab .cp-stack.bad { color: var(--berry); font-weight: 650; }
+  .complab .cp-verdict { margin: 0; font-size: 0.9rem; }
+  .complab .cp-verdict.bad { color: var(--berry); font-weight: 650; }
+  .complab .cp-verdict.ok { color: var(--bamboo); font-weight: 650; }
+  .complab .cp-verdict.warn { color: var(--sun-text); font-weight: 650; }
+  .complab .stat b { overflow-wrap: anywhere; }
+</style>

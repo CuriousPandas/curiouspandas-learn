@@ -1,0 +1,138 @@
+---
+title: "Memory, disk, network: a sense of scale"
+summary: A 43-second network cut left GitHub degraded for 24 hours, partly because one trip across a country is enormous compared with one across a building. Learn the real numbers with their sources and dates, why the famous table is out of date, what you can't speed up, and how to measure without fooling yourself.
+minutes: 20
+xp: 55
+tiers: [browser]
+builds_on: [computer/caches]
+sources:
+  - title: GitHub - October 21 post-incident analysis (2018)
+    url: https://github.blog/news-insights/company-news/oct21-post-incident-analysis/
+  - title: Jeff Dean - Designs, Lessons and Advice from Building Large Distributed Systems (LADIS 2009), "Numbers Everyone Should Know"
+    url: https://www.cs.cornell.edu/projects/ladis2009/talks/dean-keynote-ladis2009.pdf
+  - title: Peter Norvig - Teach Yourself Programming in Ten Years (approximate timings)
+    url: https://norvig.com/21-days.html
+  - title: Colin Scott - interactive latency page, the source with its formulas
+    url: https://raw.githubusercontent.com/colin-scott/interactive_latencies/master/interactive_latency.html
+  - title: Microsoft - Azure network round-trip latency statistics (data to 2026-07-30)
+    url: https://learn.microsoft.com/en-us/azure/networking/azure-network-latency
+  - title: Micron - 7450 SSD product page
+    url: https://www.micron.com/products/storage/ssd/data-center-ssd/7450-ssd
+  - title: Micron - 7450 SSD technical product specification (read second-hand here, through a search index, because Micron's server refused direct requests)
+    url: https://assets.micron.com/adobe/assets/urn:aaid:aem:d133a40b-b36c-4b17-b768-659acc4d4bca/renditions/original/as/7450-nvme-ssd-tech-prod-spec.pdf
+  - title: Micron - The 7450 NVMe SSD provides consistent low latency (blog)
+    url: https://www.micron.com/about/blog/storage/ssd/micron-advanced-workload-demands
+  - title: Seagate Exos X18 data sheet (July 2020)
+    url: https://www.seagate.com/www-content/datasheets/pdfs/exos-x18-channel-DS2045-1-2007GB-en_GB.pdf
+  - title: BIPM - the SI definition of the metre, which fixes the speed of light
+    url: https://www.bipm.org/en/si-base-units/metre
+  - title: Ulrich Drepper - What Every Programmer Should Know About Memory (2007, free PDF)
+    url: https://people.freebsd.org/~lstewart/articles/cpumemory.pdf
+  - title: Linux man page - perf-stat
+    url: https://man7.org/linux/man-pages/man1/perf-stat.1.html
+---
+
+"At 22:52 UTC on October 21, routine maintenance work to replace failing 100G optical equipment resulted in the loss of connectivity between our US East Coast network hub and our primary US East Coast data center. Connectivity between these locations was restored in 43 seconds, but this brief outage triggered a chain of events that led to 24 hours and 11 minutes of service degradation."
+
+That's GitHub's own account of 2018. In those 43 seconds their automated **failover**, the system that switches to a standby when the main machine seems to be gone, moved their primary databases, the ones that take writes, to the West Coast. When connectivity returned, applications began writing there. By the time people had worked out what happened, the West Coast had taken in writes that the East Coast didn't have, and the East Coast had a few that the West Coast didn't. So they couldn't safely move back, and staying was a problem of its own. In their words: "applications running in the East Coast that depend on writing information to a West Coast MySQL cluster are currently unable to cope with the additional latency introduced by a cross-country round trip for the majority of their database calls." (MySQL is a database, and a cluster here is a group of machines running it.)
+
+That's one part of a long report, and most of those 24 hours went on restoring databases from backups and catching them up. Still, one of their follow-ups says "the sudden introduction of cross-country latency was a major contributing factor".
+
+Going by that account, their code had been fine with a database close by, and it talked to that database often. Then the database moved a few thousand kilometres away, and nothing in the code changed. Sizes like these are hard to feel, because they're all far too small to notice individually. So let's get a feel for them.
+
+## The famous table, and what's wrong with it
+
+You'll see some version of this everywhere. **Latency** is how long you wait before an answer starts to arrive. The table's two "Read 1 MB" rows also include the time to move that whole megabyte, so they mix in something else, which comes up below. Here are two versions, side by side. Jeff Dean's slide "Numbers Everyone Should Know" is from a 2009 talk. Peter Norvig's are in his essay, labelled as "Approximate timing for various operations on a typical PC". It's the same list with almost the same numbers, and it isn't clear when he last changed them. His page has a copyright line of 2001 to 2014.
+
+| Operation | Dean, 2009 | Norvig |
+|---|---|---|
+| L1 cache | 0.5 ns | 0.5 ns |
+| Branch mispredict | 5 ns | 5 ns |
+| L2 cache | 7 ns | 7 ns |
+| Mutex lock and unlock | 25 ns | 25 ns |
+| Main memory | 100 ns | 100 ns |
+| Send 2K bytes over 1 Gbps network | 20,000 ns | 20,000 ns |
+| Read 1 MB sequentially from memory | 250,000 ns | 250,000 ns |
+| Round trip within same data center | 500,000 ns | not listed |
+| Disk seek | 10,000,000 ns | 8,000,000 ns |
+| Read 1 MB sequentially from disk | 20,000,000 ns | 20,000,000 ns |
+| Packet to Europe and back (Dean: California to the Netherlands) | 150,000,000 ns | 150,000,000 ns |
+
+(A **mutex** is a lock that lets one thread, one independent line of execution in a program, into a piece of code at a time.)
+
+Those are round numbers from the 2000s, not a measurement of anything you can buy now. They're also the numbers this site's own labs have used as round figures, with that label. Three things have moved in the years since, or were never as simple as a table makes them look.
+
+**The table has no SSD in it.** A solid-state drive has no moving parts. Micron's specification for one data-centre drive lists a typical read latency of 80 µs, meaning the median of 4 KB reads with nothing else queued. We're quoting that second-hand, from a search index's copy, because Micron's document server refused our direct requests for the file. That's about 125 times faster than Dean's disk seek. It isn't one number either: Micron's product page says the drive "consistently delivers 2ms and lower latency for 99.9999% QoS", in a heavier, mixed workload (its footnote says "up to queue depth = 32 for 4KB, 100% random, 70% read workload"), and its blog calls those read latencies. That's up to 25 times the typical figure, for the rare slow read, under different conditions.
+
+**The network has moved, and physics hasn't.** The table's 1 Gbps is one speed among many, and getting 2K bytes onto a 10 Gbps link takes a tenth of the time. The time for them to cross a country doesn't get any shorter. See below.
+
+**A disk's rotation hasn't moved.** A 7,200 RPM drive still turns 7,200 times a minute. Half a turn takes 4.17 ms, and Seagate's 2020 data sheet says "Average Latency (ms)" 4.16, because that's physics rather than progress. Reading along a track has got faster, though. The same sheet lists a "Max. Sustained Transfer Rate OD" of 270 MB/s, at the disk's outer edge, which is about 3.7 ms for the table's 1 MB against its 20 ms.
+
+Be careful with Colin Scott's popular page, "Numbers Every Programmer Should Know By Year", too. It looks like a measurement, and its source shows it's a projection from formulas. Its own notes say "All of Norvig's original numbers were from 2002", and each row then follows an assumed rule such as "Clock speed stopped at ~3GHz in ~2005" or "NIC bandwidth doubles every 2 years". That's a reasonable way to explore a trend, and it isn't data about the year on the slider.
+
+## The sizes, with their sources
+
+Each row here says where it came from, its date, what kind of number it is and where it holds. To feel the gaps, pretend one of them takes a second. If reading from the L1 cache took a second, a read from main memory would take over 3 minutes, a data-centre round trip almost 12 days, and a trip across the Atlantic over 5 years.
+
+<LatencyLab />
+
+## What you can't speed up
+
+The Azure numbers in that list are real measurements: the median (the middle value) round trip across Azure's own network over 30 days to 2026-07-30. East US to West US takes 69 ms, and East US to West Europe takes 83 ms. Note that they're for that direction: the page says "Each latency value is directional", and the two ways can differ.
+
+Now compare them with the laws of physics. The metre is defined by the speed of light: "c = 299 792 458 m s–1", exactly. That's about 30 cm per nanosecond, so in the 0.5 ns of that old L1 figure, light gets 15 cm. A 3 GHz clock ticks every third of a nanosecond, and light gets 10 cm in that time. Signals in a chip go slower than light, and that's one reason the fast parts of a chip have to sit close together.
+
+Over long distances, this is the limit that actually matters. The Atlantic is very roughly 6,000 km across, which is a round figure of ours and not from a source. Light in a vacuum takes about 40 ms to get there and back. Measured, it takes 83 ms, because light is slower in glass fibre, cables don't run in straight lines, and networks add their own delays. So engineers can get at most about half of that time back, no matter what they buy. The rest is physics. A faster network makes more data arrive per second, and the first bit still takes as long to get there.
+
+That's the difference between two measures that are easy to confuse. **Latency** is how long until the first byte arrives, as above. **Bandwidth** is how many bytes per second arrive after that. A truck full of hard drives has terrible latency and superb bandwidth. Sending one small request and waiting for the answer is all latency.
+
+<Callout kind="trap" title="Loops around round trips">
+GitHub's report says its applications couldn't cope with a cross-country round trip "for the majority of their database calls". It doesn't say how that code was written, or that this was the fix: its first listed follow-up is a change to the failover's configuration. A common shape for this problem, in general, is a loop that makes one call per item, which looks harmless when the database is close. It's the same kind of hidden cost as in [counting steps](/learn/algorithms/counting-steps/), with a far higher price per step. The usual advice is fewer round trips: batches, or asking for everything at once. Your mission in the lab does exactly that. It only works if the program was built to allow it, so it's worth checking before the emergency.
+</Callout>
+
+## Measuring without fooling yourself
+
+The lessons on this track quoted numbers from one machine, and said so. Here's what it takes to get one you can trust, and how each of those measurements could have gone wrong.
+
+- **The engine may delete your work.** A loop whose result is never used can be optimised away, and it then looks very fast. Our walks return where they ended and print it, so the work has to happen.
+- **Timers are coarse.** A browser's timer can't see single nanoseconds. Each point on this track's panels is millions of steps, for that reason.
+- **Warm up, then measure.** The first runs of a function are often slower, because the engine hasn't compiled it yet, and because nothing is in cache yet.
+- **Other things are running.** Ours ran on a machine doing other jobs at the same time, and that changed the answer: in the caches lesson, running eight other memory-heavy programs alongside moved one walk's gap from 18x to 30x up to about 39x. So we give a range over several runs rather than one number, and even then a rerun on the same CPU moved some rows by more than a factor of two.
+- **An average hides the slow cases.** Micron gives a typical read and also a far slower 99.9999th percentile, because the slow ones are what a busy system runs into. A **percentile** says what share of cases are at or under a value.
+- **A small benchmark is not your program.** It tells you about the one thing it does. To find out where a real program spends its time, use a **profiler**, a tool that measures a running program. On Linux, `perf stat` reports counts of events like `branch-misses` and `page-faults`. (A **page fault** happens when a program touches a page of its memory that isn't in main memory right now, and it can mean waiting for a disk.) We haven't run `perf` for these lessons, because the numbers here come from a browser or from Node on Windows.
+
+<Callout kind="real" title="What this lesson can't give you">
+The numbers on this page go out of date. That's the point of giving dates. Vendors' figures are for their test conditions, and a real drive under load behaves differently. Azure's numbers are for its own network, not for the public Internet. None of it tells you about your machine, so if a decision depends on it, measure it there. The value of a table like this is not its digits. It's knowing that memory is around two hundred times slower than the fastest cache, an SSD several hundred times slower than memory, and a trip across an ocean about a thousand times slower again.
+</Callout>
+
+<Quiz
+  id="comp-lat-1"
+  q="A page does 40 database writes, one after another, each one round trip. The database moves from the same data center to across the country. Using this lesson's numbers (0.5 ms and 69 ms), what happens to that part of the page's time?"
+  options={["It stays about the same, because 40 writes is a small number", "It goes from about 20 ms to about 2.76 s, with no change to the code", "It goes up by about 69 ms in total"]}
+  answer={1}
+  explain="40 times 0.5 ms is 20 ms. 40 times 69 ms is 2,760 ms. The extra cost is paid on every trip, so it scales with the number of trips. That's why batching helps and a faster database doesn't."
+/>
+
+<Quiz
+  id="comp-lat-2"
+  q="You upgrade a link between two continents from 1 Gbps to 100 Gbps. What happens to the time for one small request and its reply?"
+  options={["It gets about 100 times shorter", "It barely changes: most of the time is distance, which bandwidth doesn't touch", "It gets longer"]}
+  answer={1}
+  explain="Bandwidth helps with large transfers. For a small request, nearly all the time is the signal crossing the distance. Light takes about 40 ms to cross the Atlantic and back in a vacuum, on any link at all."
+/>
+
+<Quiz
+  id="comp-lat-3"
+  q="A tutorial from 2012 says a disk read takes 10 ms and quotes it as the cost of storage. What should you ask first?"
+  options={["Nothing: storage hasn't changed", "What kind of storage, on what machine, measured when? A spinning disk still has a head to move and a platter to wait for, and an SSD is around a hundred times faster", "Whether the tutorial's author has a faster laptop"]}
+  answer={1}
+  explain="That number was a fair round figure for spinning disks. It isn't a fact about all storage today. A number needs its device, its conditions and its date beside it."
+/>
+
+## What to remember
+
+- Memory is about two hundred times slower than the fastest cache, an SSD several hundred times slower than memory, and a trip across an ocean about a thousand times slower again. Those gaps matter far more than the digits.
+- The famous table is from the 2000s, and it has no SSD in it. Read any such number with its source, its date and its machine.
+- Latency and bandwidth are different. Distance sets a floor under latency, and money can't move it.
+- A program that makes many round trips is fine right up until the far end moves away. Count the trips.
+- Measure on your own system, and watch for the ways a benchmark can lie: deleted work, coarse timers, no warm-up, other load, and averages.

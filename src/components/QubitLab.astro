@@ -1,0 +1,153 @@
+---
+import '../styles/widgets.css';
+---
+<div class="widget card qlab" data-qlab>
+  <div class="widget-head">
+    <strong>Qubit Lab</strong>
+    <span class="pill info">two simulated qubits: ordinary arithmetic in this page. Nothing quantum happens on your device</span>
+  </div>
+  <div class="ql-grid">
+    <div class="ql-main">
+      <div class="ql-gates">
+        <div class="controls"><b>Qubit 0</b>
+          <button class="btn small" type="button" data-gate="H:0">H</button>
+          <button class="btn small" type="button" data-gate="X:0">X</button>
+          <button class="btn small" type="button" data-gate="Z:0">Z</button>
+        </div>
+        <div class="controls"><b>Qubit 1</b>
+          <button class="btn small" type="button" data-gate="H:1">H</button>
+          <button class="btn small" type="button" data-gate="X:1">X</button>
+          <button class="btn small" type="button" data-gate="Z:1">Z</button>
+        </div>
+        <div class="controls"><b>Both</b>
+          <button class="btn small" type="button" data-cnot="0:1">CNOT 0 to 1</button>
+          <button class="btn small" type="button" data-cnot="1:0">CNOT 1 to 0</button>
+          <button class="btn small" type="button" data-cz>CZ</button>
+        </div>
+        <div class="controls"><b>Search</b>
+          <button class="btn small" type="button" data-oracle>Oracle</button>
+          <button class="btn small" type="button" data-diffusion>Diffusion</button>
+        </div>
+        <div class="controls">
+          <button class="btn small" type="button" data-reset>Reset to 00</button>
+        </div>
+      </div>
+      <p class="ql-circuit" data-circuit>Circuit: nothing yet. Both qubits start at 0.</p>
+      <table class="ql-table">
+        <thead><tr><th scope="col">Outcome</th><th scope="col">Amplitude</th><th scope="col">Chance</th><th scope="col"><span class="sr-only">Bar</span></th></tr></thead>
+        <tbody data-rows></tbody>
+      </table>
+      <p class="ql-note" data-note role="status"></p>
+      <div class="controls">
+        <label>Shots
+          <select data-count>
+            <option value="10">10</option>
+            <option value="100" selected>100</option>
+            <option value="1000">1,000</option>
+          </select>
+        </label>
+        <label>Seed <input type="number" data-seed value="1" min="1" max="99999" aria-label="Random seed" /></label>
+        <button class="btn small primary" type="button" data-shoot>Take shots</button>
+        <button class="btn small" type="button" data-measure="0">Measure qubit 0 for real</button>
+        <button class="btn small" type="button" data-measure="1">Measure qubit 1 for real</button>
+      </div>
+      <p class="ql-shots" data-shots role="status">No shots yet. The chances above are the exact answer. Shots are what a real run would show.</p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { QUBIT_MISSION } from '../lib/cs/qubit-missions.ts';
+  import { labNote, signHidden, type LabEvent } from '../lib/cs/qubit.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const showAmp = (x: number) => {
+    const clean = Math.abs(x) < 1e-12 ? 0 : x;
+    return (Math.abs(clean - Math.round(clean)) < 1e-12 ? String(Math.round(clean)) : clean.toFixed(3));
+  };
+  const nameOf = (e: LabEvent) => e.k === 'gate' ? `${e.gate}(q${e.q})` : e.k === 'cnot' ? `CNOT(q${e.control} to q${e.target})` : e.k === 'cz' ? 'CZ' : e.k === 'oracle' ? 'Oracle' : e.k === 'diffusion' ? 'Diffusion' : `Measure(q${e.q}) read ${e.read}`;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-qlab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = QUBIT_MISSION.setup();
+    const lab = state.lab;
+    const refresh = mountMission(q('[data-mission-panel]'), QUBIT_MISSION, () => state);
+    const rows = q('[data-rows]'), note = q('[data-note]'), circuit = q('[data-circuit]');
+    const cells = lab.state.amps.map((_, i) => {
+      const amp = el('code'), chance = el('span'), bar = el('i');
+      rows.append(el('tr', { 'data-row': lab.state.label(i) }, el('th', { scope: 'row' }, el('code', {}, `|${lab.state.label(i)}>`)), el('td', {}, amp), el('td', {}, chance), el('td', { class: 'ql-barcell' }, el('div', { class: 'ql-bar' }, bar))));
+      return { amp, chance, bar };
+    });
+
+    const paint = () => {
+      const s = lab.state, p = s.probabilities();
+      const hide = signHidden(lab);
+      cells.forEach((c, i) => {
+        const shown = showAmp(hide ? Math.abs(s.amps[i].re) : s.amps[i].re);
+        c.amp.textContent = hide && p[i] > 1e-9 ? `±${shown}` : shown;
+        c.chance.textContent = `${(p[i] * 100).toFixed(1)}%`;
+        c.bar.style.width = `${p[i] * 100}%`;
+        c.bar.className = !hide && s.amps[i].re < -1e-12 ? 'neg' : '';
+      });
+      circuit.textContent = lab.events.length ? `Circuit: ${lab.events.map(nameOf).join(', ')}` : 'Circuit: nothing yet. Both qubits start at 0.';
+      note.textContent = labNote(lab);
+      refresh();
+    };
+    const guard = (fn: () => void) => () => {
+      try { fn(); paint(); }
+      catch (e) {
+        note.textContent = `This is a bug in this page's simulator, not something you did. Details for a bug report: ${e instanceof Error ? e.message : String(e)}`;
+        console.error(`The qubit lab failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-gate]').forEach((b) => {
+      const [g, n] = b.dataset.gate!.split(':');
+      b.addEventListener('click', guard(() => lab.gate(g as 'H' | 'X' | 'Z', Number(n))));
+    });
+    root.querySelectorAll<HTMLButtonElement>('[data-cnot]').forEach((b) => {
+      const [a, t] = b.dataset.cnot!.split(':').map(Number);
+      b.addEventListener('click', guard(() => lab.cnot(a, t)));
+    });
+    q('[data-cz]').addEventListener('click', guard(() => lab.cz()));
+    q('[data-oracle]').addEventListener('click', guard(() => lab.oracle()));
+    q('[data-diffusion]').addEventListener('click', guard(() => lab.diffusion()));
+    q('[data-reset]').addEventListener('click', guard(() => { lab.reset(); q('[data-shots]').textContent = 'No shots yet. The chances above are the exact answer. Shots are what a real run would show.'; }));
+    q('[data-shoot]').addEventListener('click', guard(() => {
+      const count = Number(q<HTMLSelectElement>('[data-count]').value);
+      const seedBox = q<HTMLInputElement>('[data-seed]');
+      const seed = Math.max(1, Math.floor(Number(seedBox.value)) || 1);
+      seedBox.value = String(seed);
+      const got = lab.shoot(count, seed);
+      const counted = got.map((n, i) => `|${lab.state.label(i)}> ${n}`).join('   ');
+      q('[data-shots]').textContent = lab.measured
+        ? `${count} shots, seed ${seed}: ${counted}. Each shot is a fresh run of the circuit above, its measurement included, so that measurement can read differently each time. The table still shows the one run you measured, so the two can disagree. The same seed gives the same counts.`
+        : `${count} shots, seed ${seed}: ${counted}. The state is unchanged: each shot is a fresh run of the same circuit, so the same seed gives the same counts, and a different seed gives different luck.`;
+    }));
+    root.querySelectorAll<HTMLButtonElement>('[data-measure]').forEach((b) => b.addEventListener('click', guard(() => {
+      const which = Number(b.dataset.measure);
+      const read = lab.measureQubit(which);
+      q('[data-shots]').textContent = `Qubit ${which} read ${read}. That one measurement changed the state: the outcomes that disagree are gone, and measuring again won't bring them back. A later gate can make new ones.`;
+    })));
+    paint();
+  }
+</script>
+
+<style is:global>
+  .qlab .ql-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  @media (min-width: 1000px) { .qlab .ql-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); } }
+  .qlab .ql-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .qlab .ql-gates { display: grid; gap: 6px; }
+  .qlab .ql-gates b { min-width: 4em; font-size: 0.85rem; }
+  .qlab .ql-circuit { margin: 0; font-size: 0.85rem; font-family: var(--mono); overflow-wrap: anywhere; }
+  /* The lesson body makes every table display: block. Raised specificity keeps this one a table. */
+  .qlab table.ql-table { display: table; width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; table-layout: auto; }
+  .qlab table.ql-table th, .qlab table.ql-table td { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: left; font-weight: 400; white-space: nowrap; }
+  .qlab table.ql-table td.ql-barcell { width: 40%; white-space: normal; }
+  .qlab .ql-bar { height: 12px; background: var(--bg-2); border-radius: 4px; overflow: hidden; min-width: 40px; }
+  .qlab .ql-bar i { display: block; height: 100%; background: var(--bamboo); }
+  .qlab .ql-bar i.neg { background: var(--berry); }
+  .qlab .ql-note, .qlab .ql-shots { margin: 0; font-size: 0.88rem; overflow-wrap: anywhere; }
+  .qlab input[type="number"] { width: 5.5em; font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); }
+  .qlab .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>

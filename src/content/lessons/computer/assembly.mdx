@@ -1,0 +1,243 @@
+---
+title: "Assembly: jumps, calls and the stack"
+summary: In 1988 a worm got into some of its targets on the Internet by writing past the end of a buffer in a network service. Learn how an if and a loop become jumps, how a call knows where to come back to, what a stack frame really holds, and overwrite a return address yourself.
+minutes: 26
+xp: 70
+tiers: [browser]
+builds_on: [computer/toy-cpu]
+sources:
+  - title: RFC 1135 - The Helminthiasis of the Internet (Reynolds, 1989)
+    url: https://www.rfc-editor.org/rfc/rfc1135.txt
+  - title: Eichin and Rochlis - With Microscope and Tweezers, an analysis of the Internet virus of November 1988 (MIT)
+    url: https://web.mit.edu/eichin/www/virus/main.html
+  - title: LLVM documentation - Loop Terminology, on rotated loops
+    url: https://llvm.org/docs/LoopTerminology.html
+  - title: RISC-V ELF psABI - the calling convention
+    url: https://raw.githubusercontent.com/riscv-non-isa/riscv-elf-psabi-doc/master/riscv-cc.adoc
+  - title: The RISC-V Instruction Set Manual, Volume I, version 20240411 (free)
+    url: https://github.com/riscv/riscv-isa-manual/releases/download/20240411/unpriv-isa-asciidoc.pdf
+---
+
+On the evening of 2 November 1988 a program was let loose on the Internet, and it spread itself from machine to machine. RFC 1135, a report written the following year, says "Most users encountered a slowing of their programs, as the systems became overloaded trying to run many copies of the worm program". One of its ways in was `fingerd`, a small network service that answered questions about a machine's users. The RFC describes the method in two sentences:
+
+"Using fingerd, the worm initiated a memory overflow situation by sending too many characters for fingerd to accommodate (in the gets library routine). Upon overflowing the storage space, the worm was able to execute a small arbitrary program."
+
+It sent a request that was too long, and then the service ran code that nobody meant it to run. It's not obvious how a long string can do that. By the end of this lesson you'll have done it yourself, because it comes straight from how function calls work at this level. The RFC adds a detail worth keeping: "Only 4.3BSD VAX machines suffered from this attack." The method depended on the exact machine underneath.
+
+**Assembly language** is the text form of a machine's instructions. It has one line per instruction, with names rather than bits, and labels rather than addresses. An **assembler** turns it into the bits. Compilers go the other way round: from a language like C to instructions like these.
+
+## An if is a jump you might not take
+
+There's no `if` in this machine, and no `while`. There's only "maybe write a new value to `pc`". Here's Python, and then the same thing as instructions.
+
+```python
+total = 0
+n = 5
+while n > 0:
+    if n != 3:
+        total = total + n
+    n = n - 1
+print(total)
+```
+
+<MachineLab code={`# Add up 5, 4, 2 and 1, skipping 3.
+    li a0, 0         # total
+    li t0, 5         # n
+    li t1, 3
+loop:
+    blez t0, done    # while n > 0 ...
+    beq t0, t1, skip # if n != 3 ...
+    add a0, a0, t0   #     total = total + n
+skip:
+    addi t0, t0, -1  # n = n - 1
+    j loop           # and back round
+done:
+    ebreak
+`} rows={13} />
+
+Notice the conditions are backwards. Python says "do this if `n` isn't 3", and the instruction says "jump over it if `n` is 3". `blez` means "jump if this is 0 or less", the opposite of `n > 0`. That's how nearly every `if` comes out: test the opposite, and jump past. Written this direct way, a `while` has two jumps, one to get out and one to go back. Compilers often rearrange a loop so its test sits at the bottom and it needs only one each time round, and the LLVM compiler's documentation describes a pass "which converts loops into do/while style loops". Step through and watch `pc`.
+
+## A call has to remember one thing
+
+A function can be called from many places, so when it finishes, it has to know which place to go back to. RISC-V's answer is small. `jal ra, label` (jump and link) writes the address of the next instruction into the register `ra`, for "return address", and then jumps. `ret` jumps back to whatever is in `ra`. That's the whole mechanism. Press **Step**:
+
+<MachineLab code={`# double(x) doubles its argument. Calling it twice works.
+    li a0, 5
+    call double      # ra = the next line, then jump
+    call double
+    ebreak
+double:
+    add a0, a0, a0
+    ret              # jump to wherever ra says
+`} rows={9} />
+
+Here, `call` is shorthand for that `jal`. On a real toolchain it can be two instructions, `auipc` and `jalr`, to reach further, and they do the same job. (`ra` starts at 0xfffffff0 in this lab, which stands in for whatever started the program, so a `ret` from the very top stops cleanly.) The number passes through `a0` here, and that's a rule, not chance. For compiled code from different authors to call each other, everyone has to agree which register holds what. The agreement is the **calling convention**. It isn't part of the instruction set. The manual says: "There is no dedicated stack pointer or subroutine return address link register in the Base Integer ISA", and it's a "standard software calling convention" that gives `x1` and `x2` those jobs. Here's that convention:
+
+| Registers | Jobs | Must a function put it back? |
+|---|---|---|
+| `a0` to `a7` | Arguments going in. `a0` and `a1` also carry results out | No |
+| `t0` to `t6` | Temporaries, free for any use | No |
+| `s0` to `s11` | Long-lived values | **Yes**: if you use one, save it and restore it |
+| `ra` | The return address | No, and that's the trouble |
+| `sp` | The stack pointer | **Yes**, and it has to stay a multiple of 16 |
+| `gp` and `tp` | Reserved: the global pointer and the thread pointer | Don't write to them at all |
+
+## The problem: ra only holds one
+
+Now give `double` a job that calls something else, and `ra` gets overwritten. The address it needed to go back to is gone. That's the bug in the mission further down, and a machine can't work around it. The address has to be saved somewhere, and each call that's still in progress needs its own copy, in the reverse of the order they were made.
+
+That's a stack, and memory has a region set aside for it. By convention, `sp` holds the address of the top of the stack, and it grows **downwards**, towards lower addresses, so making room means subtracting from `sp`.
+
+There's one more rule, and it's easy to miss. The convention says "the stack pointer shall be aligned to a 128-bit boundary upon procedure entry", and that it "must remain aligned throughout procedure execution". 128 bits is 16 bytes, so `sp` is always a multiple of 16, and a frame takes 16 bytes, or 32, or 48, even if it needs less. (There's a smaller variant for RV32E, a cut-down instruction set, which only asks for 4.) This lab's machine wouldn't notice: it only refuses a word at an address that isn't a multiple of 4. The convention is what asks for 16, so that's what the mission below checks.
+
+A function that makes calls starts by taking a slice of stack and saving what it needs, and ends by putting it all back. The slice is its **stack frame**, also called an **activation record**:
+
+```text
+higher addresses
+  | caller's frame        |
+  +-----------------------+  <- sp when we were called
+  | saved ra              |  12(sp)
+  | saved s0              |   8(sp)
+  | anything else we keep |   4(sp)
+  |                       |   0(sp)
+  +-----------------------+  <- sp while we run
+lower addresses
+```
+
+If you did [the recursion lesson](/learn/programming/recursion/), you've watched this. Its stepper showed a pile of calls, newest last, each with its own `n`. A stack frame is that pile as a machine sees it. It holds the place to come back to, and the values that belong to this call. Python keeps its own pile in its own data structures, with its own limit, so that's not literally how Python works. Languages compiled to machine code, like C, do use a stack just like this one.
+
+<Callout kind="trap" title="The CPU has no idea what a frame is">
+There's no "frame" in the hardware, or even a "function". There's a register called `sp`, and memory, and `ret` will happily jump to whatever is in `ra`. In the lab's stack panel, the line that says which functions called which is the lab's own reading of the jumps. The CPU keeps no such list. The programmer or the compiler has to get all of it right, every time.
+</Callout>
+
+## Try it: calls that come back
+
+The mission's starter is a recursive function with two bugs. Run it first and see what happens. Your functions get called directly on inputs you can't see, with a return address and a stack, the way compiled code would call them. They're also checked for manners: `sp` and every `s` register have to end as they were, `sp` has to stay a multiple of 16 the whole way through, and `gp` and `tp` have to be left alone.
+
+<MachineLab mission="asm-calls" />
+
+## Running out of stack
+
+Here's a function that calls itself with no way out. Each call takes 16 bytes. This machine has 32 KB of stack, and below it is a guard area that it refuses to touch. Run it, and read the status line and the depth in the stack panel.
+
+<MachineLab code={`# No base case. Each call takes 16 bytes of stack.
+forever:
+    addi sp, sp, -16
+    sw ra, 12(sp)
+    call forever
+`} rows={6} />
+
+It stops after 2,048 calls, at the `sw`, because 32 KB divided by 16 bytes is 2,048. It's the failure from the recursion lesson, one level down: Python's limit is a counter that its own program checks, and its limit is 1,000 by default. Here the limit is memory. This lab's guard area plays the part of what an operating system can do with the memory below a program's stack. Without a guard, the stack would quietly grow into whatever is below it.
+
+## What the worm did
+
+Now the trick. A frame holds a function's local data next to its saved return address. If a function copies input into a buffer on its stack and doesn't check the length, the copy keeps going up through memory, towards the saved `ra`.
+
+This `copy` has room for 3 words, and it's told how many to copy in `a1`. Run it as it is: it prints `K`, for "came back OK". Then change `a1` to 4 in the box and run it again.
+
+<MachineLab code={`main:
+    la a0, input
+    call copy         # a1, the count, comes from the box below
+    li t0, 0x10000000
+    li t1, 'K'
+    sb t1, 0(t0)      # print K: copy came back
+    ebreak
+
+# copy(src, n): copies n words onto its own stack. Room for 3.
+copy:
+    addi sp, sp, -16  # 3 words of room, and one for ra
+    sw ra, 12(sp)
+    mv t0, sp
+next:
+    beqz a1, finished
+    lw t1, 0(a0)
+    sw t1, 0(t0)      # no check against the size of the buffer
+    addi a0, a0, 4
+    addi t0, t0, 4
+    addi a1, a1, -1
+    j next
+finished:
+    lw ra, 12(sp)
+    addi sp, sp, 16
+    ret
+
+# Nothing ever calls this.
+never_called:
+    li t0, 0x10000000
+    li t1, 'X'
+    sb t1, 0(t0)
+    ebreak
+
+.data
+input: .word 1, 2, 3, never_called
+`} inputs="a1=3" rows={16} />
+
+With 4, it prints `X`. The fourth word landed on the saved `ra`, so `ret` jumped to it. The function nobody calls just ran, because the input said so, and nothing reported an error. Press **Step** and watch the stack panel: the word marked "a return to line 4" gets overwritten.
+
+That's the shape of the 1988 attack. There, the input also carried the instructions to run, because code is just bytes in memory, as the last lesson showed. Mark Eichin and Jon Rochlis of MIT took the worm apart at the time, and they list what it sent: a run of do-nothing instructions, "A small piece of code which executes a Bourne Shell" (a program that runs commands), and "A stack frame, with a return address which would hopefully point into the code." The real details were on a different machine and a different instruction set, so read this as the same kind of mistake rather than a copy of what the worm did. Systems have added defences since, and those have made this harder, without making length checks optional. The fix here is one comparison.
+
+<Callout kind="real" title="What this lab leaves out">
+A real program's memory has a **text** segment for code, a **data** segment for fixed values, a **stack**, and a **heap** for memory asked for while running. This lab has the first three, and no heap. It also has no **interrupts**: on a real machine, hardware such as a network card or a timer can pause the running program at any instruction, make the CPU run a handler, and then carry on as if nothing happened. That's how a computer notices keystrokes without checking for them constantly.
+
+It has one small piece of real input and output. Storing a byte at an address that isn't memory sends it somewhere else, which is **memory-mapped I/O**, a common way to talk to devices. The address here, 0x10000000, is this lab's choice. A real machine's documentation tells you where each of its devices is.
+</Callout>
+
+## Printing, for real
+
+So here's the last small program: text is bytes, a string is a run of them in memory ending in a 0, and printing is storing each one at the output address, in a loop.
+
+<MachineLab code={`.data
+msg: .asciz "Hello, panda\\n"
+
+.text
+    la t0, msg
+    li t1, 0x10000000
+next:
+    lbu t2, 0(t0)     # read one byte
+    beqz t2, done     # 0 marks the end
+    sb t2, 0(t1)      # send it out
+    addi t0, t0, 1
+    j next
+done:
+    ebreak
+`} rows={14} />
+
+Every `print` you've ever written comes down to something like this, with a great many layers in between.
+
+<GoDeeper title="Why two kinds of saved register?">
+A call could work with all registers preserved by the function being called, or with all of them preserved by the caller. Each wastes work. If the callee has to preserve everything, even a tiny function has to save and restore every register it wants to use, because it has none free. If the caller has to preserve everything, it has to save each value it still needs before every call, even when the function it's calling wouldn't have touched that register.
+
+So the convention splits them. A value you need across a call goes in an `s` register, and the callee pays only if it uses that register. A value that's only needed until the next call goes in a `t` register, which costs nothing to lose. A function that calls nothing, a **leaf**, can often use only `t` and `a` registers and never touch the stack. That's why `double` above has no frame at all, and it's why a compiler's output for a small function can be startlingly short.
+</GoDeeper>
+
+<Quiz
+  id="comp-asm-1"
+  q="A function calls another function, and doesn't save ra first. What goes wrong?"
+  options={["Nothing: ra is restored by the hardware", "The inner call overwrites ra, so its own ret later jumps back to the middle of itself, not to its caller", "The assembler refuses to build it"]}
+  answer={1}
+  explain="There's only one ra. jal overwrites it, and the hardware keeps no history. That's why the mission's starter never finishes: its ret returns to the line after its own call, again and again."
+/>
+
+<Quiz
+  id="comp-asm-2"
+  q="Which way does the stack grow, and how does a function take 16 bytes of it?"
+  options={["Towards higher addresses: addi sp, sp, 16", "Towards lower addresses: addi sp, sp, -16, and it has to add 16 back before returning", "Neither: the hardware allocates it automatically on each call"]}
+  answer={1}
+  explain="By convention it grows down, and sp marks the top. Nothing in the hardware does it for you, or checks that you gave it back. The mission's judge checks because nothing else will."
+/>
+
+<Quiz
+  id="comp-asm-3"
+  q="In the copy example, why does writing a fourth word make the program jump somewhere else?"
+  options={["The fourth word lands on the saved return address, which ret later reads and jumps to", "The CPU treats any fourth write as a jump", "Because the buffer is in a register"]}
+  answer={0}
+  explain="The buffer and the saved ra are neighbours in the same frame, and writes go upward towards it. Nothing separates them. To the machine they're all just words at addresses."
+/>
+
+## What to remember
+
+- There's no if or while at this level, only jumps that might happen. Conditions usually come out backwards.
+- A call writes the return address into ra, and ret jumps to it. There's only one ra, so any function that makes a call has to save it.
+- A stack frame holds a call's return address, its saved registers and its local data, and the stack grows downwards.
+- The calling convention is an agreement, not hardware. It covers which registers get saved and keeping sp a multiple of 16. Nothing in the machine stops you breaking it, and nothing warns you.
+- Local data sits next to the return address. Writing past the end of a buffer can decide where the program goes next, which is why input length is a security matter.

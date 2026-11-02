@@ -1,0 +1,134 @@
+---
+title: Multicore, SIMD and why GPUs exist
+summary: For decades, software got faster by waiting for the next chip. Then the clock stopped climbing and the chips got more cores instead. Find out why eight cores don't make a program eight times faster, why two cores can lose a count, and why a GPU is built the way it is.
+minutes: 22
+xp: 55
+tiers: [browser]
+builds_on: [computer/pipelining]
+sources:
+  - title: Herb Sutter - The Free Lunch Is Over (2005, first posted December 2004)
+    url: http://www.gotw.ca/publications/concurrency-ddj.htm
+  - title: Gene Amdahl - Validity of the single processor approach to achieving large scale computing capabilities (1967, as reprinted in IEEE SSCS News, 2007)
+    url: https://www3.cs.stonybrook.edu/~rezaul/Spring-2019/CSE613/reading/Amdahl-1967.pdf
+  - title: John Gustafson - Reevaluating Amdahl's Law (CACM, 1988)
+    url: https://www.dma.unina.it/~murli/didattica/2005_2006/cp/p532-gustafson.pdf
+  - title: Esmaeilzadeh et al. - Dark Silicon and the End of Multicore Scaling (ISCA 2011)
+    url: https://cseweb.ucsd.edu/~hadi/doc/paper/2011-isca-dark_silicon.pdf
+  - title: NVIDIA - CUDA C++ Programming Guide
+    url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/
+  - title: Jouppi et al., Google - In-Datacenter Performance Analysis of a Tensor Processing Unit (2017)
+    url: https://arxiv.org/abs/1704.04760
+  - title: t0st - How I cut GTA Online loading times by 70% (2021)
+    url: https://nee.lv/2021/02/28/How-I-cut-GTA-Online-loading-times-by-70/
+---
+
+In December 2004, Herb Sutter told programmers that a long-running deal was ending. For decades, you could write a slow program and wait: next year's chip would run it faster. He pointed at clock speed, how many steps a chip takes each second, one of the three things that had driven CPU gains over "the past 30 years", and at what had just happened. As he tells it, Intel delayed its 4 GHz chip, then "in fall 2004 it officially abandoned its 4GHz plans entirely". His title was the message: "The Free Lunch Is Over".
+
+Chips didn't stop getting more transistors. They stopped being able to run them all faster, mainly because of heat. Makers put the transistors into more **cores** instead: separate processors on one chip. A program written to do one thing at a time gets little or nothing from a second core. You've met a real case on this site. The [GTA Online loading bug](/learn/algorithms/counting-steps/) had one core flat out for minutes, on a machine with others that were free. More cores were no help until someone changed the code.
+
+So how much do they help when the code can use them? That question has an old answer.
+
+## The law, and what Amdahl actually wrote
+
+In 1967 Gene Amdahl argued against the idea that the single computer had reached its limit and only linked processors could go further. He wrote that about 40% of real work was housekeeping that appeared to run in sequence, which limited everything else: "A fairly obvious conclusion which can be drawn at this point is that the effort expended on achieving high parallel processing rates is wasted unless it is accompanied by achievements in sequential processing rates of very nearly the same magnitude."
+
+The formula named after him isn't in that paper. The editors of the 2007 reprint note that "it has no equations and only a single figure". Later writers turned his argument into this.
+
+If a share `p` of a job can use all `n` cores, and the rest must run on one:
+
+```text
+speedup = 1 / ((1 - p) + p / n)
+```
+
+The `1 - p` part never shrinks. So even with infinitely many cores, the speedup can't pass `1 / (1 - p)`. A job that's 90% parallel tops out at 10 times.
+
+## Try it
+
+The formula below is checked against a separate simulation that hands out work one tick at a time and knows nothing about the formula. The two match wherever the work divides evenly. At the far end they part: this job has only 1,000 ticks of work, so it can't finish in under one tick, which caps the run at 1,000 times whatever the formula says. The job is invented. You'd have to measure a real program's parallel share, and that usually depends on its input.
+
+<AmdahlLab />
+
+| Parallel share | 8 cores | 64 cores | 1,024 cores | The most it can ever reach |
+|---|---|---|---|---|
+| 50% | 1.78 | 1.97 | 2.00 | 2 |
+| 90% | 4.71 | 8.77 | 9.91 | 10 |
+| 99% | 7.48 | 39.26 | 91.18 | 100 |
+
+<Callout kind="trap">
+Amdahl's law is about a job of fixed size on perfect hardware, and it can mislead in both directions. It's too hopeful about coordination: real cores pay to share data and wait for each other, and that cost grows with the core count, so adding cores can slow a job down. And it can be too gloomy about what people do with a bigger machine. In 1988 John Gustafson, working on a 1,024-processor system, objected that the formula assumes "p is independent of N, which is virtually never the case". People don't run the same job on a bigger machine: they run a bigger job, and the serial part often doesn't grow with it. Both views are right about different questions.
+</Callout>
+
+## Two cores, one counter
+
+Parallel work has a problem a single core doesn't have. Adding 1 to a shared counter is really three steps: read it, add 1, write it back. If two cores do that at once, here's every order those six steps can happen in. There are 20 orders, and the lab's tests walk them all:
+
+| What happens | Orders | Final counter |
+|---|---|---|
+| One core finishes all three steps before the other starts | 2 | 2 (correct) |
+| They overlap, so one write overwrites the other | 18 | 1 |
+
+A wrong answer in 18 of 20 orders doesn't mean 90% of real runs go wrong, since these orders aren't equally likely. A real program can pass a million times and fail once, which is what makes this so hard to find. Hardware offers a fix: an **atomic** instruction does read-add-write as one step that no other core can get between. Locks, which let one core at a time through a piece of code, and **barriers**, which make every core wait until all have reached the same point (a different thing from the speculation barrier in [the Spectre lesson](/learn/computer/speculation-leak/), which holds back one CPU's guessing), are built on instructions like that.
+
+Each core also keeps its own cache, so two cores can hold different copies of the same data. **Cache coherence** is the hardware rule that keeps them in step: typically, before a core writes to a line, the other copies are invalidated. It works, and it costs time. Two cores writing to nearby data, even different variables on the same cache line, can spend their time passing that line back and forth. So shared memory isn't free just because the program looks simple.
+
+## One instruction, many values
+
+Cores are one way to do many things at once. **SIMD**, for "single instruction, multiple data", is another. Instead of adding one pair of numbers at a time, one instruction adds a whole row of pairs, using wide registers split into **lanes**. Eight lanes means adding 1,000 numbers takes 125 add instructions and not 1,000.
+
+The catch is in the second half of the lab above. All the lanes share one instruction stream, so they can't each go their own way at an `if`. If a batch needs both sides of the `if`, it runs both and masks away the results it didn't want. Change the data in the lab and read the speedup: 8 lanes on uniform data gives 8 times, and with values alternating sides it gives 4 times. Those are this invented `if`'s numbers, and a different cost split would change them.
+
+## Why GPUs exist
+
+A **GPU** began as a chip for graphics, where the same small program runs on millions of pixels. That work typically has very little serial part and little branching, which is where Amdahl's law is kindest. NVIDIA's own programming guide puts the design choice this way: "The GPU is specialized for highly parallel computations and therefore designed such that more transistors are devoted to data processing rather than data caching and flow control."
+
+That sentence also says what gets given up. A CPU spends its transistors on guessing branches and on big caches, to make one thread fast on unpredictable code. A GPU spends them on arithmetic, and it's weak on the things it left out. Using one for non-graphics work is called **GPGPU**: general-purpose computing on GPUs. It's why neural networks moved to GPUs, since their work is mostly large, regular matrix multiplications.
+
+Going further in the same direction gives a **domain-specific accelerator**: a chip built for one kind of work. Google's first Tensor Processing Unit is a well-documented example. Its 2017 paper describes a chip in use since 2015 whose heart is "a 65,536 8-bit MAC matrix multiply unit", where a MAC is one multiply-and-add. It reports the chip as "on average about 15X - 30X faster than its contemporary GPU or CPU", on Google's own workloads, measured by Google. An **NPU** in a phone or laptop is the same idea on a smaller budget. A machine mixing CPUs, GPUs and accelerators is called **heterogeneous**, and getting work to the right part is a problem of its own.
+
+<Callout kind="real">
+Those limits also bite the chip itself. A 2011 paper from Esmaeilzadeh and colleagues projected that power limits would leave part of each chip switched off, which they called "dark silicon": 21% at 22 nm, and more than 50% at 8 nm, on the scaling assumptions they used. That's a projection from 2011, and we haven't checked it against today's chips. The direction is what's useful here: a chip can have more transistors than it can power at once, and that's a reason to build specialised parts that only run when needed. [The next lesson](/learn/computer/energy/) looks at the energy itself.
+</Callout>
+
+<GoDeeper title="Deriving Amdahl's law">
+Let a job take time 1 on one core, with share `p` parallel. On `n` cores, the serial part still takes `1 - p`, and the parallel part takes `p / n`, assuming it divides perfectly. So the new time is `(1 - p) + p / n`, and speedup, old time over new time, is:
+
+`S(n) = 1 / ((1 - p) + p / n)`
+
+Let `n` grow and `p / n` goes to 0, so `S` approaches `1 / (1 - p)`.
+
+Gustafson starts from the other end. Take the time on `n` cores as 1, with serial share `s` of that time. On one core the parallel part would take `n` times as long, so the same work would take `s + (1 - s) n`. That's the "scaled speedup", and it grows in a straight line with `n`. With `s = 0.01` and `n = 1024`, it's about 1,014, where Amdahl's formula with 1% serial gives about 91. These aren't in conflict: the `s` in each is measured on a different run, and they ask different questions.
+
+Add a coordination cost of `c` per extra core, and the time becomes `(1 - p) + p / n + c (n - 1)`. Setting its derivative to zero gives a best core count near the square root of `p / c`, past which more cores make the job slower. The cost model is the lab's invention, and real overheads have other shapes.
+</GoDeeper>
+
+<Quiz
+  id="comp-many-1"
+  q="A job is 95% parallel. You've got 20 cores, and you're offered 1,000 more. About how much speedup do you get from the upgrade?"
+  options={["About 50 times more: 1,020 cores against 20", "From about 10 times to about 19.6 times, a bit under double, since nothing can pass 20 times at this share", "From 19 times to 950 times"]}
+  answer={1}
+  explain="At 20 cores the formula gives 10.26, and at 1,020 it gives 19.6. The serial 5% sets a ceiling of 20 times, so the money would probably do more if spent on shrinking that 5%."
+/>
+
+<Quiz
+  id="comp-many-2"
+  q="Two cores each add 1 to a shared counter a million times, without any locks, and a test run gives exactly 2,000,000. What does that tell you?"
+  options={["The code is safe, since the answer was right", "Little: 18 of the 20 orders for a single increment lose an update, but timing decides which orders really happen. One run passing doesn't prove it can't fail", "The hardware made the increment atomic"]}
+  answer={1}
+  explain="A race can stay hidden for a very long time and appear when anything about the timing changes. Testing can't prove it's absent, so the fix is an atomic instruction or a lock."
+/>
+
+<Quiz
+  id="comp-many-3"
+  q="Why does a GPU do badly on code with lots of unpredictable branches?"
+  options={["GPUs have no way to run an if", "Its lanes share instruction streams. When values in a batch need different sides of a branch, it has to run both sides and mask the results, and it spent its transistors on arithmetic rather than on predicting branches", "Branches need more memory than a GPU has"]}
+  answer={1}
+  explain="GPUs can run branches, and they lose much of their advantage doing so. That's a trade made on purpose, in NVIDIA's own words: more transistors for data processing, rather than data caching and flow control."
+/>
+
+## What to remember
+
+- More cores help only the part of a job that can use them, and the serial part sets a ceiling.
+- Amdahl's paper had no equations. The formula assumes a fixed job. Gustafson's objection is that people grow the job.
+- Shared data needs atomic instructions, locks or barriers. A race can pass every test you run.
+- SIMD gets its speed from lanes doing the same thing, so data that branches differently loses it.
+- GPUs and accelerators trade flexibility for arithmetic. A vendor's speedup is its own measurement, on its own workload, at its own date.

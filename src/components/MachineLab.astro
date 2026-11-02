@@ -1,0 +1,315 @@
+---
+import '../styles/widgets.css';
+import { MACHINE_MISSIONS } from '../lib/cs/machine-missions.ts';
+import { EXIT_ADDR, hexAddr, REG_NAMES, STACK_TOP } from '../lib/cs/riscv.ts';
+interface Props {
+  code?: string;
+  /** A key in MACHINE_MISSIONS. Its starter wins over `code`. */
+  mission?: string;
+  /** What registers start as, shown and editable: "a0=5, a1=3". */
+  inputs?: string;
+  rows?: number;
+}
+const { code = '', mission, rows } = Astro.props;
+const m = mission ? MACHINE_MISSIONS[mission] : undefined;
+const shown = m?.starter ?? code;
+const inputs = Astro.props.inputs ?? m?.inputs ?? '';
+const lineCount = rows ?? Math.min(22, Math.max(5, shown.split('\n').length + 1));
+---
+<div class="widget card machine" data-machine-lab data-mission={mission}>
+  <div class="widget-head">
+    <strong>Machine lab</strong>
+    <span class="pill info">real RISC-V (RV32I) instructions, run by this page: nothing leaves your device</span>
+    <span class="spacer"></span>
+    <span class="pill" data-count>0 instructions</span>
+  </div>
+  <div class="ml-grid">
+    <div class="ml-main">
+      <label class="ml-editor" data-edit>
+        <span class="eyebrow">Your program <span class="muted ml-keys">Tab indents. To leave the editor by keyboard, press Esc, then Tab.</span></span>
+        <textarea data-src rows={lineCount} spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off">{shown}</textarea>
+      </label>
+      <ol class="ml-listing" data-listing aria-label="Program, with the instruction about to run highlighted" hidden></ol>
+      <label class="ml-inputs">Registers start as <input type="text" data-inputs value={inputs} placeholder="a0=5, a1=3" spellcheck="false" autocapitalize="off" autocomplete="off" /></label>
+      <div class="controls">
+        <button class="btn small primary" type="button" data-run>Run</button>
+        <button class="btn small" type="button" data-step>Step</button>
+        <button class="btn small" type="button" data-edit-btn hidden>Back to editing</button>
+        <button class="btn small" type="button" data-reset>Reset code</button>
+      </div>
+      <p class="ml-status" data-status role="status">Not run yet.</p>
+      <ul class="ml-errors" data-errors hidden></ul>
+      <section class="ml-panel ml-now" data-now hidden>
+        <h4>The instruction it just ran</h4>
+        <p><b>Fetch.</b> <span data-fetch></span></p>
+        <div class="ml-bits" data-bits></div>
+        <p><b>Decode.</b> <span data-decode></span></p>
+        <p><b>Execute.</b> <span data-execute></span></p>
+      </section>
+      <div class="ml-panels">
+        <section class="ml-panel">
+          <h4>Registers <span class="muted">pc is the address of the next instruction</span></h4>
+          <p class="ml-pc">pc <b data-pc>0x0000</b></p>
+          <div class="ml-regs" data-regs>
+            {REG_NAMES.map((r, i) => <div class="ml-reg" data-reg={i}><span class="ml-name">{r}</span><b>{i === 1 ? hexAddr(EXIT_ADDR) : i === 2 ? hexAddr(STACK_TOP) : '0'}</b></div>)}
+          </div>
+        </section>
+        <section class="ml-panel">
+          <h4>The stack <span class="muted">from sp up to the top. It grows downwards</span></h4>
+          <div class="ml-scroll"><table class="ml-table"><thead><tr><th scope="col">Address</th><th scope="col">Holds</th><th scope="col">Could be</th></tr></thead><tbody data-stack><tr><td colspan="3" class="muted">Empty: sp is at the very top.</td></tr></tbody></table></div>
+          <p class="ml-frames" data-frames></p>
+          <h4>Data <span class="muted">the words at 0x2000</span></h4>
+          <div class="ml-scroll"><table class="ml-table"><tbody data-data><tr><td class="muted">Nothing here yet.</td></tr></tbody></table></div>
+          <h4>Output</h4>
+          <pre class="ml-out" data-out tabindex="0" role="log" aria-label="Program output"></pre>
+        </section>
+      </div>
+    </div>
+    {mission && <div data-mission-panel></div>}
+  </div>
+</div>
+
+<script>
+  import { assemble, fieldsOf, hex32, hexAddr, Machine, EXIT_ADDR, STACK_TOP, TEXT_BASE, DATA_BASE, type AsmError, type Program } from '../lib/cs/riscv.ts';
+  import { MACHINE_MISSIONS, describeEffect, newRun, note, parseInputs, statusLine, type MachineRun, type MachineState } from '../lib/cs/machine-missions.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const HEX_REGS = new Set([1, 2, 3, 4]);
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-machine-lab]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const src = q<HTMLTextAreaElement>('[data-src]'), status = q('[data-status]'), errorsBox = q('[data-errors]');
+    const listing = q('[data-listing]'), editLabel = q('[data-edit]'), editBtn = q<HTMLButtonElement>('[data-edit-btn]');
+    const inputs = q<HTMLInputElement>('[data-inputs]'), count = q('[data-count]');
+    const now = q('[data-now]');
+    const regCells = [...root.querySelectorAll<HTMLElement>('[data-reg]')];
+    const mission = root.dataset.mission ? MACHINE_MISSIONS[root.dataset.mission] : undefined;
+    if (root.dataset.mission && !mission) throw new Error(`MachineLab: no mission called ${root.dataset.mission}`);
+    const original = src.value;
+    const originalInputs = inputs.value;
+    const state: MachineState = mission ? mission.setup() : { runs: [] };
+    const refresh = mission ? mountMission(q('[data-mission-panel]'), mission, () => state) : () => {};
+
+    let machine: Machine | null = null, program: Program | null = null, run: MachineRun | null = null;
+    let lastRegs: Int32Array | null = null;
+
+    const setStatus = (text: string, kind = '') => { status.textContent = text; status.className = `ml-status ${kind}`; };
+    const sandboxBug = (e: unknown) => {
+      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      setStatus(`This is a bug in this page's machine, not in your program. The run has ended. Details for a bug report: ${detail}`, 'warn bug');
+      console.error(`The machine lab failed: ${detail}`);
+      machine = null;
+      setEditing(true);
+    };
+    const guarded = (fn: () => void) => () => { try { fn(); } catch (e) { sandboxBug(e); } };
+
+    function setEditing(on: boolean) {
+      editLabel.hidden = !on;
+      listing.hidden = on;
+      editBtn.hidden = on;
+    }
+
+    function showErrors(errors: AsmError[]) {
+      errorsBox.hidden = !errors.length;
+      errorsBox.replaceChildren(...errors.map((e) => el('li', {}, el('b', {}, `Line ${e.line}: `), e.message)));
+    }
+
+    function showListing() {
+      if (!program) return;
+      const addrOf = new Map<number, number>();
+      for (const l of program.listing) if (!addrOf.has(l.line)) addrOf.set(l.line, l.addr);
+      const lines = program.source.replace(/\r\n/g, '\n').split('\n');
+      const at = machine && machine.status === 'ready' ? program.lineOf.get(machine.pc >>> 0) ?? 0 : 0;
+      listing.replaceChildren(...lines.map((text, i) => {
+        const a = addrOf.get(i + 1);
+        return el('li', i + 1 === at ? { class: 'at', 'aria-current': 'step' } : {}, el('span', { class: 'ml-addr' }, a === undefined ? '' : hexAddr(a)), el('code', {}, text || ' '));
+      }));
+      listing.querySelector('.at')?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function showMachine() {
+      const m = machine;
+      if (!m) return;
+      count.textContent = `${fmt(m.steps)} instruction${m.steps === 1 ? '' : 's'}`;
+      q('[data-pc]').textContent = hexAddr(m.pc);
+      regCells.forEach((cell, i) => {
+        const v = m.regs[i], b = cell.querySelector('b')!;
+        const text = HEX_REGS.has(i) ? hexAddr(v) : String(v);
+        b.textContent = text;
+        cell.classList.toggle('changed', !!lastRegs && lastRegs[i] !== v);
+        cell.classList.toggle('zero', v === 0);
+      });
+      lastRegs = m.regs.slice();
+      const words = m.stackWords(48);
+      const stack = q('[data-stack]');
+      stack.replaceChildren(...(words.length ? words.map((w) => el('tr', {}, el('td', {}, hexAddr(w.addr)), el('td', {}, String(w.value)), el('td', { class: 'muted' }, w.returnLine ? `a return to line ${w.returnLine}` : ''))) : [el('tr', {}, el('td', { colspan: '3', class: 'muted' }, m.reg('sp') >>> 0 === STACK_TOP ? 'Empty: sp is at the very top.' : `sp is ${hexAddr(m.reg('sp'))}, which is outside the stack, so there's nothing to show.`))]));
+      q('[data-frames]').textContent = m.frames.length
+        ? `${fmt(m.frames.length)} call${m.frames.length === 1 ? '' : 's'} deep, by the lab's own reading of the jumps. The CPU keeps no such list. ${m.frames.length > 6 ? 'The latest are' : 'They are'}: ${m.frames.slice(-6).map((f) => f.name).join(', then ')}.`
+        : '';
+      const data = q('[data-data]');
+      const dataWords: { addr: number; value: number; label?: string }[] = [];
+      const labels = new Map<number, string>();
+      for (const [k, a] of m.program.labels) if (a >= DATA_BASE) labels.set(a, k);
+      for (let a = DATA_BASE; a < Math.min(m.program.dataEnd, DATA_BASE + 64); a += 4) dataWords.push({ addr: a, value: m.readWord(a), label: labels.get(a) });
+      data.replaceChildren(...(dataWords.length ? dataWords.map((w) => el('tr', {}, el('td', {}, hexAddr(w.addr)), el('td', {}, String(w.value)), el('td', { class: 'muted' }, w.label ?? ''))) : [el('tr', {}, el('td', { class: 'muted' }, 'This program declares no data.'))]));
+      q('[data-out]').textContent = m.output;
+    }
+
+    function clearErrors() { showErrors([]); }
+
+    /** Assembles and loads. Returns false and says why, with line numbers, if it can't. */
+    function load(): boolean {
+      clearErrors();
+      now.hidden = true;
+      const parsed = parseInputs(inputs.value);
+      if (!parsed.ok) { setStatus(`Registers start as: ${parsed.why}.`, 'bad'); return false; }
+      const a = assemble(src.value);
+      if (!a.ok) {
+        machine = null; program = null;
+        setStatus(`This didn't assemble, so nothing ran. ${a.errors.length === 1 ? 'One line needs' : `${a.errors.length} lines need`} fixing.`, 'bad');
+        showErrors(a.errors);
+        state.runs.push(newRun(src.value, false));
+        refresh();
+        return false;
+      }
+      program = a.program;
+      machine = new Machine(a.program, { regs: parsed.regs });
+      run = newRun(src.value);
+      state.runs.push(run);
+      lastRegs = null;
+      return true;
+    }
+
+    function finishRun() {
+      if (!machine) return;
+      const s = statusLine(machine);
+      setStatus(s.text, s.kind);
+      showMachine();
+      refresh();
+    }
+
+    q('[data-run]').addEventListener('click', guarded(() => {
+      // Run during a step carries on from where it is. Otherwise it starts again from the program in the box.
+      const stepping = editLabel.hidden && machine?.status === 'ready';
+      if (!stepping) {
+        if (!load()) return;
+        setEditing(true);
+      }
+      const m = machine!;
+      while (m.status === 'ready') note(run!, m, m.step());
+      now.hidden = true;
+      finishRun();
+      if (editLabel.hidden) showListing();
+    }));
+
+    q('[data-step]').addEventListener('click', guarded(() => {
+      if (editLabel.hidden === false || !machine || machine.status !== 'ready') {
+        if (!load()) return;
+        setEditing(false);
+        showListing();
+        showMachine();
+        refresh();
+        setStatus(`Loaded, and nothing has run yet. pc is ${hexAddr(machine!.pc)}, and the highlighted line is next.`);
+        return;
+      }
+      const m = machine;
+      const rec = m.step();
+      note(run!, m, rec);
+      if (rec) {
+        now.hidden = false;
+        q('[data-fetch]').textContent = `Read 4 bytes of memory at pc, ${hexAddr(rec.pc)}: ${hex32(rec.word)}.`;
+        q('[data-bits]').replaceChildren(...fieldsOf(rec.word, rec.d.fmt).map((f) => el('span', { class: 'ml-field' }, el('code', {}, f.bits), el('small', {}, f.name))));
+        q('[data-decode]').textContent = `Those bits are the ${rec.d.fmt} format, and they say: ${rec.text}.`;
+        q('[data-execute]').textContent = describeEffect(rec);
+      }
+      showMachine();
+      showListing();
+      const s = statusLine(m);
+      setStatus(rec && m.status === 'ready' ? `Line ${rec.line || '?'} ran. ${s.text}` : s.text, s.kind);
+      refresh();
+    }));
+
+    editBtn.addEventListener('click', () => { setEditing(true); now.hidden = true; machine = null; });
+    // It has to put back the inputs and every panel too. It used to leave a1=4 in the box after the
+    // overflow exercise, so the "as it is" run no longer printed K, under a status saying "Not run yet".
+    q('[data-reset]').addEventListener('click', () => {
+      src.value = original;
+      inputs.value = originalInputs;
+      machine = null; program = null; run = null; lastRegs = null;
+      setEditing(true);
+      clearErrors();
+      now.hidden = true;
+      setStatus('Not run yet.');
+      count.textContent = '0 instructions';
+      q('[data-pc]').textContent = hexAddr(TEXT_BASE);
+      regCells.forEach((cell, i) => {
+        cell.querySelector('b')!.textContent = i === 1 ? hexAddr(EXIT_ADDR) : i === 2 ? hexAddr(STACK_TOP) : '0';
+        cell.classList.remove('changed', 'zero');
+      });
+      q('[data-stack]').replaceChildren(el('tr', {}, el('td', { colspan: '3', class: 'muted' }, 'Empty: sp is at the very top.')));
+      q('[data-frames]').textContent = '';
+      q('[data-data]').replaceChildren(el('tr', {}, el('td', { class: 'muted' }, 'Nothing here yet.')));
+      q('[data-out]').textContent = '';
+    });
+    src.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { (e.target as HTMLElement).dataset.escaped = '1'; return; }
+      if (e.key === 'Tab' && !e.shiftKey && !src.dataset.escaped) {
+        e.preventDefault();
+        const { selectionStart: a, selectionEnd: b, value } = src;
+        src.value = `${value.slice(0, a)}    ${value.slice(b)}`;
+        src.selectionStart = src.selectionEnd = a + 4;
+      }
+      if (e.key !== 'Tab') delete src.dataset.escaped;
+    });
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .machine .ml-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .machine .ml-grid:has([data-mission-panel]) { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .machine .ml-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .machine .ml-keys { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .machine .ml-editor { display: grid; gap: 4px; min-width: 0; }
+  .machine .ml-editor[hidden] { display: none; }
+  .machine textarea { width: 100%; box-sizing: border-box; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; border: 1px solid var(--line-2); padding: 10px 12px; font: 13.5px/1.55 var(--mono); resize: vertical; overflow: auto; }
+  .machine .ml-inputs { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 0.88rem; color: var(--ink-2); min-width: 0; }
+  .machine .ml-inputs input { font: 13px var(--mono); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); min-width: 0; flex: 1 1 140px; max-width: 280px; }
+  .machine .ml-listing { list-style: none; margin: 0; padding: 8px 10px; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; font: 13px/1.55 var(--mono); overflow: auto; max-height: 340px; }
+  .machine .ml-listing[hidden] { display: none; }
+  .machine .ml-listing li { display: grid; grid-template-columns: 4.6em minmax(max-content, 1fr); gap: 8px; white-space: pre; padding-left: 4px; }
+  .machine .ml-listing li code { background: none; color: inherit; padding: 0; font: inherit; border: 0; border-radius: 0; box-shadow: none; }
+  .machine .ml-addr { color: var(--term-dim); }
+  .machine .ml-listing li.at { background: color-mix(in srgb, var(--term-ok) 22%, transparent); border-left: 3px solid var(--term-ok); margin-left: -3px; }
+  .machine .ml-status { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .machine .ml-status.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .machine .ml-status.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .machine .ml-status.bad { background: var(--berry-soft); color: var(--berry); }
+  .machine .ml-errors { margin: 0; padding: 8px 10px 8px 26px; border: 1px solid var(--berry); border-radius: 8px; font-size: 0.88rem; overflow-wrap: anywhere; }
+  .machine .ml-errors[hidden] { display: none; }
+  .machine .ml-panels { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+  .machine .ml-panel { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .machine .ml-panel[hidden] { display: none; }
+  .machine h4 { margin: 6px 0; font-size: 0.92rem; }
+  .machine h4 .muted { font-weight: 400; font-size: 0.8rem; }
+  .machine .ml-now p { margin: 4px 0; font-size: 0.88rem; overflow-wrap: anywhere; }
+  .machine .ml-bits { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+  .machine .ml-field { display: inline-grid; gap: 1px; padding: 2px 5px; border: 1px solid var(--line-2); border-radius: 6px; text-align: center; min-width: 0; }
+  .machine .ml-field code { font: 12px var(--mono); background: none; border: 0; padding: 0; color: inherit; overflow-wrap: anywhere; }
+  .machine .ml-field small { font-size: 0.68rem; color: var(--ink-2); }
+  .machine .ml-pc { margin: 0 0 6px; font: 13px var(--mono); }
+  .machine .ml-regs { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 2px 8px; font: 12.5px var(--mono); }
+  .machine .ml-reg { display: flex; justify-content: space-between; gap: 6px; padding: 1px 5px; border-radius: 5px; min-width: 0; }
+  .machine .ml-reg b { font-weight: 600; overflow-wrap: anywhere; text-align: right; }
+  .machine .ml-reg .ml-name { color: var(--ink-2); }
+  .machine .ml-reg.zero b { font-weight: 400; color: var(--ink-2); }
+  .machine .ml-reg.changed { background: var(--sun-soft); outline: 1px solid var(--sun-text); }
+  .machine .ml-scroll { overflow-x: auto; max-height: 220px; overflow-y: auto; }
+  .machine table.ml-table { display: table; width: 100%; border-collapse: collapse; font: 12.5px var(--mono); margin: 0; }
+  .machine table.ml-table th, .machine table.ml-table td { text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid var(--line); }
+  .machine table.ml-table thead th { font-weight: 600; font-family: var(--sans); }
+  .machine .ml-frames { margin: 6px 0; font-size: 0.82rem; color: var(--ink-2); overflow-wrap: anywhere; }
+  .machine .ml-out { margin: 0; min-height: 2em; max-height: 160px; overflow: auto; background: var(--term-bg); color: var(--term-ink); border-radius: 8px; padding: 6px 10px; font: 13px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .machine .ml-out:empty::before { content: 'Nothing printed.'; color: var(--term-dim); }
+</style>

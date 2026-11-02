@@ -1,0 +1,151 @@
+---
+title: "A tiny compiler, part two: tree to machine code"
+summary: Researchers fed C compilers random programs and found that every compiler they tested could silently produce wrong code, with one telling exception in a development version. Generate instructions from a tree, walk them on a stack machine, fold constants without changing the meaning, and run out of registers.
+minutes: 22
+xp: 55
+tiers: [browser]
+builds_on: [computer/tiny-compiler-parse]
+sources:
+  - title: Yang, Chen, Eide and Regehr - Finding and Understanding Bugs in C Compilers (PLDI 2011)
+    url: https://users.cs.utah.edu/~regehr/papers/pldi11-preprint.pdf
+  - title: Python docs - dis, the disassembler for Python bytecode
+    url: https://docs.python.org/3/library/dis.html
+  - title: Python docs - Expressions (evaluation order)
+    url: https://docs.python.org/3/reference/expressions.html
+  - title: LLVM - The LLVM Target-Independent Code Generator
+    url: https://llvm.org/docs/CodeGenerator.html
+  - title: PEP 744 - JIT Compilation (CPython's experimental just-in-time compiler)
+    url: https://peps.python.org/pep-0744/
+  - title: TypeScript handbook - TypeScript for JavaScript programmers
+    url: https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes.html
+  - title: Robert Nystrom - Crafting Interpreters, A Map of the Territory (free to read online)
+    url: https://craftinginterpreters.com/a-map-of-the-territory.html
+---
+
+Programmers rarely doubt their compiler. A team at the University of Utah spent three years testing that trust. They built a tool called Csmith that wrote random, valid C programs and compiled each with several compilers. If the compiled programs printed different results, at least one compiler was wrong. In their words: "we reported more than 325 previously unknown bugs to compiler developers. Every compiler we tested was found to crash and also to silently generate wrong code when presented with valid input."
+
+The same paper has an exception, and it's the part that matters most for trusting compilers. CompCert is a C compiler with a machine-checked proof of much of its code. The team found silent wrong-code bugs in its unproved parts, and then this: "As of early 2011, the under-development version of CompCert is the only compiler we have tested for which Csmith cannot find wrong-code errors", after about six CPU-years of trying.
+
+"Silently" is the part to notice. A wrong compile gives no error. The program just does something other than what its source says. That's what you're about to build, and you'll test it the way they tested theirs: generate lots of expressions, and compare the results with a real implementation.
+
+[Part one](/learn/computer/tiny-compiler-parse/) took text to a tree. This part takes the tree to instructions.
+
+## A target, and it's an invented one
+
+Code generation needs a machine to generate code for. Real ones have hundreds of instructions and a long manual, so this lesson defines two small machines of its own. **No real chip runs either of them**, and simulators in this page run them.
+
+**TSM, the tiny stack machine.** It has a stack and nothing else. A **stack** is a pile where you only touch the top. `PUSH 2` puts 2 on top, `LOAD x` puts x's value on top, and each arithmetic instruction takes the top two off and puts the answer back. `SUB` takes the top value as `b`, the next as `a`, and pushes `a - b`, so order matters.
+
+**TRM, the tiny register machine.** A **register** is one of a small number of fast storage slots in a CPU. `ADD r0, r0, r1` means "add r0 and r1, and put the result in r0". When registers run out, `SAVE` copies a value to memory and `RESTORE` brings it back.
+
+## Generating code is a walk
+
+For the stack machine, the rule is three lines: generate the left child, then the right child, then the operator. For `1 + 2 * 3`:
+
+```text
+PUSH 1        stack: 1
+PUSH 2        stack: 1 2
+PUSH 3        stack: 1 2 3
+MUL           stack: 1 6
+ADD           stack: 7
+```
+
+Nothing else is needed, because the tree already holds the precedence. Visiting children before their parent is called a **post-order walk**, and it guarantees each operator's values are ready when it needs them. Choosing which real instruction implements each part of a tree is called **instruction selection**. It's trivial here, one tree node to one instruction. On a real chip, one instruction can cover several nodes of the tree, and a good compiler looks for those.
+
+Before generating anything, this compiler checks each name against what's defined. That's a small piece of **semantic analysis**: checks on what the program means, which the grammar can't express. Which definition a name refers to is called **binding**, and the region of a program where a name is visible is its **scope**. This language has one flat scope, with x and y in it. Real languages have nested ones, and the same name can mean different things in different places.
+
+## Try it: walk the code, then break it
+
+Press **Step** to run the stack program one instruction at a time. Change the generator, the folding and the registers, and watch what changes in the listing.
+
+<CompilerLab part="generate" />
+
+## Python does this too
+
+CPython, the standard Python, compiles your program to **bytecode**: instructions for a stack machine of its own, run by an interpreter written in C. A program that runs another machine's instructions is called a **virtual machine**. You can read the bytecode. In a terminal with real Python:
+
+```python
+import dis
+dis.dis("x + 2 * y")
+dis.dis("2 + 3 * 4")
+```
+
+The first listing has the shape you just generated: `LOAD_NAME`, `LOAD_CONST` and `BINARY_OP`, left to right and operators after their operands. The exact names and details change between Python versions, so read it as the same idea rather than the same listing (we checked it on Python 3.11.9). The second has no arithmetic in it at all, just the constant 14: Python's compiler did that sum itself. On 3.11.9 that's `LOAD_CONST` of 14 and then `RETURN_VALUE`. Python's documents for 3.12 describe one `RETURN_CONST` instruction doing both, and 3.14's no longer list it, so look for the 14 and the missing arithmetic, not for a particular name.
+
+That's **constant folding**, one of the simplest optimisations: a part of the tree with no variables in it can't change, so work it out once at compile time. An **optimisation** is a change that makes a program faster or smaller and must not change what it means. "Must not" is doing a lot of work there. `1 / 0 + 2` can't be folded to a number, because it has none. If the compiler tried and crashed, then a program that never reached that line would fail to build. So the fold holds back, the division stays in the program, and it fails when it runs, if it ever does. `dis.dis("1 / 0 + 2")` shows Python doing the same.
+
+<Callout kind="trap">
+A fold can look right and be wrong in a way that matters. `x + 2 + 3` looks like it could become `x + 5`, but the tree says `(x + 2) + 3`, and nothing there is constant on its own. Rearranging it is only safe if the operators and types allow it, and for floating-point numbers, they don't: adding in a different order can change the rounding. This compiler doesn't try, and part of its test pins that.
+</Callout>
+
+## Now write one
+
+Here the parser and the machine are written for you. You write the generator, then a folder.
+
+<CodeLab mission="comp-gen-stack" rows={14} />
+
+## When registers run out
+
+A stack machine never runs out of places to put things, in this model. Real CPUs work mostly from registers, and there are only so many of them. Set the lab to 2 registers and compile `(x + 1) * (y + 2)`, and the instructions gain `SAVE` and `RESTORE` pairs. (Use names here: with folding on, `(1 + 2) * (3 + 4)` becomes the single number 21 and needs no registers to speak of.) Going to memory like this is called a **spill**, and on real hardware it's slower than using a register.
+
+Deciding what lives in which register, and what to spill, is **register allocation**. LLVM, a compiler toolkit used by many languages, describes its version of this stage: "The target code is transformed from an infinite virtual register file in SSA form to the concrete register file used by the target. This phase introduces spill code and eliminates all virtual register references from the program." (Virtual registers are the unlimited pretend ones it works with until this stage, and SSA is a form it keeps them in.) Ours is the simplest scheme that works, taking the next free register. It keeps strictly left-to-right order because Python's documents say "Python evaluates expressions from left to right", and with errors in play, reordering could change which error you get.
+
+<Callout kind="real">
+A whole compiler has more stages than these two lessons. It has a **calling convention**, the agreement about where arguments go and who saves what when one function calls another. It has **instruction scheduling**, which orders instructions to suit the chip's pipeline. And a **linker** joins separately compiled pieces into one program. Our machines have no functions, no memory addresses to resolve and no pipeline, so none of that applies here. These lessons also compute only one expression at a time: no loops, no branches, no assignments.
+</Callout>
+
+## Compiling, interpreting, and the rest
+
+Those aren't two opposite things, and most real languages mix them:
+
+- **Compiled ahead of time:** C usually goes all the way to machine code before it runs.
+- **Compiled to bytecode and interpreted:** CPython, as you saw.
+- **Just-in-time (JIT):** a compiler that runs while the program does, turning code that's often used into machine code. PEP 744 describes CPython's own experimental one.
+- **Transpiled:** compiled to another language people also write by hand. TypeScript's compiler outputs JavaScript.
+
+*Crafting Interpreters* has a good chapter mapping this territory, free to read online. And a program can now be generated from a request in plain English, by [a language model](/learn/programming/whose-code/). That's a different kind of translation: it gives no guarantee that the output means what you asked, so it needs a check at least as hard as the one below.
+
+## How do we know this compiler is right?
+
+We ran it the way the Csmith team ran theirs. The test generates 6,000 expressions, runs each through five routes (the tree directly, the stack machine, folding, two registers, five registers), and compares every result with real Python's, including the type of any error. The missions get the same treatment: a test asks real Python for every expected answer, so with x as 10, as in the code mission, `(1 + 2) * (9 - x)` has to come out as -3.
+
+That still isn't a proof. It shows no difference on those inputs, for this small language, beyond two things the test allows: the last digit of some float powers, and complex results, which this page refuses. The Csmith team's bugs took three years of this to find, in compilers far larger than this one.
+
+<GoDeeper title="Why a stack machine is so easy, and what that costs">
+For any expression tree, a post-order walk gives correct stack code, and the proof is an induction on the tree: if the code for each child leaves exactly its value on top of whatever was there, then the code for the parent does too. The test pins this with a loud failure: a program that leaves anything other than one value on the stack raises an error rather than returning a number.
+
+The stack depth needed for a tree can be worked out in advance. Register machines need more care, and optimal allocation for a whole program is hard in general: treating it as colouring a graph, with a colour per register, is the classic approach, and that graph problem is NP-hard. Real compilers use fast approximations. For an expression tree alone, there's a neat exact method called Sethi-Ullman numbering, which evaluates the child needing more registers first. We don't use it here, because it changes the order of evaluation, and in a language whose expressions can fail, that order is part of the meaning.
+</GoDeeper>
+
+<Quiz
+  id="comp-gen-1"
+  q="A generator pushes the right operand before the left. It passes tests on 2 + 3 and 2 * 3. What will it do on 10 - 3?"
+  options={["Also pass, since the arithmetic is the same", "Give -7: SUB computes a - b from the top two values, and the operands reached it the wrong way round", "Fail with an error, since the stack is in the wrong order"]}
+  answer={1}
+  explain="No error at all. The program runs and gets a wrong number, which is what the Csmith paper means by silently generating wrong code. And + and * can't detect the bug, because order doesn't change their answers."
+/>
+
+<Quiz
+  id="comp-gen-2"
+  q="Why must constant folding leave 1 / 0 in the program, rather than stop the compile?"
+  options={["Because the compiler can't divide", "Because that line might never run, and if it does, the failure belongs to that moment. An optimisation mustn't change what a program means", "Because dividing by zero gives a large number"]}
+  answer={1}
+  explain="A program can contain a failing expression in a branch it never takes, and it should still build and run. Stopping the compile would change the program's behaviour, and so would quietly replacing it with a number."
+/>
+
+<Quiz
+  id="comp-gen-3"
+  q="This tiny compiler refuses an unknown name while compiling, and real Python only raises NameError if that line runs. Which statement is fair?"
+  options={["Python has a bug, and it should check earlier", "They made different choices. Checking early catches mistakes sooner, and it requires knowing every name in advance, which a language that can create names while running can't always do", "Both check at the same time, since neither runs the program first"]}
+  answer={1}
+  explain="This is the difference between static and dynamic checking. Our language has a fixed list of names, so early checking is easy. The names in a Python program can change as it runs, so it can't always know."
+/>
+
+## What to remember
+
+- Code generation for a stack machine is a post-order walk: left, right, then the operator.
+- Bugs in generated code are often silent. Operand order can pass on + and * and fail on -.
+- An optimisation must keep the meaning, including failures that belong to run time.
+- There are never enough registers: allocation decides what goes where, and spills go to memory. The answer mustn't change.
+- Our two machines are invented. Real targets add calling conventions, scheduling and linking.
+- Compare against a real implementation, on lots of inputs. That's how the bugs in real compilers were found.

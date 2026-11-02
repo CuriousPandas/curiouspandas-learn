@@ -1,0 +1,115 @@
+---
+import '../styles/widgets.css';
+import { ENCODINGS } from '../lib/cs/bytes.ts';
+---
+<div class="widget card textbytes" data-textbytes>
+  <div class="widget-head">
+    <strong>Text Bytes Lab</strong>
+    <span class="pill info">A model of three encodings only, checked against real Python's .encode() and .decode() by this site's tests. The code lab's Python has neither</span>
+  </div>
+  <div class="tb-grid">
+    <div class="tb-main">
+      <label class="tb-text">Text <input type="text" data-text value="Café" spellcheck="false" autocomplete="off" autocapitalize="off" /></label>
+      <p class="tb-count" data-count role="status"></p>
+      <div class="tb-scroll" tabindex="0" role="group" aria-label="Each code point, its number and its UTF-8 bytes">
+        <table class="tb-table">
+          <thead><tr><th scope="col">Shows as</th><th scope="col">Code point</th><th scope="col">ord()</th><th scope="col">UTF-8 bytes</th><th scope="col">In bits</th></tr></thead>
+          <tbody data-rows></tbody>
+        </table>
+      </div>
+      <h4>Those bytes reach another program</h4>
+      <div class="controls">
+        <label>it reads them as
+          <select data-encoding>{ENCODINGS.map((e) => <option value={e.id}>{e.label}</option>)}</select>
+        </label>
+        <button class="btn small" type="button" data-repair>Repair</button>
+      </div>
+      <p class="tb-result" data-result role="status"></p>
+      <p class="tb-result" data-repaired role="status" hidden></p>
+    </div>
+    <div data-mission-panel></div>
+  </div>
+</div>
+
+<script>
+  import { TEXT_MISSION, bin8, codePoints, describeCount, doRepair, hex2, logRead, readBack, showCodePoint, utf8Of, type Encoding } from '../lib/cs/bytes.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const MAX_ROWS = 60;
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-textbytes]')) {
+    const q = <T extends HTMLElement = HTMLElement>(s: string) => root.querySelector<T>(s)!;
+    const state = TEXT_MISSION.setup();
+    const refresh = mountMission(q('[data-mission-panel]'), TEXT_MISSION, () => state);
+    const text = q<HTMLInputElement>('[data-text]'), enc = q<HTMLSelectElement>('[data-encoding]');
+    const result = q('[data-result]'), repaired = q('[data-repaired]'), count = q('[data-count]');
+
+    function show() {
+      const cps = codePoints(state.text);
+      const shown = cps.slice(0, MAX_ROWS);
+      q('[data-rows]').replaceChildren(...shown.map((cp) => {
+        const bytes = utf8Of(cp);
+        return el('tr', {}, el('td', {}, String.fromCodePoint(cp)), el('td', {}, showCodePoint(cp)), el('td', {}, String(cp)), el('td', {}, bytes ? bytes.map(hex2).join(' ') : 'None'), el('td', {}, bytes ? bytes.map(bin8).join(' ') : 'None'));
+      }));
+      if (cps.length > MAX_ROWS) q('[data-rows]').append(el('tr', {}, el('td', { colspan: '5', class: 'muted' }, `And ${cps.length - MAX_ROWS} more, not shown.`)));
+      const r = readBack(state);
+      if (!r) {
+        count.textContent = 'This text holds half of a surrogate pair, which has no UTF-8 form. Real Python refuses to encode it too.';
+        result.textContent = 'There are no bytes to read.';
+        result.className = 'tb-result warn';
+        return;
+      }
+      count.textContent = describeCount(state.text);
+      const same = r.text === state.text;
+      if (state.encoding === 'utf-8') { result.textContent = `It shows: ${r.text}`; result.className = 'tb-result ok'; }
+      else if (same) { result.textContent = `It shows: ${r.text}. Read with the wrong rule, and the same.`; result.className = 'tb-result ok'; }
+      else {
+        result.textContent = `It shows: ${r.text}${r.replaced ? `. ${r.replaced} byte${r.replaced === 1 ? ' has' : 's have'} no meaning in this encoding, so ${r.replaced === 1 ? 'it was' : 'they were'} replaced with the character �` : ''}. No error from anyone.`;
+        result.className = 'tb-result bad';
+      }
+    }
+    const changed = () => { repaired.hidden = true; logRead(state); show(); refresh(); };
+
+    text.addEventListener('input', () => { state.text = text.value; changed(); });
+    enc.addEventListener('change', () => { state.encoding = enc.value as Encoding; changed(); });
+    q('[data-repair]').addEventListener('click', () => {
+      repaired.hidden = false;
+      const before = state.events.length;
+      const fixed = doRepair(state);
+      const nothing = state.encoding === 'utf-8' || (readBack(state)?.text === state.text);
+      if (nothing) {
+        // Nothing went wrong, so there's nothing to repair: this must not read as a success.
+        state.events.length = before;
+        repaired.textContent = 'Nothing here is garbled. Choose a wrong encoding above, so there is something to repair.';
+        repaired.className = 'tb-result warn';
+      } else if (!fixed) { repaired.textContent = 'There are no bytes to repair.'; repaired.className = 'tb-result warn'; }
+      else if (fixed.ok) {
+        repaired.textContent = `Back to bytes with the wrong rule, then read as UTF-8: ${fixed.result}${fixed.result === state.text ? '. Identical to the original.' : ''}`;
+        repaired.className = 'tb-result ok';
+      } else { repaired.textContent = `Can't be repaired. ${fixed.why}`; repaired.className = 'tb-result bad'; }
+      refresh();
+    });
+
+    show();
+    refresh();
+  }
+</script>
+
+<style is:global>
+  .textbytes .tb-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .textbytes .tb-grid { grid-template-columns: minmax(0, 1fr) 280px; } }
+  .textbytes .tb-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
+  .textbytes h4 { margin: 4px 0 0; font-size: 0.95rem; }
+  .textbytes .tb-text { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink-2); font-size: 0.9rem; min-width: 0; }
+  .textbytes .tb-text input { flex: 1 1 12em; font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); min-width: 0; max-width: 100%; }
+  .textbytes .tb-count { margin: 0; font-size: 0.9rem; font-weight: 600; }
+  .textbytes .tb-scroll { overflow: auto; max-height: 240px; min-width: 0; }
+  .widget.textbytes table.tb-table { display: table; width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 0; }
+  .textbytes .tb-table th, .textbytes .tb-table td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .textbytes .tb-table th { font-weight: 600; }
+  .textbytes .tb-result { margin: 0; font-size: 0.93rem; padding: 8px 10px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }
+  .textbytes .tb-result[hidden] { display: none; }
+  .textbytes .tb-result.ok { background: var(--bamboo-soft); color: var(--bamboo); }
+  .textbytes .tb-result.warn { background: var(--sun-soft); color: var(--sun-text); }
+  .textbytes .tb-result.bad { background: var(--berry-soft); color: var(--berry); }
+</style>

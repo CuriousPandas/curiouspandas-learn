@@ -1,0 +1,147 @@
+---
+title: "A tiny compiler, part one: text to tree"
+summary: A program is only text until something decides what it means, and C's creator later wished he could move one such decision. Write a parser that gets precedence right, read its trees, and find the bug that gives the right answer from the wrong tree.
+minutes: 22
+xp: 55
+tiers: [browser]
+builds_on: [computer/assembly]
+sources:
+  - title: Dennis Ritchie - The Development of the C Language (1993)
+    url: https://www.bell-labs.com/usr/dmr/www/chist.html
+  - title: Microsoft Support - Calculation operators and precedence in Excel
+    url: https://support.microsoft.com/en-us/office/calculation-operators-and-precedence-in-excel-48be406d-4975-4d31-b2b8-7af9e0e2878a
+  - title: Python docs - Expressions (the power operator and evaluation order)
+    url: https://docs.python.org/3/reference/expressions.html
+  - title: PEP 617 - New PEG parser for CPython (2020)
+    url: https://peps.python.org/pep-0617/
+  - title: Robert Nystrom - Crafting Interpreters, Parsing Expressions (free to read online)
+    url: https://craftinginterpreters.com/parsing-expressions.html
+  - title: Robert Nystrom - Crafting Interpreters, Compiling Expressions (free to read online)
+    url: https://craftinginterpreters.com/compiling-expressions.html
+  - title: Crafting Interpreters repository - the licence terms for its code and text
+    url: https://github.com/munificent/craftinginterpreters/blob/master/LICENSE
+  - title: This site's own lexer and parser
+    url: https://github.com/CuriousPandas/curiouspandas-learn/tree/main/src/lib/py
+---
+
+In C, you test whether some bits of a value match by masking them with `&` and comparing with `==`. The natural way to write it is wrong:
+
+```text
+if (a & mask == b)
+```
+
+C reads that as `a & (mask == b)`, because `==` binds tighter than `&`. It compiles, and it means something other than what you wrote. The reason is history. In C's predecessor `&` also did the job of "and" in conditions, and when `&&` arrived, the rules kept `&` where it was to make old code easier to convert. Dennis Ritchie, who created C, wrote about it in 1993: "Today, it seems that it would have been preferable to move the relative precedences of & and ==, and thereby simplify a common C idiom: to test a masked value against another value, one must write" `if ((a&mask) == b)` "where the inner parentheses are required but easily forgotten."
+
+That decision is stuck now, because changing it would change what existing programs mean. It lives in one small part of the compiler, the part this lesson builds.
+
+Here's a smaller version you can run. **Precedence** is the rule for which operator goes first, and `**` is Python's power operator:
+
+<CodeLab code={`print(-2 ** 2)
+print((-2) ** 2)
+print(2 ** 3 ** 2)
+print(10 - 3 - 2)`} rows={5} />
+
+Python says `-2 ** 2` is -4, because its power "binds more tightly than unary operators on its left". A **unary** operator is one that takes a single value, like the minus sign here. Microsoft's table for Excel lists negation before the power, and says operators of the same precedence go left to right. So by that table Excel reads `=-2^2` as 4, and `=2^3^2` as 64 where Python's version gives 512. (We read the table and didn't run Excel.) Neither program is broken. They've just made different decisions about what the same marks mean.
+
+## From text to meaning
+
+A **compiler** is a program that turns a program into another form, usually one a machine can run directly. An **interpreter** runs the program itself instead. Both start the same way, by working out what the text says, in two stages:
+
+1. **Scanning.** Group the characters into **tokens**, the words of the language. `12+x` is three tokens: `12`, `+` and `x`. A scanner sometimes has to look ahead a character before deciding: on seeing `*` it checks whether another `*` follows. That peek is called **lookahead**.
+2. **Parsing.** Work out how the tokens group, and build a **tree**. The operator at the top of the tree runs last, because it needs its children's answers first.
+
+`1 + 2 * 3` has the tree on the left, and not the one on the right:
+
+```text
+    +                 *
+   / \               / \
+  1   *             +   3
+     / \           / \
+    2   3         1   2
+```
+
+Only one of these is 7. The stages after this one work from the tree, not the text, so the tree is the program's meaning as far as the compiler is concerned. Whether the text follows the language's rules is called **syntax**. What it means once it does is called **semantics**. `1 +` is a syntax error. `zebra + 1` has correct syntax and means nothing until something called `zebra` exists.
+
+## The rules, written down
+
+A **grammar** is the list of rules that says what a language's sentences can look like. Here's the grammar for this lesson's tiny language, in a notation much like the one called **BNF**. `|` means "or", `( )*` means "any number of these", and `[ ]` means "optional":
+
+```text
+sum     :=  product ( ("+" | "-") product )*
+product :=  sign ( ("*" | "/" | "//" | "%") sign )*
+sign    :=  ("+" | "-") sign  |  power
+power   :=  atom [ "**" sign ]
+atom    :=  NUMBER  |  NAME  |  "(" sum ")"
+```
+
+Read from the top. A sum is made of products, so products get grouped first: that's precedence, written as layers. The `( )*` loop on `sum` means `10 - 3 - 2` builds up from the left, as `(10 - 3) - 2`. The rule on `power` calls `sign`, and `sign` can reach `power` again, so `2 ** 3 ** 2` nests to the right. That's **associativity**: which way operators of the same precedence group. And since `power` puts `sign` only to the right of `**`, `2 ** -1` is fine while the minus in `-2 ** 2` wraps the whole power. Those rules are taken from Python's, so where this language accepts an expression at all, the tree it builds is the grouping Python uses.
+
+## Try it: read the trees
+
+This lab has a real scanner and parser in it. The second number it shows comes from the Python that runs in this page's code labs, which the site's tests hold to real Python. Excel has no such check here, because we didn't run it. The Excel rule's tests compare it with a separate evaluator built from Microsoft's table, so all they can show is that the lab follows the table.
+
+<CompilerLab part="parse" />
+
+<Callout kind="trap">
+A wrong tree can give the right answer. `1 + 2 + 3` is 6 however you group it, so a test using it would pass on a broken parser. The tests for this lab don't lean on single answers: they compare thousands of generated expressions with real Python, and they read the trees as well.
+</Callout>
+
+## Saying where it went wrong
+
+A parser that says only "syntax error" leaves you to find the problem yourself. This one remembers where each token started, so it can point at the place. Mostly that's the first token that can't continue the sentence: in `1 + * 2` it points at the `*`.
+
+Brackets are the interesting case. In `(1 + 2` the text runs out at the end, but the end isn't where the mistake is, so Python points back at the bracket, and so does this parser. The tests compare these positions with real Python's, and the two differ on purpose in several kinds of case, over a quarter of the rejected test strings on Python 3.11.9. This parser always reports the first thing wrong in reading order. Python, after a syntax error, scans the rest of the text for problems it can name, so in `1 + * 2)` it reports the unmatched `)`. An unclosed `(` is less predictable: Python reports the `*` in `1 + * (2`, and the bracket in `1 2 (3`.
+
+<Callout kind="real">
+This tiny language is far smaller than Python. It refuses things by name and, for most of them, says what real Python would do: `2(3)` is a call in Python, not multiplication, `1e5` is a number there, `()` is an empty tuple, and `^` is a bitwise operation. It also checks names before running anything, where Python waits. These tests ran on Python 3.11.9 here and run on 3.12 in the site's automated checks. Python's exact error wording changes between versions, so only the positions and the verdicts are compared.
+</Callout>
+
+## Now write one
+
+The lab above only lets you choose between parsers. Here you fix one. Each layer of the grammar becomes one function, a style called **recursive descent**, because the functions call each other, down through the layers, and brackets call all the way back to the top.
+
+<CodeLab mission="comp-parse-fix" rows={18} />
+
+Your finished parser has the same shape as the one this page's Python runs on. You can [read that one](https://github.com/CuriousPandas/curiouspandas-learn/tree/main/src/lib/py): `lexer.ts` is its scanner, and in `parser.ts`, `LADDER` lists the operator levels from loosest to tightest, with one loop walking them. It's longer because Python is bigger, not because it does something else. It's what has been reading your code in every code lab on this site.
+
+Real Python doesn't use a hand-written parser like this. Its grammar is written in a file, and a program generates the parser from it: a **parser generator**. CPython moved to one based on a technique called PEG in 2020, which PEP 617 proposed as "replacing the current LL(1)-based parser of CPython with a new PEG-based parser". That PEP says PEG parsers are "usually constructed as a recursive descent parser in which every rule in the grammar corresponds to a function", and it adds ways to back up and try another rule. So what you wrote by hand is close in shape to what the generator writes. Other strategies exist, and this one is here because you can read every line of it. If you want to go on, Robert Nystrom's *Crafting Interpreters* is free to read online and builds a whole language this way, including a neat table-driven method for expressions called Pratt parsing. Its code is under the MIT licence, and its text is under a licence that doesn't allow changed copies or commercial use, so this page links to it and doesn't copy from it.
+
+<GoDeeper title="Why a grammar, and the hierarchy of languages">
+A grammar like the one above is **context-free**: each rule's left side is one name, and it can be used wherever that name appears, whatever surrounds it. In the Chomsky hierarchy, languages are sorted by the kind of grammar that can describe them. Roughly, from weakest to strongest: **regular** (what regular expressions match), **context-free** (most programming-language syntax), **context-sensitive**, and **recursively enumerable** (anything a program can recognise).
+
+Scanning is regular work: the set of valid tokens can be matched without any memory of nesting. Parsing can't be, because brackets nest to any depth. A machine with finitely many states can't count arbitrarily many open brackets, so regular expressions in the strict sense can't check that they balance. (Some regex tools have added features that go beyond this.) A stack is what's missing, and in recursive descent the call stack is that stack.
+
+Our parser is **LL(1)-like**: it reads left to right, and it decides what to do by looking one token ahead. A rule like `sum := sum "+" product` describes the same left grouping, but a recursive-descent function for it would call itself first and never return. That's called left recursion, and it's why the code uses a loop.
+</GoDeeper>
+
+<Quiz
+  id="comp-parse-1"
+  q="A colleague's parser passes the test that 1 + 2 + 3 is 6 and that 2 * 3 is 6. What does this show about whether it groups operators correctly?"
+  options={["It's correct, since both answers match Python", "Very little: addition gives the same answer however it's grouped, so those tests can't see a wrong tree. Try something like 10 - 3 - 2 and 1 + 2 * 3", "It's wrong, since a test should use bigger numbers"]}
+  answer={1}
+  explain="Grouping only shows in an answer when the operators care about grouping. + and * on their own don't. A test that can't fail for the bug you're worried about tells you nothing about that bug."
+/>
+
+<Quiz
+  id="comp-parse-2"
+  q="Why does the grammar give products their own rule, below sums?"
+  options={["Multiplication is harder for a CPU, so it has to be scheduled first", "The rule further down gets grouped first, so it ends up lower in the tree and its answer is ready before the sum needs it. That layering is what precedence is", "It's needed to make the scanner work"]}
+  answer={1}
+  explain="A sum is made of products, so the parser finishes each product before it can combine them. Nothing here is about how hard the arithmetic is. It's about who is grouped with whom."
+/>
+
+<Quiz
+  id="comp-parse-3"
+  q="Excel's published table puts negation before the power. Python's documents say the power binds more tightly than a unary operator on its left. So -2 to the power 2 differs between them. What's the right conclusion?"
+  options={["One of them has a bug that should be reported", "Maths has a single rule, and spreadsheets ignore it", "These are two languages with different rules for the same marks, so a formula moved between them can change meaning without any error"]}
+  answer={2}
+  explain="By their own documents, each is doing what it says. The danger is in moving between them: nothing warns you, and the formula still gives a number. That's why the tree is worth reading, and why brackets are cheap."
+/>
+
+## What to remember
+
+- A compiler reads in stages: characters to tokens, then tokens to a tree. Everything later works from the tree.
+- Precedence and associativity are decisions written into a grammar. Different languages decide differently about the same marks.
+- Each grammar layer can become a function. A loop groups from the left, and calling back into the same rule nests to the right.
+- A right answer doesn't prove a right tree. Test with the operators that care about grouping, or compare against a real implementation at scale.
+- Good errors point to the first thing that can't be right, and for an unclosed bracket, that's the bracket.

@@ -1,0 +1,188 @@
+---
+title: Why 0.1 + 0.2 is not 0.3
+summary: A Patriot battery's clock had run for 100 hours when a Scud got through, and part of the reason is how a computer stored one tenth. See exactly what a float holds, why rounding is built in, and what to do about it for measurements and for money.
+minutes: 20
+xp: 55
+tiers: [browser]
+builds_on: [computer/bits-and-bases]
+sources:
+  - title: US GAO - Patriot Missile Defense - Software Problem Led to System Failure at Dhahran, Saudi Arabia (IMTEC-92-26, 1992). The primary report. gao.gov refused our checks, so this lesson doesn't quote it
+    url: https://www.gao.gov/assets/imtec-92-26.pdf
+  - title: Robert Skeel - Roundoff Error and the Patriot Missile (SIAM News, July 1992; copy kept by a University of Minnesota page)
+    url: https://www-users.cse.umn.edu/~arnold/disasters/Patriot-dharan-skeel-siam.pdf
+  - title: David Goldberg - What Every Computer Scientist Should Know About Floating-Point Arithmetic (free)
+    url: https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html
+  - title: The Python Tutorial - Floating-Point Arithmetic - Issues and Limitations
+    url: https://docs.python.org/3/tutorial/floatingpoint.html
+  - title: Python documentation - sum, and its change in 3.12
+    url: https://docs.python.org/3/library/functions.html#sum
+  - title: Python documentation - decimal
+    url: https://docs.python.org/3/library/decimal.html
+  - title: Python documentation - math.isclose
+    url: https://docs.python.org/3/library/math.html#math.isclose
+---
+
+During the Gulf War, a Scud missile got through the Patriot defences at Dhahran in Saudi Arabia. Robert Skeel's article in SIAM News, in July 1992, opens with how the journal Science had reported it, on the basis of a report from the US General Accounting Office (GAO): a "minute mathematical error ... allowed an Iraqi Scud missile to slip through Patriot missile defenses a year ago and hit U.S. Army barracks in Dhahran, Saudi Arabia, killing 28 servicemen."
+
+This story comes to you through Skeel. GAO's report is the primary account and it's in this lesson's sources, but gao.gov refused the request when we checked this page, so nothing here is quoted from it or says what it leaves out.
+
+Here's what Skeel reports. According to that article, the errors "were proportional to the time on the clock: 0.0275 seconds after eight hours and 0.3433 seconds after 100 hours." From the GAO report, he adds: "The internal clock kept time as an integer value in units of tenths of a second, and the computer's registers were only 24 bits long." So the count had to be converted to seconds before the tracking calculation could use it. That came from multiplying it by one tenth, and the culprit is one tenth itself. In binary, 1/10 never ends. Cut it off after 23 binary digits, and run the clock:
+
+<CodeLab code={`# 0.1 chopped off after 23 binary digits, the way that computer's fixed format held it.
+tenth = int(0.1 * 2 ** 23) / 2 ** 23
+print(tenth)
+print(0.1 - tenth)
+
+for hours in [1, 8, 20, 48, 72, 100]:
+    ticks = hours * 3600 * 10
+    print(hours, round(ticks * (0.1 - tenth), 4))
+`} />
+
+The rows for 8 and 100 hours are Skeel's two numbers, and the others come from the same sum. It's an error of about a ten-millionth of a second per tick, times three and a half million ticks. In 0.3433 seconds, Skeel says, "a Scud would be expected to travel more than half a kilometer."
+
+Two honest footnotes. **This wasn't quite the format the rest of this lesson is about:** Patriot's one-tenth was fixed-point, with the binary point in a set place, and the idea of a float comes next. But the root cause, that 1/10 has no finite form in binary, is the same. And **the error alone doesn't explain the miss.** Skeel points out that tracking depends on the time between two radar pulses, so an error that's the same in both would nearly cancel. His further inquiries found that a more accurate conversion had been added to the software in some places where it was needed, but "the call to the subroutine was not inserted at every point where it was needed". So a less accurate time was subtracted from a more accurate one, and the error stopped cancelling. A partly applied fix made it worse. That's Skeel's account of inquiries he doesn't source further, and we haven't been able to compare it with GAO's report. He also adds that this "is not the only problem that has been identified: serious doubts have been expressed about the ability of Patriot missiles to hit Scuds."
+
+Since this error grows with the time on the clock, restarting the clock would have reset it. That's our arithmetic, not a finding from anything we've read.
+
+## Why tenths don't fit
+
+You've met this before in base 10. Write 1/3 as a decimal: 0.333333..., and it never ends. However many digits you keep, it's not quite 1/3. A fraction in lowest terms has a finite decimal form only if its bottom number is built from the factors of 10, which are 2 and 5.
+
+Base 2 has only the factor 2. So 1/2, 1/4, 3/8 are finite, and 1/10 isn't, because of the 5. As the Python tutorial puts it: "In base 2, 1/10 is the infinitely repeating fraction" 0.000110011001100110011... with the `0011` repeating for ever. Stop anywhere and you have an approximation.
+
+Goldberg's classic paper states the general problem in its first line on rounding: "Squeezing infinitely many real numbers into a finite number of bits requires an approximate representation."
+
+## What a float is
+
+A **float** is a number in scientific notation, in binary. You know 6.02 × 10²³: a few significant digits, and a power saying where the point goes. That's why it's called *floating* point: the point moves. A **fixed-point** number, like Patriot's, keeps the point in one place.
+
+Nearly every float you'll meet follows a standard called **IEEE 754**. A Python float, the docs say, is "usually implemented using double in C", which on the machines you'll use is IEEE 754's 64-bit format, called a **double**:
+
+- **1 sign bit**
+- **11 exponent bits**, saying which power of 2
+- **52 fraction bits**, the digits after the point. There's a 53rd digit you get for free: in binary, the first significant digit of any number other than zero is 1, so it needn't be stored.
+
+So a double holds about 15 to 17 significant decimal digits, at any size from around 10⁻³⁰⁸ to 10³⁰⁸. Here are the real ones, in your browser:
+
+<FloatLab />
+
+The important thing to take from that lab: **the numbers a float can hold aren't evenly spread.** Near 1 they're about 0.0000000000000002 apart. Past 2⁵³, about nine quadrillion, neighbours are at least 2 apart, so odd whole numbers have nothing to land on. In relative terms the gap stays about the same, and that's the design: you get a steady number of significant digits, whatever the size.
+
+Too large a number is another silent edge. `1e309` and `1e308 * 10` both quietly give `inf`, with no error. Not every route does: in Python, `2.0 ** 2000` raises an OverflowError. So don't rely on either.
+
+## So what happened to 0.1 + 0.2?
+
+Each of the three numbers is rounded to the nearest double before anything happens. Here they are exactly. To check, type `0.1`, `0.2` and `0.3` into the Float Lab. It reads one number at a time and not a sum, so for the sum type what Python prints, `0.30000000000000004`:
+
+| You wrote | Exactly what is stored |
+|---|---|
+| `0.1` | 0.1000000000000000055511151231257827021181583404541015625 |
+| `0.2` | 0.200000000000000011102230246251565404236316680908203125 |
+| `0.1 + 0.2` | 0.3000000000000000444089209850062616169452667236328125 |
+| `0.3` | 0.299999999999999988897769753748434595763683319091796875 |
+
+So 0.1 and 0.2 were both stored a little high, the sum is high, and `0.3` happens to be stored a little low. They land on neighbouring doubles, so `==` says False. Python prints the shortest text that identifies each one, and for the sum that takes 17 digits.
+
+It isn't that the addition was wrong: IEEE 754 requires the result to be the true sum of those two stored values, rounded to the nearest double. Python only looks tidy on `0.1` because, the tutorial says, it prints "a rounded value".
+
+<CodeLab code={`print(0.1 + 0.2)
+print(0.1 + 0.2 == 0.3)
+print(f"{0.1:.55f}")
+print((0.1).as_integer_ratio())
+print(1.5 + 2.25 == 3.75)
+
+total = 0.0
+for i in range(10):
+    total = total + 0.1
+print(total)
+print(sum([0.1] * 10))
+`} />
+
+`.55f` asks for 55 places after the point, and `as_integer_ratio` shows the stored value as a whole number over a power of 2.
+
+Each result is rounded, so errors can add up, which is why adding 0.1 ten times with a loop misses 1.0. The last line gets it right, and it's not luck: the docs say that in Python 3.12 "Summation of floats switched to an algorithm that gives higher accuracy and better commutativity on most builds". On 3.11 that same line prints 0.9999999999999999. So don't rely on `sum` to save you, and don't conclude from it that the problem has gone away.
+
+The line above that is worth a look too: `1.5 + 2.25 == 3.75` is True, because all three are whole numbers over a power of 2 and so are stored exactly. Floats aren't randomly wrong. They're exact when the number fits, and when it doesn't they are rounded in a precisely defined way.
+
+## What to do about it
+
+Which fix you need depends on what the number is.
+
+**Measurements:** nothing was exact to begin with, so compare with a tolerance. The tolerance has to scale with the numbers, since a difference of 1 is enormous between 1e-20s and nothing between 1e20s. Python has a function for this, `math.isclose`, which needs `import`, and this lab doesn't have that, so you'll write one.
+
+**Money:** a cent exists exactly, so count whole cents in integers, or use a decimal type. The catch is that you then have to decide what happens to the remainder when you divide, which is the honest place for that decision to be.
+
+<CodeLab mission="comp-float-close" />
+
+<Callout kind="trap" title="Fixes that don't quite hold">
+**Rounding before comparing** looks like it works, as `round(0.1 + 0.2, 2) == 0.3` is True. But two numbers very close together can round apart: `round(0.12499, 2)` is 0.12 and `round(0.12501, 2)` is 0.13. And `round(2.675, 2)` is 2.67, because 2.675 is stored a little below 2.675. Rounding for display is fine. Rounding to compare is a different bug.
+
+**A fixed tolerance** breaks at other scales, as your `close` tests showed. A purely relative tolerance breaks too: it calls 1e-20 and 0.0 different, because nothing is small compared with zero. The Python docs for `math.isclose` warn of exactly this, and it takes a second, absolute tolerance for that case. Pick the tolerance for your data.
+
+**`decimal`** doesn't remove rounding. It removes the *surprise* for numbers you write in decimal. One third still has no finite decimal form, as you'll see below.
+</Callout>
+
+Python's `decimal` module does arithmetic in base 10, so "Decimal numbers can be represented exactly", and it's the usual tool for money when integers aren't convenient. The code lab has no `import`, so this one is for a real install, and we ran it on Python 3.12:
+
+```python
+from decimal import Decimal
+
+print(Decimal("0.1") + Decimal("0.2") == Decimal("0.3"))
+print(Decimal(1) / Decimal(3) * 3)
+print(Decimal(0.1))
+```
+
+The first line is True. The second prints `0.9999999999999999999999999999`, because 1/3 still had to be cut off, only now in base 10. The third shows the trap everyone hits: `Decimal(0.1)` starts from the float, so it faithfully keeps the binary error. Pass text instead.
+
+<Callout kind="real">
+The arithmetic in the Float Lab and the code lab isn't simulated: both use your browser's own 64-bit floats, and this site's tests hold the bits, the exact values and the neighbours to `struct`, `Decimal`, `float.hex` and `math.nextafter` in real Python 3.12. Printing matches real Python too. What the page adds is the display, and it has limits. A browser may replace any NaN with a standard one, so the Float Lab holds its 64 bits itself, which is what lets you flip the fraction bits of a NaN. There's also no `import`, no `float.hex()` in the code lab (the Float Lab shows it instead), and no other float sizes. Real programs also use 32-bit floats, especially on graphics hardware, where errors like these show up far sooner.
+</Callout>
+
+<GoDeeper title="Why 0.1 can't be stored, and what is">
+Suppose 1/10 were a whole number over a power of 2: 1/10 = n / 2ᵏ. Then 2ᵏ = 10n, so 5 divides 2ᵏ. But 2ᵏ's only prime factor is 2. So no such n and k exist, and that's every number of bits ruled out at once.
+
+A double holds n / 2ᵏ, where n fits in 53 bits. For a number near 0.1, the k that makes n use all 53 bits is 56. So the double closest to 1/10 is n / 2⁵⁶, where n is 2⁵⁶/10 rounded to the nearest whole number: 7205759403792794. That's even, so it reduces to 3602879701896397 / 2⁵⁵, and that's how `(0.1).as_integer_ratio()` and the Python tutorial show it, with 2⁵⁵ = 36028797018963968. Dividing it out gives the decimal in the table above, with 55 digits after the point and no rounding left: dividing by 2⁵⁵ is multiplying by 5⁵⁵ and dividing by 10⁵⁵, so it always ends.
+
+The 64 bits of 0.1 follow. Its value is 1.6 × 2⁻⁴, so the sign is 0, the exponent field is -4 + 1023 = 1019, and the fraction is 0.6 in binary, which is `1001 1001 ... 1010`. The last digit rounded up, which is why it's a little more than 0.1, and why Python's `(0.1).hex()` on a real install ends in `a`: `0x1.999999999999ap-4`.
+
+There are special cases too: an exponent field of all 0s means zero, or the tiny **subnormal** numbers that fade towards it. All 1s means infinity, or NaN, "not a number", which isn't even equal to itself. The sign bit means there's a -0.0, equal to 0.0 and distinct from it in its bits. Goldberg's paper covers why each of these exists.
+</GoDeeper>
+
+<Quiz
+  id="comp-float-1"
+  q="Which of these does a double store exactly?"
+  options={["0.1", "0.75", "1/3"]}
+  answer={1}
+  explain="0.75 is 3/4, a whole number over a power of 2, so it fits. 0.1 and 1/3 have factors in their denominators other than 2, so in binary they never end."
+/>
+
+<Quiz
+  id="comp-float-2"
+  q="print(9007199254740993.0) on real Python shows 9007199254740992.0. What's the best explanation?"
+  options={["Python rounds floats when it prints them", "That number is past 2 to the power 53, where doubles are 2 apart, so the odd number has nothing to land on", "The digits after the 16th are thrown away"]}
+  answer={1}
+  explain="Past 2 to the power 53, a double can only hold every second whole number, so the literal was rounded when it was stored. Printing shows what's really there. A Python int holds that number exactly."
+/>
+
+<Quiz
+  id="comp-float-3"
+  q="You're adding up prices in a shopping cart. What's the sound approach?"
+  options={["Floats, comparing totals with a tolerance", "Floats, rounded to 2 places after every step", "Whole cents in integers, or a decimal type, deciding the rules for remainders yourself"]}
+  answer={2}
+  explain="A cent is exact, so represent it exactly. A tolerance is for values that were never exact. Rounding at each step still starts from binary approximations, and round(2.675, 2) is 2.67."
+/>
+
+<Quiz
+  id="comp-float-4"
+  q="Skeel says the Patriot clock's error should nearly have cancelled. What stopped it?"
+  options={["The radar got faster over time", "A fix for the conversion reached only some places in the code, so a less accurate time was subtracted from a more accurate one", "The Scud flew faster than expected"]}
+  answer={1}
+  explain="Tracking uses the difference between two times. If both have the same error, that nearly vanishes. Skeel reports that the better conversion wasn't called everywhere it was needed, so the two times carried different errors, and the elapsed time came out too long."
+/>
+
+## What to remember
+
+- A float is scientific notation in binary: a sign, a power of 2, and 52 fraction bits. A double holds about 15 to 17 significant digits.
+- It holds whole numbers over powers of 2, and rounds everything else. 0.1 doesn't fit, and neither does 0.2 or 0.3.
+- The gaps between floats grow with their size. Past 2⁵³, some whole numbers aren't there.
+- Don't test floats with `==`. For measurements, compare with a tolerance that scales. For money, count whole cents or use a decimal type.
