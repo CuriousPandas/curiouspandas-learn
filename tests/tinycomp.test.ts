@@ -200,6 +200,11 @@ test('fuzz: token soup is accepted or rejected as Python does, and errors point 
     // (* starts a starred item in real Python, as in (*a, b). Not in this language, so ours
     // stops at the star, and Python reads on to the next token.
     if (/^[*]/.test(t.slice(mine!.col)) && /\(\s*$/.test(t.slice(0, mine!.col))) { star++; continue; }
+    // Python 3.12 added a second-pass rule that reports a later (* as "Invalid star
+    // expression" even when the first real error comes earlier: "x223.5(*%" is col 5 on
+    // 3.11, where ours points too, and col 9 on 3.12. CI caught it; only that message,
+    // and only when Python's place is later than ours, is let through.
+    if (/^Invalid star expression$/.test(want.msg) && mine!.col + 1 < want.offset!) { star++; continue; }
     comparedPos++;
     if (want.offset !== mine!.col + 1) posDiffs.push(`${JSON.stringify(t)}: mine col ${mine!.col + 1} (${mine!.message}), Python ${want.offset} (${want.msg})`);
   }
