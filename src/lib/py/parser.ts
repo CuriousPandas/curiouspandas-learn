@@ -11,7 +11,9 @@ export type Expr = { line: number } & (
   | { k: 'fstr'; parts: FPart[] }
   | { k: 'name'; name: string }
   | { k: 'list' | 'tuple' | 'set'; items: Expr[] }
-  | { k: 'dict'; items: [Expr, Expr][] }
+  // A null key is **spread, with the mapping in the value's place.
+  | { k: 'dict'; items: [Expr | null, Expr][] }
+  | { k: 'star'; e: Expr }
   | { k: 'bin'; op: string; l: Expr; r: Expr }
   | { k: 'unary'; op: string; e: Expr }
   | { k: 'and' | 'or'; l: Expr; r: Expr }
@@ -29,6 +31,8 @@ export type Stmt = { line: number } & (
   | { k: 'expr'; e: Expr }
   | { k: 'assign'; targets: Expr[]; value: Expr }
   | { k: 'aug'; target: Expr; op: string; value: Expr }
+  // x: int with no value. It runs nothing, and in a function it still makes x local.
+  | { k: 'annot'; target: Expr }
   | { k: 'if'; test: Expr; body: Stmt[]; orelse: Stmt[] }
   | { k: 'while'; test: Expr; body: Stmt[] }
   | { k: 'for'; target: Expr; iter: Expr; body: Stmt[] }
@@ -37,15 +41,29 @@ export type Stmt = { line: number } & (
   | { k: 'return'; e?: Expr }
   | { k: 'break' | 'continue' | 'pass' }
   | { k: 'global' | 'nonlocal'; names: string[] }
-  | { k: 'try'; body: Stmt[]; handlers: { type?: Expr; name?: string; body: Stmt[]; line: number }[]; orelse: Stmt[] }
+  | { k: 'try'; body: Stmt[]; handlers: { type?: Expr; name?: string; body: Stmt[]; line: number }[]; orelse: Stmt[]; finalbody: Stmt[] }
   | { k: 'raise'; e?: Expr }
   | { k: 'assert'; test: Expr; msg?: Expr }
   | { k: 'del'; targets: Expr[] }
 );
 
-const REFUSED = new Set(['import', 'from', 'with', 'async', 'await', 'yield', 'finally']);
-const KEYWORDS = new Set(['False', 'None', 'True', 'and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'for', 'global', 'if', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', ...REFUSED]);
-const AUG = new Set(['+=', '-=', '*=', '/=', '//=', '%=', '**=', '>>=', '<<=', '&=', '|=', '^=']);
+const REFUSED = new Set(['import', 'from', 'with', 'async', 'await', 'yield']);
+const KEYWORDS = new Set(['False', 'None', 'True', 'and', 'as', 'assert', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'global', 'if', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', ...REFUSED]);
+// What Python calls a thing that can't be assigned to. Undefined for a plain name,
+// which gets a different message.
+const assignName = (e: Expr): string | undefined => {
+  switch (e.k) {
+    case 'const': return e.v === true ? 'True' : e.v === false ? 'False' : e.v === null ? 'None' : 'literal';
+    case 'attr': return 'attribute';
+    case 'index': return 'subscript';
+    case 'call': return 'function call';
+    case 'cmp': return 'comparison';
+    case 'fstr': return 'f-string expression';
+    case 'name': return undefined;
+    default: return 'expression';
+  }
+};
+const AUG = new Set(['+=', '-=', '*=', '/=', '//=', '%=', '**=', '>>=', '<<=', '&=', '|=', '^=', '@=']);
 
 class Parser {
   toks: Tok[];
@@ -58,9 +76,23 @@ class Parser {
   eatKw(v: string) { if (this.isKw(v)) { this.i++; return true; } return false; }
   fail(msg = 'invalid syntax'): never {
     if (this.cur.t === 'name' && REFUSED.has(this.cur.v)) throw notHere(`'${this.cur.v}'`, this.cur.line);
+    // Wherever it turns up: print(x := 1) reached this as "invalid syntax" on correct code.
+    if (this.isOp(':=')) throw notHere("the ':=' operator", this.cur.line);
     throw new PyError('SyntaxError', msg, this.cur.line);
   }
   needOp(v: string) { if (!this.eatOp(v)) this.fail(v === ':' ? "expected ':'" : 'invalid syntax'); }
+  /** `if x = 5:` is the classic slip, and "expected ':'" would point away from it. */
+  testColon(test: Expr) {
+    if (!this.isOp('=')) return;
+    const what = assignName(test);
+    this.fail(what ? `cannot assign to ${what} here. Maybe you meant '==' instead of '='?` : "invalid syntax. Maybe you meant '==' or ':=' instead of '='?");
+  }
+  /** Two expressions side by side inside brackets. */
+  closing(close: string) {
+    const t = this.cur;
+    if (!this.isOp(close) && (t.t === 'num' || t.t === 'str' || t.t === 'fstr' || (t.t === 'name' && (!KEYWORDS.has(t.v) || ['True', 'False', 'None'].includes(t.v))))) this.fail('invalid syntax. Perhaps you forgot a comma?');
+    this.needOp(close);
+  }
   needKw(v: string) { if (!this.eatKw(v)) this.fail(); }
   ident(): string {
     const t = this.cur;
@@ -79,14 +111,15 @@ class Parser {
     return out;
   }
 
-  suite(): Stmt[] {
+  /** `after` and `headLine` finish Python's message: "...after 'if' statement on line 2". */
+  suite(after: string, headLine: number): Stmt[] {
     this.needOp(':');
     if (this.cur.t !== 'nl') return this.simpleLine();
     this.i++;
     // By index, not this.cur: TypeScript narrows a getter's result across this.i++
     // and would decide the token kind can't have changed.
     const kind = () => this.toks[this.i].t;
-    if (kind() !== 'indent') throw new PyError('IndentationError', 'expected an indented block', this.cur.line);
+    if (kind() !== 'indent') throw new PyError('IndentationError', `expected an indented block after ${after} on line ${headLine}`, kind() === 'eof' ? headLine : this.cur.line);
     this.i++;
     const out: Stmt[] = [];
     while (kind() !== 'dedent' && kind() !== 'eof') {
@@ -102,11 +135,17 @@ class Parser {
     const t = this.cur, line = t.line;
     if (t.t === 'op' && t.v === '@') throw notHere('decorators', line);
     if (t.t === 'name') {
+      // Soft keywords: match and type are ordinary names until they aren't. Without this,
+      // correct code using them read as "invalid syntax", which a beginner believes.
+      if (t.v === 'match' && this.opensMatch()) throw notHere("'match' statements", line);
+      if (t.v === 'type' && this.toks[this.i + 1].t === 'name' && !KEYWORDS.has(this.toks[this.i + 1].v) && ['=', '['].includes(this.toks[this.i + 2]?.v)) throw notHere("'type' statements", line);
       switch (t.v) {
         case 'if': { this.i++; return [this.ifRest(line)]; }
         case 'while': {
           this.i++;
-          const test = this.named(), body = this.suite();
+          const test = this.named();
+          this.testColon(test);
+          const body = this.suite("'while' statement", line);
           if (this.isKw('else')) throw notHere("'while ... else'", this.cur.line);
           return [{ k: 'while', test, body, line }];
         }
@@ -114,57 +153,76 @@ class Parser {
           this.i++;
           const target = this.targetList();
           this.needKw('in');
-          const iter = this.exprList(), body = this.suite();
+          const iter = this.exprList(), body = this.suite("'for' statement", line);
           if (this.isKw('else')) throw notHere("'for ... else'", this.cur.line);
           return [{ k: 'for', target, iter, body, line }];
         }
         case 'def': {
           this.i++;
           const name = this.ident();
-          this.needOp('(');
+          if (this.isOp('[')) throw notHere("type parameters, as in def f[T](x):,", this.cur.line);
+          if (!this.isOp('(')) this.fail("expected '('");
+          this.i++;
           const params = this.params(')');
           this.needOp(')');
           if (this.eatOp('->')) this.ternary();
-          return [{ k: 'def', name, params, body: this.suite(), line }];
+          return [{ k: 'def', name, params, body: this.suite('function definition', line), line }];
         }
         case 'class': {
           this.i++;
           const name = this.ident();
           let base: Expr | undefined;
+          if (this.isOp('[')) throw notHere('type parameters, as in class A[T]:,', this.cur.line);
           if (this.eatOp('(')) {
+            if (this.isOp('*') || this.isOp('**') || (this.cur.t === 'name' && this.toks[this.i + 1].v === '=' && this.toks[this.i + 1].t === 'op')) throw notHere('class arguments such as metaclass=', this.cur.line);
             if (!this.isOp(')')) base = this.ternary();
             if (this.isOp(',')) throw notHere('multiple inheritance', this.cur.line);
             this.needOp(')');
           }
-          return [{ k: 'class', name, base, body: this.suite(), line }];
+          return [{ k: 'class', name, base, body: this.suite('class definition', line), line }];
         }
         case 'try': {
           this.i++;
-          const body = this.suite();
+          const body = this.suite("'try' statement", line);
           const handlers: { type?: Expr; name?: string; body: Stmt[]; line: number }[] = [];
           while (this.isKw('except')) {
             const hl = this.cur.line;
             this.i++;
             let type: Expr | undefined, name: string | undefined;
+            if (this.isOp('*')) throw notHere("'except*'", hl);
             if (!this.isOp(':')) { type = this.ternary(); if (this.eatKw('as')) name = this.ident(); }
-            handlers.push({ type, name, body: this.suite(), line: hl });
+            handlers.push({ type, name, body: this.suite("'except' statement", hl), line: hl });
+            // A bare except catches everything, so anything after it could never run.
+            if (!type && this.isKw('except')) throw new PyError('SyntaxError', "default 'except:' must be last", hl);
           }
-          if (this.isKw('finally')) throw notHere("'finally'", this.cur.line);
-          if (!handlers.length) this.fail("expected 'except' or 'finally' block");
-          const orelse = this.eatKw('else') ? this.suite() : [];
-          if (this.isKw('finally')) throw notHere("'finally'", this.cur.line);
-          return [{ k: 'try', body, handlers, orelse, line }];
+          // else needs an except before it: it means "and nothing was raised".
+          const elseLine = this.cur.line;
+          const orelse = handlers.length && this.eatKw('else') ? this.suite("'else' statement", elseLine) : [];
+          const finallyLine = this.cur.line;
+          const finalbody = this.eatKw('finally') ? this.suite("'finally' statement", finallyLine) : [];
+          if (!handlers.length && !finalbody.length) this.fail("expected 'except' or 'finally' block");
+          return [{ k: 'try', body, handlers, orelse, finalbody, line }];
         }
       }
     }
     return this.simpleLine();
   }
 
-  ifRest(line: number): Stmt {
-    const test = this.named(), body = this.suite();
+  /** A line starting `match`, ending in a colon, with `case` as the first word of its block. */
+  opensMatch(): boolean {
+    let j = this.i + 1;
+    while (this.toks[j].t !== 'nl' && this.toks[j].t !== 'eof') j++;
+    if (j === this.i + 1 || this.toks[j - 1].v !== ':' || this.toks[j - 1].t !== 'op') return false;
+    return this.toks[j + 1]?.t === 'indent' && this.toks[j + 2]?.v === 'case';
+  }
+
+  ifRest(line: number, word = 'if'): Stmt {
+    const test = this.named();
+    this.testColon(test);
+    const body = this.suite(`'${word}' statement`, line);
     let orelse: Stmt[] = [];
-    if (this.isKw('elif')) { const l = this.cur.line; this.i++; orelse = [this.ifRest(l)]; }
-    else if (this.eatKw('else')) orelse = this.suite();
+    if (this.isKw('elif')) { const l = this.cur.line; this.i++; orelse = [this.ifRest(l, 'elif')]; }
+    else if (this.isKw('else')) { const l = this.cur.line; this.i++; orelse = this.suite("'else' statement", l); }
     return { k: 'if', test, body, orelse, line };
   }
 
@@ -214,12 +272,18 @@ class Parser {
       }
     }
     const first = this.exprList();
+    // Python 2's spelling, and still what people type first.
+    if (first.k === 'name' && first.name === 'print' && (this.cur.t === 'str' || this.cur.t === 'fstr' || this.cur.t === 'num' || (this.cur.t === 'name' && !KEYWORDS.has(this.cur.v)))) {
+      throw new PyError('SyntaxError', "Missing parentheses in call to 'print'. Did you mean print(...)?", line);
+    }
     // A bare annotation changes nothing at run time, and that is the lesson:
     // Python records it and enforces none of it.
-    if (this.eatOp(':')) {
+    if (this.isOp(':')) {
+      if (first.k === 'tuple' || first.k === 'list') this.fail(`only single target (not ${first.k}) can be annotated`);
+      this.i++;
       this.ternary();
-      if (!this.eatOp('=')) { this.checkTarget(first); return { k: 'pass', line }; }
       this.checkTarget(first);
+      if (!this.eatOp('=')) return first.k === 'name' ? { k: 'annot', target: first, line } : { k: 'pass', line };
       return { k: 'assign', targets: [first], value: this.exprList(), line };
     }
     if (this.cur.t === 'op' && AUG.has(this.cur.v)) {
@@ -241,7 +305,11 @@ class Parser {
 
   checkTarget(e: Expr) {
     if (e.k === 'tuple' || e.k === 'list') { e.items.forEach((x) => this.checkTarget(x)); return; }
-    if (e.k !== 'name' && e.k !== 'index' && e.k !== 'attr') throw new PyError('SyntaxError', 'cannot assign to this expression', e.line);
+    if (e.k === 'star') { this.checkTarget(e.e); return; }
+    if (e.k !== 'name' && e.k !== 'index' && e.k !== 'attr') {
+      const what = assignName(e) ?? 'expression';
+      throw new PyError('SyntaxError', what === 'True' || what === 'False' || what === 'None' || what === 'comparison' ? `cannot assign to ${what}` : `cannot assign to ${what} here. Maybe you meant '==' instead of '='?`, e.line);
+    }
   }
 
   params(close: string): Param[] {
@@ -249,6 +317,7 @@ class Parser {
     let seenDefault = false;
     while (!this.isOp(close)) {
       if (this.isOp('*') || this.isOp('**')) throw notHere('*args and **kwargs', this.cur.line);
+      if (this.isOp('/')) throw notHere('positional-only parameters, marked with /,', this.cur.line);
       const name = this.ident();
       if (close === ')' && this.eatOp(':')) this.ternary();
       const def = this.eatOp('=') ? this.ternary() : undefined;
@@ -268,6 +337,7 @@ class Parser {
     return { k: 'tuple', items, line };
   }
   postfixTarget(): Expr {
+    if (this.isOp('*')) { const line = this.cur.line; this.i++; return { k: 'star', e: this.postfixTarget(), line }; }
     if (this.isOp('(') || this.isOp('[')) {
       const close = this.isOp('(') ? ')' : ']', line = this.cur.line;
       this.i++;
@@ -280,14 +350,19 @@ class Parser {
   }
 
   exprList(): Expr {
-    const line = this.cur.line, first = this.named();
+    const line = this.cur.line, first = this.starOrNamed();
     if (!this.isOp(',')) return first;
     const items = [first];
     while (this.eatOp(',')) {
       if (this.cur.t === 'nl' || this.isOp('=') || this.isOp(')') || this.isOp(':') || this.isOp(';')) break;
-      items.push(this.named());
+      items.push(this.starOrNamed());
     }
     return { k: 'tuple', items, line };
+  }
+  /** One item of a list, a tuple or a right-hand side, where *x spreads x out. */
+  starOrNamed(): Expr {
+    if (this.isOp('*')) { const line = this.cur.line; this.i++; return { k: 'star', e: this.binary(0), line }; }
+    return this.named();
   }
   named(): Expr {
     const e = this.ternary();
@@ -336,7 +411,7 @@ class Parser {
     }
     return rest.length ? { k: 'cmp', first, rest, line } : first;
   }
-  static LADDER = [['|'], ['^'], ['&'], ['<<', '>>'], ['+', '-'], ['*', '/', '//', '%']];
+  static LADDER = [['|'], ['^'], ['&'], ['<<', '>>'], ['+', '-'], ['*', '/', '//', '%', '@']];
   binary(level: number): Expr {
     if (level === Parser.LADDER.length) return this.unary();
     let l = this.binary(level + 1);
@@ -385,19 +460,23 @@ class Parser {
       if (this.cur.t === 'name' && this.toks[this.i + 1].t === 'op' && this.toks[this.i + 1].v === '=') {
         const name = this.ident();
         this.i++;
+        // A map of them would keep the last and carry on, where Python refuses to compile.
+        if (kw.some(([k]) => k === name)) this.fail(`keyword argument repeated: ${name}`);
         kw.push([name, this.ternary()]);
       } else {
         if (kw.length) this.fail('positional argument follows keyword argument');
         args.push(this.ternary());
         if (this.isKw('for')) throw notHere('generator expressions (a list comprehension works here)', this.cur.line);
+        if (this.isOp('=')) this.fail('expression cannot contain assignment, perhaps you meant "=="?');
       }
       if (!this.eatOp(',')) break;
     }
-    this.needOp(')');
+    this.closing(')');
     return { k: 'call', fn, args, kw, line };
   }
   subscript(): Expr {
     const line = this.cur.line, one = () => this.isOp(':') || this.isOp(']') || this.isOp(',') ? undefined : this.ternary();
+    if (this.isOp('*')) throw notHere('*x inside square brackets', line);
     const lo = one();
     if (!this.isOp(':')) {
       if (!lo) this.fail();
@@ -415,6 +494,7 @@ class Parser {
     const t = this.cur, line = t.line;
     if (t.t === 'num') { this.i++; return { k: 'const', v: t.n!, line }; }
     if (t.t === 'str' || t.t === 'fstr') return this.strings();
+    if (this.isOp('...')) throw notHere("'...' (the value called Ellipsis)", line);
     if (t.t === 'name') {
       if (t.v === 'None') { this.i++; return { k: 'const', v: null, line }; }
       if (t.v === 'True') { this.i++; return { k: 'const', v: true, line }; }
@@ -423,54 +503,65 @@ class Parser {
     }
     if (this.eatOp('(')) {
       if (this.eatOp(')')) return { k: 'tuple', items: [], line };
-      const first = this.named();
+      const first = this.starOrNamed();
       if (this.isKw('for')) throw notHere('generator expressions (a list comprehension works here)', this.cur.line);
+      if (this.isOp(')') && first.k === 'star') this.fail('cannot use starred expression here');
       if (this.eatOp(')')) return first;
       const items = [first];
-      while (this.eatOp(',')) { if (this.isOp(')')) break; items.push(this.named()); }
-      this.needOp(')');
+      while (this.eatOp(',')) { if (this.isOp(')')) break; items.push(this.starOrNamed()); }
+      this.closing(')');
       return { k: 'tuple', items, line };
     }
     if (this.eatOp('[')) {
       if (this.eatOp(']')) return { k: 'list', items: [], line };
-      const first = this.named();
+      const first = this.starOrNamed();
       if (this.isKw('for')) {
+        if (first.k === 'star') this.fail('iterable unpacking cannot be used in comprehension');
         const clauses = this.compClauses();
         this.needOp(']');
         return { k: 'comp', kind: 'list', elt: first, clauses, line };
       }
       const items = [first];
-      while (this.eatOp(',')) { if (this.isOp(']')) break; items.push(this.named()); }
-      this.needOp(']');
+      while (this.eatOp(',')) { if (this.isOp(']')) break; items.push(this.starOrNamed()); }
+      this.closing(']');
       return { k: 'list', items, line };
     }
     if (this.eatOp('{')) {
       if (this.eatOp('}')) return { k: 'dict', items: [], line };
-      const first = this.ternary();
-      if (this.eatOp(':')) {
+      const pair = (): [Expr | null, Expr] => {
+        if (this.eatOp('**')) return [null, this.binary(0)];
+        const key = this.ternary();
+        this.needOp(':');
+        return [key, this.ternary()];
+      };
+      if (this.isOp('**')) {
+        const items = [pair()];
+        if (this.isKw('for')) this.fail('dict unpacking cannot be used in dict comprehension');
+        while (this.eatOp(',')) { if (this.isOp('}')) break; items.push(pair()); }
+        this.needOp('}');
+        return { k: 'dict', items, line };
+      }
+      const first = this.isOp('*') ? this.starOrNamed() : this.ternary();
+      if (first.k !== 'star' && this.eatOp(':')) {
         const val = this.ternary();
         if (this.isKw('for')) {
           const clauses = this.compClauses();
           this.needOp('}');
           return { k: 'comp', kind: 'dict', elt: first, val, clauses, line };
         }
-        const items: [Expr, Expr][] = [[first, val]];
-        while (this.eatOp(',')) {
-          if (this.isOp('}')) break;
-          const key = this.ternary();
-          this.needOp(':');
-          items.push([key, this.ternary()]);
-        }
+        const items: [Expr | null, Expr][] = [[first, val]];
+        while (this.eatOp(',')) { if (this.isOp('}')) break; items.push(pair()); }
         this.needOp('}');
         return { k: 'dict', items, line };
       }
       if (this.isKw('for')) {
+        if (first.k === 'star') this.fail('iterable unpacking cannot be used in comprehension');
         const clauses = this.compClauses();
         this.needOp('}');
         return { k: 'comp', kind: 'set', elt: first, clauses, line };
       }
       const items = [first];
-      while (this.eatOp(',')) { if (this.isOp('}')) break; items.push(this.ternary()); }
+      while (this.eatOp(',')) { if (this.isOp('}')) break; items.push(this.isOp('*') ? this.starOrNamed() : this.ternary()); }
       this.needOp('}');
       return { k: 'set', items, line };
     }
@@ -516,7 +607,8 @@ function fstringParts(raw: string, line: number): FPart[] {
     for (; j < raw.length; j++) {
       const d = raw[j];
       if (quote) { if (d === quote) quote = ''; continue; }
-      if (d === '"' || d === "'") { quote = d; continue; }
+      // After the colon it's a format spec, where a quote is a fill character: f"{x:'>5}".
+      if (colon < 0 && (d === '"' || d === "'")) { quote = d; continue; }
       if ('([{'.includes(d)) { depth++; continue; }
       if (')]'.includes(d)) { depth--; continue; }
       if (d === '}') { if (depth === 0) break; depth--; continue; }
@@ -531,7 +623,8 @@ function fstringParts(raw: string, line: number): FPart[] {
     const spec = colon >= 0 ? raw.slice(colon + 1, j) : undefined;
     if (spec?.includes('{')) throw notHere('nested f-string format specs', line);
     const conv = bang >= 0 ? raw[bang + 1] : undefined;
-    const sub = new Parser(lex(`(${text})`).map((t) => ({ ...t, line })));
+    if (conv !== undefined && !'rsa'.includes(conv)) throw new PyError('SyntaxError', `f-string: invalid conversion character '${conv}': expected 's', 'r', or 'a'`, line);
+    const sub =new Parser(lex(`(${text})`).map((t) => ({ ...t, line })));
     parts.push({ e: sub.ternary(), conv, spec });
     i = j + 1;
   }

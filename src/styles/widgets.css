@@ -38,6 +38,9 @@
 .m-steps li.done::before { content: "✓"; background: var(--bamboo); border-color: var(--bamboo); color: var(--bamboo-ink); }
 .m-hint { border: 0; background: none; color: var(--sky); cursor: pointer; font: 600 0.78rem var(--sans); padding: 0 4px; }
 .m-steps code { display: block; margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; cursor: copy; font-weight: 400; }
+/* pre-wrap: a reason can quote a string, and two spaces shown as one would misreport the value being debugged. */
+.m-why { margin: 6px 0 0; font-size: 0.86rem; font-weight: 400; color: var(--berry); overflow-wrap: anywhere; white-space: pre-wrap; }
+.m-why[hidden] { display: none; }
 .m-debrief { margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--sun-soft); font-size: 0.93rem; }
 .m-debrief p { margin: 4px 0 0; }
 

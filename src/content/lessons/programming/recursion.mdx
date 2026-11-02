@@ -1,0 +1,183 @@
+---
+title: A function that calls itself
+summary: Data nested deep enough could take down a program that read it. Learn what recursion is for, watch the call stack grow one Step at a time, hit RecursionError at its real limit, and see why safety-critical rules ban what you've just learned.
+minutes: 20
+xp: 55
+tiers: [browser]
+builds_on: [programming/functions]
+sources:
+  - title: NVD - CVE-2020-36518, jackson-databind (the API record)
+    url: https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2020-36518
+  - title: Python docs - sys.getrecursionlimit and setrecursionlimit
+    url: https://docs.python.org/3/library/sys.html#sys.setrecursionlimit
+  - title: Python docs - json, on parsing untrusted data
+    url: https://docs.python.org/3/library/json.html
+  - title: Guido van Rossum - Tail Recursion Elimination (2009)
+    url: https://neopythonic.blogspot.com/2009/04/tail-recursion-elimination.html
+  - title: Gerard Holzmann - The Power of Ten, Rules for Developing Safety Critical Code (NASA/JPL)
+    url: https://spinroot.com/gerard/pdf/P10.pdf
+---
+
+jackson-databind is a widely used Java library for reading JSON, the common text format for data. Its entry in the US National Vulnerability Database reads, in full: "jackson-databind before 2.13.0 allows a Java StackOverflow exception and denial of service via a large depth of nested objects." The same record's version data lists later versions as affected too, so don't read 2.13.0 as the fix.
+
+Put plainly, someone could send it data nested deep enough and knock the program over. No clever code, no stolen password: just brackets inside brackets inside brackets, a very large number of times. To follow how that happens, you need the idea in this lesson.
+
+## Same problem, smaller
+
+JSON can nest: a list can hold a list, which holds a list, as deep as you like. So can folders on a disk, replies to replies, a family tree. You can't write this with a fixed number of nested loops, because you'd need one loop per level and the data decides how many levels there are.
+
+There's a neater way to think about it. To add up everything in a box of boxes, add up the numbers in it, and for each box inside, do *the same thing*. The problem contains smaller copies of itself.
+
+A function that calls itself is **recursive**. Every recursive function needs two parts:
+
+- A **base case**, where the answer is simple and it doesn't call itself.
+- A **recursive case**, which does a bit of work and calls itself on something *smaller*.
+
+Here's the smallest example. Press **Step** and watch the panel on the right.
+
+<CodeLab code={`def count_down(n):
+    if n == 0:
+        print("liftoff")
+        return
+    print(n)
+    count_down(n - 1)
+    print("back in the call where n was", n)
+
+count_down(3)
+`} />
+
+Each call gets its own `n`. Calling itself doesn't replace the current call: it pauses it, and the new call goes on top. That pile of paused calls is the **call stack**, which [the stacks lesson](/learn/algorithms/stacks-and-queues/) covers in more detail. You can see it in the Variables panel, newest at the bottom. The pile grows on the way down, and on the way back each call carries on from where it paused, which is why those last lines print in reverse order.
+
+## Boxes inside boxes
+
+Now the kind of problem it's really for. `isinstance(item, list)` asks "is this item a list?", and gives `True` or `False`. Note the bug in the starting code: the function does call itself, but on the same thing it was given, so it never gets anywhere.
+
+<CodeLab mission="prog-rec-trees" rows={13} />
+
+<Callout kind="trap" title="Every call has to move towards the base case">
+A base case that's never reached is the same as no base case. `count_down(-1)` with the function above goes down past zero and never reaches its base case, since `n == 0` is never true on the way down from a negative number, so it runs until Python stops it. Ask of every recursive function: what gets smaller on each call, and what happens when it can't get any smaller?
+</Callout>
+
+## The limit is real
+
+Those paused calls take up memory, and the pile can't grow forever. Python stops it first, with a `RecursionError`. Here's the limit, measured. It starts a counter, calls itself until Python refuses, and reports how far it got.
+
+<CodeLab code={`reached = 0
+
+def go_deeper():
+    global reached
+    reached = reached + 1
+    go_deeper()
+
+try:
+    go_deeper()
+except RecursionError:
+    print("stopped after", reached, "calls")
+`} />
+
+It prints 999. The limit is 1,000 frames by default, and the top of the program counts as one. This site's tests run the same program in real Python, on versions 3.11 and 3.12, and it gets the same number. Don't rely on the exact figure, though: `sys.setrecursionlimit` changes it, and a program that's already a few calls deep has fewer left.
+
+You can see that from a function with a sensible base case, as well. This one is correct. It's just asked for too much:
+
+<CodeLab code={`def how_many(n):
+    if n == 0:
+        return 0
+    return 1 + how_many(n - 1)
+
+print(how_many(998))
+print(how_many(999))
+`} />
+
+Look at what the error report does here: it shows the same line three times, then `[Previous line repeated 996 more times]`. Real Python prints it the same way, because nobody needs to read 999 identical lines.
+
+## Back to those brackets
+
+Here is `depth` from the mission, given a list nested 5,000 levels deep. Picture that list arriving from outside, as input to your program. Run it.
+
+<CodeLab code={`def depth(box):
+    deepest = 0
+    for item in box:
+        if isinstance(item, list):
+            deepest = max(deepest, depth(item))
+    return deepest + 1
+
+def make_nested(levels):
+    box = []
+    for i in range(levels - 1):
+        box = [box]
+    return box
+
+print(depth(make_nested(10)))
+print(depth(make_nested(5000)))
+`} />
+
+Whoever controls the input controls how deep your function goes. That's what the jackson-databind entry is describing, and it's not only a Java problem. On real Python's own JSON reader, `json.loads` of `"[" * n + "]" * n` raised `RecursionError` on our test machine at 1,000 levels on Python 3.11, and at 20,000 on 3.12, where 5,000 still worked. So those exact numbers change by version, while the principle doesn't. Python's docs tell you to "Be cautious when parsing JSON data from untrusted sources."
+
+The `RecursionError` you just saw is the good version of this failure. It's loud and clean, and you can catch it and refuse the input. In languages like C, running out of stack can crash the program outright, or worse.
+
+So what's the fix when the depth is outside your control?
+
+- **Set your own limit** on how deep you'll go, and reject input that's deeper, with a clear error. That's your program's decision rather than an accident.
+- **Keep your own stack.** A loop with a list of boxes still to open does the same job, and a list can grow far beyond 1,000 items.
+
+<CodeLab code={`def depth(box):
+    deepest = 0
+    still_to_open = [(box, 1)]
+    while still_to_open:
+        current, level = still_to_open.pop()
+        deepest = max(deepest, level)
+        for item in current:
+            if isinstance(item, list):
+                still_to_open.append((item, level + 1))
+    return deepest
+
+def make_nested(levels):
+    box = []
+    for i in range(levels - 1):
+        box = [box]
+    return box
+
+print(depth(make_nested(10)))
+print(depth(make_nested(5000)))
+`} rows={14} />
+
+That's less pretty, and it works at any depth this page can hold. Every recursive function can be rewritten with a loop and a stack of your own. Often you won't want to, because the recursive version says what it means so clearly.
+
+<Callout kind="real">
+Some languages can run a call that's the very last thing a function does without adding to the stack, which is called **tail-call elimination**. Python doesn't, and its creator explained why in 2009, among his reasons that it "is incompatible with nice stack traces". Rules for safety-critical code go much further. The Power of Ten, written at NASA's Jet Propulsion Laboratory, says "do not use goto statements, setjmp or longjmp constructs, and direct or indirect recursion", because without recursion a tool can prove how much stack a program will ever need. That's a rule for code that must never fall over, and it's not a verdict for everything: it says itself that its rules are "somewhat strict".
+</Callout>
+
+<Callout kind="tip" title="Recursion can also be slow">
+A recursive function that calls itself twice can repeat the same work a huge number of times. Fibonacci is the classic case, and [the dynamic programming lesson](/learn/algorithms/dynamic-programming/) shows how remembering answers fixes the time, and why it doesn't fix the depth.
+</Callout>
+
+<Quiz
+  id="prog-rec-1"
+  q="What's wrong with this? def size(box): return 1 + size(box)"
+  options={["Nothing: it counts the boxes", "It has no base case and box never gets smaller, so it raises RecursionError for any input", "It would work if box were a list"]}
+  answer={1}
+  explain="It calls itself on the same thing every time and always calls itself. There's no input it could finish on. Python stops it at the recursion limit."
+/>
+
+<Quiz
+  id="prog-rec-2"
+  q="count_down(3) has just printed 1 and called count_down(0). How many calls of count_down are on the stack at that moment?"
+  options={["One: each call replaces the last", "Four: count_down(3), (2), (1) are paused while (0) runs", "Three: the call with 0 doesn't count"]}
+  answer={1}
+  explain="A call that makes another call is paused, not gone. All of them are waiting, and it's why each one can carry on with its own n afterwards. Press Step on the first lab to see it."
+/>
+
+<Quiz
+  id="prog-rec-3"
+  q="Your server reads nested data from users with a recursive function. A user sends data nested 100,000 levels deep. Which response is the sound one?"
+  options={["Raise the recursion limit to a very large number so it always works", "Catch every exception and return an empty result", "Decide a maximum depth, reject deeper input with a clear error, or use a loop with your own stack"]}
+  answer={2}
+  explain="Raising the limit only moves the problem, and Python's docs warn that 'a too-high limit can lead to a crash'. Returning an empty result is a silent failure. A deliberate limit, or a loop that doesn't use the call stack, is something you can rely on."
+/>
+
+## What to remember
+
+- Recursion fits when a problem contains smaller copies of itself and you don't know how deep it goes.
+- It needs a base case, and every call has to move towards it.
+- Calls pile up on the call stack. Python stops at about 1,000 with `RecursionError`.
+- If the input decides how deep you go, then whoever sends the input can stop your program. Set a limit, or use your own stack.

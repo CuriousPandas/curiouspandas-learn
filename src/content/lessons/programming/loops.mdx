@@ -1,0 +1,188 @@
+---
+title: Doing it again, and knowing when to stop
+summary: A straight fence 10 metres long with a post every metre needs 11 posts, not 10. Learn the two kinds of loop, watch them run, and cause and fix the two classic loop bugs, the one that never ends and the one that's off by one.
+minutes: 20
+xp: 55
+tiers: [browser]
+builds_on: [programming/decisions]
+sources:
+  - title: The Python Tutorial - More Control Flow Tools (for, range, break, continue)
+    url: https://docs.python.org/3/tutorial/controlflow.html
+  - title: The Python Tutorial - An Informal Introduction to Python (a first while loop)
+    url: https://docs.python.org/3/tutorial/introduction.html
+  - title: Python documentation - Built-in Exceptions (KeyboardInterrupt)
+    url: https://docs.python.org/3/library/exceptions.html
+---
+
+You're building a straight fence 10 metres long, with a post every metre. How many posts do you need?
+
+Ten is the answer that comes first, and it's wrong. You need 11, because there's a post at the start as well as one at the end of every metre. The mistake has a name, the **fencepost error**, and it turns up in code all the time. Keep it in mind. First, loops.
+
+A **loop** runs the same lines over and over. A computer doesn't get bored, so repetition is where it earns its keep. It's also where a small mistake gets repeated a very large number of times.
+
+## While: keep going as long as this is true
+
+`while` looks like `if`, except that at the end of the body it goes back and asks again. Press **Step**, and watch `n` in the Variables panel. Watch which line lights up after the last line of the body.
+
+<CodeLab code={`n = 3
+while n > 0:
+    print(n)
+    n = n - 1
+print("Go!")
+`} />
+
+The test runs before each pass, including the first. If it's false the first time, the body never runs at all. Try changing `n = 3` to `n = 0`.
+
+Every `while` loop needs a way out, and usually that means something in the body moves the test towards being false. Here's what happens when nothing does.
+
+<CodeLab mission="prog-loop-stuck" />
+
+<Callout kind="real" title="On real Python, nothing stops it for you">
+This page stops a program after 5 million steps, or when it has printed more than the page will hold. Those limits are the page's own. Real Python has neither, so a loop like that runs until you stop it. In a terminal, press **Ctrl+C**, which Python's docs describe as the usual interrupt key. A loop that doesn't print can look exactly like a program thinking hard, and from the outside, you can't tell which it is.
+</Callout>
+
+## For: once for each thing
+
+Often you know what you're going through. `for` takes each value in turn, and it stops by itself when there are none left, so this loop can't forget to move along.
+
+<CodeLab code={`for letter in "tea":
+    print(letter)
+
+for i in range(3):
+    print(i)
+`} />
+
+`letter` and `i` are ordinary names that the loop assigns to each time round. The first loop goes through a string, one character at a time. The second one uses `range`, which produces a run of whole numbers. Now the surprise: `range(3)` gives 0, 1, 2. Three numbers, and 3 isn't one of them. The tutorial says it clearly: "The given end point is never part of the generated sequence".
+
+<CodeLab code={`print(list(range(5)))
+print(list(range(1, 5)))
+print(list(range(0, 10, 2)))
+print(list(range(5, 0, -1)))
+`} />
+
+`list()` here turns the range into something `print` can show in full. So `range` can take a start, a stop and a step size. The stop is never included, and the step can be negative. Counting from 0 and stopping before the end looks odd for now. It'll make sense when you reach [lists](/learn/programming/lists/), because their items are numbered from 0, and `range(5)` is exactly the numbers you need to go through a list of five.
+
+## Off by one
+
+Here's the same mistake in a program, adding up 1 to 10. There's no error message to help you.
+
+<CodeLab mission="prog-loop-sum" />
+
+Almost every off-by-one bug is one of these two questions, answered without looking:
+
+- **Do I count the first one, or the last one, or both?** The fence has 11 posts and 10 gaps.
+- **Is the end included?** `range` leaves it out, as you've just seen, and `<` and `<=` differ in exactly this way.
+
+The cheapest test is a size you can check in your head. Run your loop for 1 item, and for 0. If it's wrong there, you'll see it at once. Here's the fence, counted both ways:
+
+<CodeLab code={`metres = 10
+posts = 0
+for position in range(0, metres + 1):
+    posts = posts + 1
+print("Posts:", posts)
+
+gaps = 0
+for position in range(0, metres):
+    gaps = gaps + 1
+print("Gaps:", gaps)
+`} rows={11} />
+
+## Adding things up
+
+The pattern in that program comes up constantly. Make a variable before the loop, and update it each time round. People call it an **accumulator**.
+
+<CodeLab code={`total = 0
+for price in range(1, 4):
+    total = total + price
+    print("after adding", price, "the total is", total)
+print("final:", total)
+`} />
+
+Put `total = 0` inside the loop, and press **Step** to see why it has to go first. It starts again from nothing on each pass, and you end up with just the last number. No error tells you that either.
+
+## Stopping early, and skipping
+
+`break` leaves the loop now. `continue` skips the rest of this pass, and goes round again.
+
+<CodeLab code={`for n in range(2, 20):
+    if n % 7 == 0:
+        print("First multiple of 7:", n)
+        break
+
+for n in range(5):
+    if n == 2:
+        continue
+    print(n)
+`} rows={10} />
+
+## Loops inside loops
+
+The body of a loop can be anything, including another loop. The inner one runs all the way through for each single pass of the outer one. Step through this slowly, and watch `row` and `col`.
+
+<CodeLab code={`for row in range(1, 4):
+    line = ""
+    for col in range(1, 4):
+        line = line + str(row * col) + " "
+    print(line)
+`} />
+
+That's 3 passes of 3 passes, so 9 multiplications. Nested loops multiply, which is how a program gets slow without looking slow. [Count the steps, not the seconds](/learn/algorithms/counting-steps/) is about exactly that. Its examples use functions and lists, so it'll make more sense after [lists](/learn/programming/lists/).
+
+## Things worth trying
+
+Each of these does something you might not expect. Try them in this lab.
+
+<CodeLab code={`for i in range(3):
+    i = 10
+    print(i)
+print("after the loop, i is", i)
+`} />
+
+- **Changing `i` doesn't change the loop.** Each pass takes the next value from `range`, whatever you did to `i`. To control the count yourself, use a `while`.
+- **`i` still exists afterwards.** It holds the last value it was given. But change `range(3)` to `range(0)`, and the body never runs, so `i` was never given a value and the last line is a `NameError`. A program relying on `i` after the loop works until the day the loop has nothing to do.
+- **`for i in 3:`** is a `TypeError`: `'int' object is not iterable`. **Iterable** means "something you can go through one at a time". A number isn't, and it's `range(3)` you want.
+- **`for i in range(3.0):`** is also a `TypeError`: `'float' object cannot be interpreted as an integer`. `range` only takes whole numbers. This one matters because `/` gives a float, so `range(n / 2)` fails even when `n` is even. Use `n // 2`.
+- **`i++`** works in many other languages and not here: it's `invalid syntax`. Write `i += 1`.
+
+## Which loop?
+
+Use `for` when you can say what you're going through: these items, or this many times. Use `while` when you can only say when to stop, like "until the total passes 100". A `for` over a `range` can't get stuck by forgetting to move along, which is a good reason to prefer it when either would do. That isn't a guarantee of finishing, though, because anything inside its body can still get stuck.
+
+<GoDeeper title="How to be sure a loop stops, and is right">
+[The first Algorithms lesson](/learn/algorithms/what-is-an-algorithm/) shows how to prove a loop ends: find a whole number that can't go below zero and that gets strictly smaller on every pass. In `while n > 0`, `n = n - 1`, that number is `n`. With `n - 1` alone, it doesn't shrink, and that's the bug.
+
+You can also reason about whether a loop is right, using a statement that stays true each time round, called a **loop invariant**. In the sum from 1 to `n`, it's "after each pass, `total` is the sum of everything `i` has visited". It's true before the first pass, since nothing has been visited and `total` is 0, and each pass keeps it true. When the loop ends, `i` has visited everything `range` gave it, and if that isn't 1 to `n`, the invariant has told you where the bug is.
+</GoDeeper>
+
+<Quiz
+  id="prog-loop-1"
+  q="How many numbers does range(2, 6) produce, and what is the last one?"
+  options={["5 numbers, ending in 6", "4 numbers, ending in 5", "4 numbers, ending in 6"]}
+  answer={1}
+  explain="It gives 2, 3, 4, 5. The stop value is never included. You can get the count by subtracting: 6 minus 2 is 4."
+/>
+
+<Quiz
+  id="prog-loop-2"
+  q="A while loop never stops. No error appears. What's the first thing to look at?"
+  options={["Whether Python has run out of memory", "The value the test depends on, and whether anything in the body changes it", "Whether the loop needs a for instead"]}
+  answer={1}
+  explain="The loop keeps going because its test stays true, and that nearly always means nothing is changing what it tests. A line like n - 1 looks like it changes n, and it doesn't. Step shows you straight away."
+/>
+
+<Quiz
+  id="prog-loop-3"
+  q="A loop adds up values, but the result is only the last value. Where is the likely bug?"
+  options={["total = 0 is inside the loop, so it restarts every pass", "for loops can't add numbers", "total needs to be a float"]}
+  answer={0}
+  explain="If total is set to 0 inside the body, each pass throws away what came before. Anything that has to survive between passes has to be set up before the loop starts."
+/>
+
+## What to remember
+
+- `while` repeats as long as its test is true, and something has to end it.
+- `for` goes through things one at a time, and stops when they run out.
+- `range` starts at 0 by default and never includes its end.
+- Off-by-one bugs give a plausible answer with no error. Test with sizes you can check in your head, and with 0 and 1.
+- Set up anything that has to survive between passes before the loop starts.
+- When a loop surprises you, press **Step**.

@@ -6,6 +6,7 @@
 import type { Mission } from '../missions.ts';
 import { Shell } from './shell.ts';
 import type { File } from './fs.ts';
+import { scriptMissions } from './script-missions.ts';
 
 export type LinuxState = { sh: Shell };
 
@@ -50,6 +51,7 @@ export const NOISY = { ip: '10.0.4.17', failures: LOG.filter(([ip, , st]) => ip 
 const answerLine = new RegExp(`^\\s*${NOISY.failures} ${NOISY.ip.replace(/\./g, '\\.')}$`);
 
 export const LINUX_MISSIONS: Record<string, Mission<LinuxState>> = {
+  ...scriptMissions(world),
   'linux-paths': {
     id: 'linux-paths', title: 'Find your way around', xp: 40,
     setup: () => ({ sh: world() }),

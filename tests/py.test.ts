@@ -37,7 +37,7 @@ test('printing without end stops at the output limit', () => {
 test('features this sandbox lacks are refused by name, never ignored', () => {
   for (const [src, word] of [
     ['import math', 'import'], ['from x import y', 'from'], ['with a as b:\n    pass', 'with'], ['def f():\n    yield 1', 'yield'],
-    ['try:\n    pass\nexcept ValueError:\n    pass\nfinally:\n    pass', 'finally'], ['def f(*a):\n    pass', '*args'], ['f(*x)', '*args'],
+    ['def f(*a):\n    pass', '*args'], ['f(*x)', '*args'],
     ['print(x for x in y)', 'generator'], ['x = (a for a in b)', 'generator'], ['@d\ndef f():\n    pass', 'decorators'], ['for x in y:\n    pass\nelse:\n    pass', 'for ... else'],
     ['while x:\n    pass\nelse:\n    pass', 'while ... else'], ['class A(B, C):\n    pass', 'multiple inheritance'], ['x = (y := 1)', ':='], ['x = b"a"', 'strings'],
     ['input()', 'input'], ['class M(int):\n    pass', 'subclass'], ['"%d" % 1', '%'], ['(-8.0) ** 0.5', 'complex'], ['print(f"{1=}")', 'debugging'],
@@ -69,10 +69,13 @@ test('a program cannot reach JavaScript or the outside world', () => {
   assert.equal(runAll('d = {"__proto__": 1, "constructor": 2}\nprint(d["__proto__"], d["constructor"], len(d))').stdout, '1 2 2\n');
 });
 
-test('an unknown method on a built-in type says the sandbox may just lack it', () => {
-  const r = runAll('[].no_such_thing()');
-  assert.equal(r.error?.type, 'SandboxLimit');
-  assert.match(r.error!.message, /real Python may have it, or you may have a typo/);
+test('a method real Python lacks is the learner\'s AttributeError, and one this sandbox lacks is refused by name', () => {
+  const typo = runAll('[].no_such_thing()');
+  assert.equal(typo.error?.type, 'AttributeError');
+  assert.equal(typo.error?.message, "'list' object has no attribute 'no_such_thing'");
+  const gap = runAll('"x".casefold()');
+  assert.equal(gap.error?.type, 'SandboxLimit');
+  assert.match(gap.error!.message, /real Python has str\.casefold\(\); this sandbox does not yet/);
 });
 
 test('Step stops once per statement, a loop header is revisited, and the highlight is the line about to run', () => {

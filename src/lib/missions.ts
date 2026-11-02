@@ -10,7 +10,9 @@ import { run } from './git/shell.ts';
 import { Cluster } from './kube/cluster.ts';
 import { kubectl } from './kube/kubectl.ts';
 
-export type Step<S> = { text: string; hint?: string; done: (s: S) => boolean };
+// `why` says what is still wrong with the current step. A beginner who gets an unticked
+// box and no reason has nothing to act on, and has no way to see the inputs it was judged on.
+export type Step<S> = { text: string; hint?: string; done: (s: S) => boolean; why?: (s: S) => string };
 export type Mission<S> = { id: string; title: string; xp: number; setup: () => S; steps: Step<S>[]; debrief: string };
 
 export type GitState = { repo: Repo; history: string[] };

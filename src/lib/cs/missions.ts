@@ -9,9 +9,17 @@ import { checkCases, type GrowthPoint, type GrowthShape, type RunResult } from '
 import { ALG_FOUNDATION_MISSIONS } from './alg-foundations.ts';
 import { ALG_CODE_MISSIONS } from './alg-missions.ts';
 import { ALG_STRATEGY_MISSIONS } from './alg-strategies.ts';
+import { PROG_A_MISSIONS } from './prog-basics.ts';
+import { PROG_MISSIONS } from './prog-missions.ts';
 
 export type CodeState = { runs: RunResult[]; growth: { src: string; fn: string; points: GrowthPoint[]; shape: GrowthShape }[] };
-export type CodeMission = Mission<CodeState> & { starter?: string };
+export type CodeMission = Mission<CodeState> & {
+  starter?: string;
+  /** What the lab's input box starts with: one entry per input() call. */
+  stdin?: string[];
+  /** Code the learner reads but can't edit. It runs first, and a mission can swap it. */
+  given?: string;
+};
 
 const blank = (): CodeState => ({ runs: [], growth: [] });
 export const lastRun = (s: CodeState) => s.runs.at(-1);
@@ -49,4 +57,6 @@ print(has_duplicate([2, 7, 1, 8]))
     debrief: 'One line hid the whole bill. Asking whether x is in a list reads the list, so the loop does a scan per item, and doubling the input quadruples the work. Your tests passed the whole time, because a small input never shows this. A set answers the same question without scanning. That is what big-O is for: it describes how the work grows, not how long it took today.',
   },
   ...ALG_CODE_MISSIONS,
+  ...PROG_A_MISSIONS,
+  ...PROG_MISSIONS,
 };

@@ -1,8 +1,9 @@
 # Curious Pandas
 
 **Learn tech by breaking things.** A free, open learning site that goes from your
-first git commit to Kubernetes, the CNCF toolbox, neural networks, how vLLM
-serves a language model, and how to replace a system while people are using it. Every lesson is something you can poke, break and fix
+first line of code through algorithms to your first git commit, Kubernetes, the CNCF
+toolbox, neural networks, how vLLM serves a language model, and how to replace a system
+while people are using it. Every lesson is something you can poke, break and fix
 in the browser, and the infrastructure lessons end with doing it for real on
 [TemplateMechanics/tilt](https://github.com/TemplateMechanics/tilt).
 
@@ -84,7 +85,7 @@ inline scripts, and has not been added yet.
 
 | Claim | Pinned by |
 |---|---|
-| The code labs behave like Python | `tests/py-parity.test.ts` runs about 140 programs through real Python and the sandbox, and compares stdout and the final error |
+| The code labs behave like Python | `tests/py-parity.test.ts` runs programs through real Python and the sandbox and compares stdout and the final error. `tests/py-fuzz.test.ts` compares about 104,000 calls of every built-in and method: each must match real Python or be refused by name, and a silent difference or raw JavaScript error fails |
 | The step counter charges for hidden work | `tests/py.test.ts`: `in` on a list costs a scan, on a set it does not; a function over budget measures as unfinished, never as cheap |
 | `/coverage/` matches the curriculum | `tests/cs-coverage.test.ts`: all 162 CS2023 units listed, every lesson named exists, every gap has a plan or a stated reason |
 | Playground hashes are real git hashes | `tests/git-parity.test.ts` replays sessions through the git binary: commits, trees, merges, conflict files |

@@ -1,0 +1,185 @@
+---
+title: Copying, credit, and code an AI wrote
+summary: In one 2022 study of 47 people, those with an AI assistant wrote less secure code, and felt more sure that it was secure. Catch a bug in plausible-looking code, then learn what you may copy, who to credit, and what the sources actually say about who owns code an AI wrote. Not legal advice.
+minutes: 26
+xp: 60
+tiers: [browser]
+builds_on: [programming/first-program, programming/your-first-tests]
+sources:
+  - title: Perry and others - Do Users Write More Insecure Code with AI Assistants? (CCS 2023)
+    url: https://arxiv.org/abs/2211.03622
+  - title: Pearce and others - Asleep at the Keyboard? (2021)
+    url: https://arxiv.org/abs/2108.09293
+  - title: Peng and others - The Impact of AI on Developer Productivity, Evidence from GitHub Copilot (2023)
+    url: https://arxiv.org/abs/2302.06590
+  - title: METR - Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity (2025)
+    url: https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/
+  - title: METR - We are Changing our Developer Productivity Experiment Design (February 2026)
+    url: https://metr.org/blog/2026-02-24-uplift-update/
+  - title: Choose a License - No License
+    url: https://choosealicense.com/no-permission/
+  - title: Choose a License - the licenses, with the full texts
+    url: https://choosealicense.com/licenses/
+  - title: Open Source Initiative - The MIT License
+    url: https://opensource.org/license/mit
+  - title: Stack Overflow - What is the license for the content I post?
+    url: https://stackoverflow.com/help/licensing
+  - title: Creative Commons - CC BY-SA 4.0 deed
+    url: https://creativecommons.org/licenses/by-sa/4.0/
+  - title: MIT - Academic Integrity Handbook, Writing Code
+    url: https://integrity.mit.edu/handbook/writing-code
+  - title: US Copyright Office - Copyright and Artificial Intelligence, Part 2, Copyrightability (January 2025)
+    url: https://www.copyright.gov/ai/Copyright-and-Artificial-Intelligence-Part-2-Copyrightability-Report.pdf
+  - title: US Court of Appeals, D.C. Circuit - Thaler v. Perlmutter (March 2025)
+    url: https://media.cadc.uscourts.gov/opinions/docs/2025/03/23-5233.pdf
+  - title: SCOTUSblog - Thaler v. Perlmutter, certiorari denied March 2, 2026
+    url: https://www.scotusblog.com/cases/thaler-v-perlmutter/
+  - title: UK legislation - Copyright, Designs and Patents Act 1988, section 9
+    url: https://www.legislation.gov.uk/ukpga/1988/48/section/9
+  - title: UK Government - Report on Copyright and Artificial Intelligence (18 March 2026)
+    url: https://www.gov.uk/government/publications/report-and-impact-assessment-on-copyright-and-artificial-intelligence/report-on-copyright-and-artificial-intelligence
+  - title: Anthropic - Consumer Terms of Service
+    url: https://www.anthropic.com/legal/consumer-terms
+---
+
+In 2022, Neil Perry and three colleagues gave people five security-related programming tasks. Some had an AI assistant to help, and some didn't. They reported that "participants who had access to an AI assistant based on OpenAI's codex-davinci-002 model wrote significantly less secure code than those without access." And also that those same participants "were more likely to believe they wrote secure code".
+
+Now the limits, because they matter just as much. It was 47 people: 33 with the assistant and 14 without. By the authors' own account they were mainly university students, who may not represent the developers who use these tools most. And it tested one model from 2022, which is ancient by this field's standards. It was also uneven: the difference showed on four of the five tasks, and on the fifth, in C, the authors call the results inconclusive. It doesn't show that AI code is always insecure, or that today's tools do the same. Hold on to the part that lasts: **how sure you feel about code and how good it is are two different measurements.** You'll need that idea whoever writes your code, whether it's you, a stranger on a website or a machine.
+
+<Callout kind="real" title="This isn't legal advice">
+This lesson explains what public sources say, as of the dates given. It's for learning, and it isn't legal advice. Law differs by country and changes, especially on AI. If real money, a real product or a real dispute is involved, ask a lawyer where you live.
+</Callout>
+
+## Catch it
+
+Here's some code that looks fine. It has a clear description and a sensible name, and the one example you've been given works. You've been handed it, and you're thinking of using it. It's read-only, so all you can do is test it.
+
+<CodeLab mission="prog-whose-catch" rows={8} />
+
+And now that you've caught it, it's yours to fix.
+
+<CodeLab mission="prog-whose-fix" rows={9} />
+
+You didn't need to know who wrote it. You needed to read it, to test what it promises instead of what it demonstrates, and to understand your fix. **You're responsible for what you ship**, however it got into your editor. That doesn't change with the source.
+
+## What the studies say about AI and code
+
+You'll hear "AI makes you ten times faster" and "AI code is all garbage". Here's what some published studies found, with the limits of each. Read the dates: this field moves quickly, so each of these describes specific tools at a specific time. Several give a **confidence interval**, a range the true figure plausibly falls in, given the data. A wide one means the headline number is rough, and one that includes zero means the study can't rule out no change at all.
+
+| Study | What it found | Its limits |
+|---|---|---|
+| Pearce and others, 2021 | Across 89 scenarios and 1,689 programs from GitHub Copilot, "approximately 40%" were vulnerable | The scenarios were picked to be relevant to high-risk security weaknesses, so that isn't 40% of all code. A 2021 version of the tool. |
+| Peng and others, 2023 | With Copilot, developers finished one task, writing an HTTP server in JavaScript, "55.8% faster". The 95% confidence interval is 21% to 89% | One task, from scratch, and the headline is about speed. 95 freelancers were recruited on Upwork, most of those who finished came from India and Pakistan, and the time compares only people who finished. The tool is GitHub's, and this paper's list of authors includes people from GitHub. |
+| METR, 2025 | 16 experienced developers on their own large projects took 19% longer with AI tools, with a confidence interval from 2% to 39% longer. They expected to be 24% faster, and afterwards still believed they'd been 20% faster | A small group, expert in their own code. METR's own page lists the claims it doesn't support, such as that AI doesn't speed up most developers. |
+| METR, February 2026 update | Two groups. 10 developers returning from the 2025 study: an estimated 18% speedup, from 38% faster to 9% slower. 47 newly recruited developers: an estimated 4% speedup, from 15% faster to 9% slower. Both ranges include no change | METR calls this data an "unreliable signal". Its main reason is that developers who won't work without AI are now avoiding the experiment, which it says likely pushes the estimate down. It also names a cut in pay, from $150 to $50 an hour, and unreliable timing for people running several AI agents at once. METR now marks its 2025 result as out of date and believes developers are likely sped up more now, while saying its data is "only very weak evidence for the size". |
+
+Those don't add up to a verdict in either direction. Faster on one small fresh task. Slower in one study of experts on big projects. Then, METR believes, faster, on data it doesn't trust much. Each is true of its setting. What does repeat, in Perry's study and METR's of 2025, is that **people's feelings about how it went weren't a good guide to the measurement**. So measure, and test.
+
+## May I copy this?
+
+Now the other half: not "is it right?" but "am I allowed to?"
+
+**By default, the answer is generally no.** That surprises most people, because the code is right there. Choose a License, a widely used guide, says that when you make a creative work, which includes code, "the work is under exclusive copyright by default." And for what you find online: "If you find software that doesn't have a license, that generally means you have no permission from the creators of the software to use, modify, or share the software." Being able to see it, or fork it on GitHub, doesn't give you those rights. The same page adds that "Others may not need your permission if limitations and exceptions to copyright apply to their particular situation." Those vary by country, so don't assume one applies to you.
+
+Permission comes from a **licence**: a statement of what you may do, on what conditions. These are Choose a License's own summaries of some common ones:
+
+| Licence | Its summary, in short | What it asks of you |
+|---|---|---|
+| MIT | "A short and simple permissive license with conditions only requiring preservation of copyright and license notices." | Keep the notice. |
+| Apache 2.0 | "A permissive license whose main conditions require preservation of copyright and license notices." It adds an express grant of patent rights. | Keep the notices, and say which files you changed. |
+| GPLv3 | "Permissions of this strong copyleft license are conditioned on making available complete source code of licensed works and modifications, which include larger works using a licensed work, under the same license." | If you pass your program on to others, make its source available to them, under the same licence, keep the notices, and say what you changed. |
+| AGPLv3 | As GPLv3, and "When a modified version is used to provide a service over a network, the complete source code of the modified version must be made available." | The same, and it also applies if you modify it and people only use it over a network. |
+| Unlicense | "A license with no conditions whatsoever which dedicates works to the public domain." | Nothing. |
+
+The summaries aren't the licences. The full texts are on those pages, and they're what counts. Notice what even the permissive MIT licence says about quality: "THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND". Nobody who wrote it promises that it works. Once again, that's on you. [The business basics lesson](/learn/launch/business-basics/) has more on licences in a product you sell.
+
+**A common trap is code from answers on a website.** Stack Overflow says its public content is under Creative Commons Attribution-ShareAlike: "Content contributed on or after 2018-05-02 (UTC) is distributed under the terms of CC BY-SA 4.0", with older versions for older posts. That licence's terms include giving credit and, if you build on the material, sharing your version under the same licence. How far that reaches for a two-line snippet in a bigger program is a real legal question that this page can't answer for you. But "I found it on a website" isn't a permission.
+
+## Credit is a separate thing
+
+Licences are about what's legal. **Credit** is about honesty, and it applies even when the code is free to use. MIT's integrity handbook for students puts it plainly: "When you copy code from an external source. Whether you are copying a snippet of code or an entire module, you should credit the source." And if you changed it, "you should still credit the source. You were not the original developer of the code."
+
+It doesn't take much: "Generally, the URL and the date of retrieval are sufficient." A comment does it, and that comment also helps the next person find out what the code was meant to do, or that it's since been fixed. That's honest credit, and it's a rule for students. It isn't licence compliance: Stack Overflow's licence also asks for the author's name if one is given, a link to the licence, and a note of what you changed.
+
+```python
+# Adapted from https://example.org/some-answer, retrieved 2026-11-01.
+# Changed to keep the original order, which the answer's version loses.
+def remove_duplicates(items):
+    seen = []
+    for x in items:
+        if x not in seen:
+            seen.append(x)
+    return seen
+
+print(remove_duplicates([1, 2, 1]))
+```
+
+Being a student adds a rule of its own: the course's. Handing in someone else's work as your own is plagiarism, even if the licence would have allowed you to copy it. A policy quoted in that same handbook says external code is fine "only with proper attribution, and only if the assignment allows it." The same goes for AI tools: courses differ, so read yours, and ask if it isn't clear. If the point of an exercise is that you learn to do it, then having something else do it costs you the thing you came for, and it's easy to forget that this was the point.
+
+## Who owns code an AI wrote?
+
+This varies by country and it moves quickly, so we'll say what specific sources say on specific dates, and stop there. Anything below may have changed since its date, so check before you rely on it. We last looked on 1 November 2026.
+
+**United States.** The US Copyright Office published its position in January 2025: "Copyright does not extend to purely AI-generated material, or material where there is insufficient human control over the expressive elements." But also: "Copyright protects the original expression in a work created by a human author, even if the work also includes AI-generated material", and whether a person's part is enough "must be analyzed on a case-by-case basis". It also concluded that, "given current generally available technology, prompts alone do not provide sufficient human control". In March 2025 a federal appeals court held that the Copyright Act "requires all eligible work to be authored in the first instance by a human being", in a case where an AI system itself was named as the author. The Supreme Court declined to hear an appeal on 2 March 2026. That leaves that ruling in place, and a refusal to hear a case isn't a ruling on the question itself. That case didn't decide how much human work is enough when a person uses AI as a tool. As far as we could find on 1 November 2026, that part remains open.
+
+**United Kingdom.** The law is written differently. Since 1988, for a computer-generated work, section 9(3) of the Copyright, Designs and Patents Act says the author "shall be taken to be the person by whom the arrangements necessary for the creation of the work are undertaken." In a report of 18 March 2026, the government said "we propose that this specific type of protection should be removed", while keeping protection for works created with AI assistance. That's a proposal. We found nothing showing it has become law as of November 2026.
+
+**Elsewhere.** The US report of January 2025 summarises others: in the EU, member states shared the view that AI-generated content may be eligible "only if the human input in [the] creative process was significant", and guidance in Japan treats it case by case. We've only read those through that report, not the originals. Check the current position where you live.
+
+**The tools' own terms** are a separate matter from copyright law, and they change, so a company's terms mean little without a date. As we read them on 1 November 2026, Anthropic's consumer terms, effective 8 October 2025, say: "Subject to your compliance with our Terms, we assign to you all of our right, title, and interest—if any—in Outputs". Notice the "if any": a company can hand you only what it has, and can't promise that copyright exists. Those terms also say who checks the work: "You should not rely on any Outputs or Actions without independently confirming their accuracy."
+
+Those are the terms for individuals. Use through Anthropic's API falls under separate commercial terms, so plans within one tool can differ, and other tools have other terms. We meant to quote [OpenAI's terms](https://openai.com/policies/terms-of-use/) here as well. On 1 November 2026 that page refused our automated check with a 403 error, so we couldn't read it, and we won't quote it from memory. Read the terms of any tool you use for yourself, and note the date you read them.
+
+<Callout kind="tip" title="A note about this site">
+This lesson, like the rest of this site, was written with heavy use of AI, and [How this was built](/built/) says how. It's why the claims here come from the sources listed on this page, which you can check, and why the labs are tested against real tools. We don't ask you to trust it because of who wrote it. Don't trust anything for that reason.
+</Callout>
+
+## What to do
+
+Whoever or whatever wrote the code, the same few habits cover nearly all of this:
+
+1. **Read it.** If you can't explain what a line does, you aren't ready to ship it. Ask, look it up, or step through it.
+2. **Test it,** on what it promises and at its edges. A working example isn't a test. It's only the case the author thought of.
+3. **Check where it came from.** Find the licence. No licence generally means no permission.
+4. **Credit it.** A URL and a date in a comment. It takes ten seconds, and it's honest and useful. If the licence asks for more, as Stack Overflow's does, do that too.
+5. **Know your rules.** Your course's, and your employer's. Both can be stricter than the law.
+
+<Quiz
+  id="prog-whose-1"
+  q="You find useful code in a public repository with no licence file. Which is the most accurate statement?"
+  options={["It's public, so you can use it freely", "No licence generally means no permission to use, modify or share it, even though you can read it", "You can use it as long as you credit the author"]}
+  answer={1}
+  explain="That's what Choose a License says: copyright applies by default, and a licence is what grants permission. Credit is good practice, but it doesn't replace permission."
+/>
+
+<Quiz
+  id="prog-whose-2"
+  q="Which conclusion do the studies in this lesson support?"
+  options={["AI assistants always make developers faster", "AI-written code is always insecure", "Results vary by tool, date and setting, and how fast or safe people felt didn't reliably match what was measured"]}
+  answer={2}
+  explain="Peng found a speedup on one task, METR's 2025 study found a slowdown for experts on big projects, and METR has since called that out of date. Perry and METR both found that people's own impressions didn't match the measurements."
+/>
+
+<Quiz
+  id="prog-whose-3"
+  q="According to the US Copyright Office's January 2025 report, what's the position on a program you wrote partly with AI help?"
+  options={["It can't be protected at all, since AI touched it", "Your own original expression can be protected, purely AI-generated parts can't, and how much human input is enough is decided case by case", "You automatically own everything, since you typed the prompt"]}
+  answer={1}
+  explain="That's the report's position on those three points. It also concluded that prompts alone don't give enough control with current technology. It's one office in one country at one date, so check what applies to you."
+/>
+
+<Quiz
+  id="prog-whose-4"
+  q="An AI tool's terms say they assign you all their rights in the output 'if any'. What does this mean for you?"
+  options={["You definitely have copyright in the output", "They pass on whatever rights they have, without promising that any exist, and you're still responsible for checking the output", "You may not use the output commercially"]}
+  answer={1}
+  explain="'If any' is doing real work. A company can't hand you a copyright that doesn't exist. Whether one exists is a question for the law where you are, and the same terms tell you to check the output yourself."
+/>
+
+## What to remember
+
+- You're responsible for what you ship, whoever wrote it. So read it, test it and understand it.
+- Feeling sure and being right are different things, and code that looks plausible proves nothing.
+- Code online isn't free to use by default. The licence says what you may do.
+- Credit what you copy. A licence and credit answer different questions, and a licence can ask for more than a URL and a date.
+- Who owns AI-written code varies by country and moves quickly. Quote a source and a date, not a rumour.

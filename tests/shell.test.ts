@@ -140,3 +140,124 @@ test('a job killed by a signal reports 128 + signal through wait', () => {
     assert.equal(out(sh, `sleep 300 & kill -${sig} $!; wait $!; echo $?`).split('\n').pop(), String(code), sig);
   }
 });
+
+// ---- failure must never read as success
+
+test('wc -l acces.log: the crash the shell-scripts lesson hit. It errors with status 1, and $? says so', () => {
+  const sh = world();
+  const lines = sh.run('wc -l acces.log');
+  assert.deepEqual(lines.map((l) => [l.kind, l.text]), [['err', 'wc: acces.log: No such file or directory']]);
+  assert.equal(sh.status, 1);
+  assert.equal(out(sh, 'wc -l acces.log; echo $?'), 'wc: acces.log: No such file or directory\n1');
+});
+
+test('an unexpected JS exception says it is the sandbox\'s bug, and never reads as status 0', () => {
+  const sh = world();
+  const real = sh.fs.lookup.bind(sh.fs);
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    sh.fs.lookup = () => { throw new TypeError('planted'); };
+    for (const line of ['ls', 'echo before; ls', 'cat notes.txt | wc -l']) {
+      sh.status = 0;
+      const lines = sh.run(line);
+      assert.match(lines.at(-1)!.text, /bug in the sandbox, not your command.*planted/, line);
+      assert.equal(lines.at(-1)!.kind, 'err', line);
+      assert.notEqual(sh.status, 0, line);
+    }
+    // Output from before the failure isn't lost with it.
+    assert.equal(sh.run('echo before; ls')[0].text, 'before');
+    sh.fs.lookup = real;
+    sh.run(`echo 'cat nope' > s.sh`);
+    sh.fs.lookup = (abs, user) => { if (abs.endsWith('/nope')) throw new TypeError('planted in a script'); return real(abs, user); };
+    const inScript = sh.run('bash s.sh');
+    assert.match(inScript.at(-1)!.text, /bug in the sandbox, not your command/);
+    assert.notEqual(sh.status, 0);
+    // The script's own state didn't stay stuck: the prompt is the prompt again.
+    sh.fs.lookup = real;
+    assert.equal(out(sh, 'exit'), 'exit: this terminal stays open. In a script, exit ends the script');
+  } finally { console.error = quiet; }
+});
+
+test('no command, however badly used, reaches the sandbox-bug message', () => {
+  const commands = ['help', 'pwd', 'true', 'false', 'exit', 'whoami', 'hostname', 'id', 'history', 'cd', 'ls', 'cat', 'echo', 'printf', 'mkdir', 'touch', 'rm', 'cp', 'mv', 'tee', 'chmod', 'ps', 'kill', 'sleep', 'jobs', 'wait', 'grep', 'wc', 'sort', 'uniq', 'head', 'tail', 'cut', 'bash', 'sh'];
+  const shapes = ['', 'missing', 'd', 'f', 'f/under', 'd/under', '/', '.', '..', '-Q', '--nope', '-', '--', '-n', '-n abc', '-f', '-d', '-s', '-r /', '-rf /', '-r .', '-r ..', 'f f', 'f d', 'd f', 'd d', 'f missing', 'missing f', 'missing missing2', 'f g h', '/etc/shadow', '/dev/null', '""', "''", '$1', '"$1"', '~', '*', '%', '%1', '0', '99999', 'abc', '+x', '777', '/etc/shadow f'];
+  const quiet = console.error;
+  const seen: string[] = [];
+  console.error = (...a: unknown[]) => { seen.push(a.join(' ')); };
+  let ran = 0;
+  try {
+    for (const c of commands) for (const shape of shapes) {
+      const line = `${c} ${shape}`.trim();
+      for (const whole of [line, `echo x | ${line}`, `${line} | cat`, `${line} > out.txt`]) {
+        // A fresh machine each time: rm -r * here would hide the rest of the table.
+        const sh = world();
+        sh.fs.put('/home/panda/f', { type: 'file', content: 'b\na\n' });
+        sh.fs.put('/home/panda/g', { type: 'file', content: 'x\n' });
+        sh.fs.put('/home/panda/d', { type: 'dir' });
+        const lines = sh.run(whole);
+        const bug = lines.find((l) => /bug in the sandbox/.test(l.text));
+        assert.equal(bug, undefined, `${whole} -> ${bug?.text}`);
+        ran++;
+      }
+    }
+  } finally { console.error = quiet; }
+  assert.deepEqual(seen, []);
+  assert.equal(ran, commands.length * shapes.length * 4, 'the table ran in full');
+});
+
+test('rm -r / is refused, as real rm refuses it: the lesson opens on that very command', () => {
+  // Never run on a real machine by this test, for reasons that need no comment. The
+  // wording is GNU rm's. It used to throw out of parentOf: no output, status 0.
+  for (const line of ['rm -r /', 'rm -rf /', 'rm -rf "/"']) {
+    const sh = world();
+    const lines = sh.run(line);
+    assert.match(lines[0].text, /it is dangerous to operate recursively on '\/'/, line);
+    assert.equal(sh.status, 1, line);
+    assert.ok(sh.fs.lookup('/home/panda/notes.txt', sh.user), `${line} deleted something`);
+  }
+  const sh = world();
+  sh.run('cd projects');
+  assert.match(out(sh, 'rm -r ..'), /refusing to remove '\.' or '\.\.' directory/);
+  assert.ok(sh.fs.lookup('/home/panda/notes.txt', sh.user));
+});
+
+test('a printf whose format uses no values finishes: it used to hang the page', () => {
+  const sh = world();
+  assert.equal(out(sh, 'printf hi a b'), 'hi');
+  assert.equal(sh.status, 0);
+});
+
+test('a script that runs itself stops with a message instead of overflowing the JS stack', () => {
+  const sh = world();
+  sh.run(`echo 'bash s.sh' > s.sh`);
+  const lines = sh.run('bash s.sh');
+  assert.ok(lines.some((l) => /this sandbox stops at 50 scripts/.test(l.text)), JSON.stringify(lines.slice(-1)));
+  assert.equal(out(sh, 'pwd'), '/home/panda');
+});
+
+test('what real bash has and this sandbox lacks is refused by name, not "command not found"', () => {
+  for (const line of ['! false', 'bash -c "echo hi"', '[[ 1 == 1 ]]', 'case x in', 'local a=1', '(echo hi)', 'echo hi 2>&1', 'echo `pwd`', 'awk 1 f']) {
+    const sh = world();
+    const lines = sh.run(line);
+    assert.ok(lines.some((l) => l.kind === 'err'), `${line}: ${JSON.stringify(lines)}`);
+    assert.ok(!lines.some((l) => /command not found|syntax error/.test(l.text)), `${line}: ${JSON.stringify(lines)}`);
+    assert.notEqual(sh.status, 0, line);
+  }
+  // Refused, not mistaken for a file with a dash in its name.
+  const sh = world();
+  sh.run('touch -Q');
+  assert.equal(sh.fs.lookup('/home/panda/-Q', sh.user), undefined, 'touch -Q made a file called -Q');
+});
+
+test('a #! line naming something that isn\'t there fails when the file is run directly, and only then', () => {
+  const sh = world();
+  sh.run(`echo '#!/no/such/thing' > s`);
+  sh.run(`echo 'echo ran' >> s`);
+  sh.run('chmod u+x s');
+  const direct = sh.run('./s');
+  assert.match(direct[0].text, /required file not found/);
+  assert.equal(sh.status, 127);
+  assert.equal(out(sh, 'bash s'), 'ran');
+  assert.equal(sh.status, 0);
+});

@@ -65,7 +65,7 @@ export function mountTerminal(root: HTMLElement, opts: { prompt: string; greetin
 }
 
 /** Renders a mission's checklist; call the returned function after anything changes. */
-export function mountMission<S>(root: HTMLElement, m: Mission<S>, state: () => S, onType: (cmd: string) => void) {
+export function mountMission<S>(root: HTMLElement, m: Mission<S>, state: () => S, onType?: (cmd: string) => void) {
   const title = el('div', { class: 'm-title' }, el('span', { class: 'eyebrow' }, 'Mission'), el('strong', {}, m.title), el('span', { class: 'pill gold' }, `+${m.xp} XP`));
   const bar = el('div', { class: 'm-bar' }, el('i'));
   const list = el('ol', { class: 'm-steps' });
@@ -75,13 +75,18 @@ export function mountMission<S>(root: HTMLElement, m: Mission<S>, state: () => S
   const items = m.steps.map((s) => {
     const hint = el('button', { type: 'button', class: 'm-hint' }, 'hint');
     const code = el('code', { hidden: '' }, s.hint ?? '');
-    const li = el('li', {}, el('span', { class: 'm-text' }, s.text), ' ', hint, code);
+    const why = el('p', { class: 'm-why', hidden: '' });
+    const li = el('li', {}, el('span', { class: 'm-text' }, s.text), ' ', hint, code, why);
     hint.addEventListener('click', () => {
       code.hidden = !code.hidden;
       hint.textContent = code.hidden ? 'hint' : 'hide';
     });
-    code.addEventListener('click', () => { if (s.hint && !s.hint.includes('<') && !s.hint.includes('  then  ') && !s.hint.includes('  or  ')) onType(s.hint); });
-    code.title = 'Click to put this in the terminal';
+    // A widget with no terminal passes nothing, and then the hint must not promise one: the
+    // code lab showed "Click to put this in the terminal" on a page that has no terminal.
+    if (onType) {
+      code.addEventListener('click', () => { if (s.hint && !s.hint.includes('<') && !s.hint.includes('  then  ') && !s.hint.includes('  or  ')) onType(s.hint); });
+      code.title = 'Click to put this in the terminal';
+    }
     list.append(li);
     return li;
   });
@@ -97,6 +102,10 @@ export function mountMission<S>(root: HTMLElement, m: Mission<S>, state: () => S
       items[i].classList.toggle('done', ok);
       if (!ok && firstOpen < 0) firstOpen = i;
       items[i].classList.toggle('current', i === firstOpen);
+      const why = items[i].querySelector<HTMLElement>('.m-why')!;
+      const reason = i === firstOpen && st.why ? st.why(s) : '';
+      why.textContent = reason;
+      why.hidden = !reason;
     });
     const n = firstOpen < 0 ? m.steps.length : firstOpen;
     (bar.firstChild as HTMLElement).style.width = `${(n / m.steps.length) * 100}%`;

@@ -1,0 +1,223 @@
+---
+title: Values, names and types
+summary: In algebra x = x + 1 has no solution. In Python it runs. Learn what a variable really is, why "41" and 41 aren't the same thing, and which mistakes come with an error and which don't.
+minutes: 18
+xp: 50
+tiers: [browser]
+builds_on: [programming/first-program]
+sources:
+  - title: The Python Tutorial - An Informal Introduction to Python (numbers, division, assignment)
+    url: https://docs.python.org/3/tutorial/introduction.html
+  - title: Python documentation - Built-in Types (numeric types, truth values)
+    url: https://docs.python.org/3/library/stdtypes.html
+  - title: Python documentation - Built-in Functions (input, int, round)
+    url: https://docs.python.org/3/library/functions.html
+  - title: Python Language Reference - Lexical analysis (names and keywords)
+    url: https://docs.python.org/3/reference/lexical_analysis.html
+---
+
+In school algebra, `x = x + 1` has no solution. No number equals itself plus one. Here it is in Python:
+
+<CodeLab code={`x = 5
+x = x + 1
+print(x)
+`} />
+
+It prints 6, and nothing is wrong. In Python, `=` doesn't say two things are equal. It's an instruction: **work out the right-hand side, then make the name on the left stand for the result**. The tutorial puts it this way: "The equal sign (`=`) is used to assign a value to a variable."
+
+Read `x = x + 1` as: take what `x` stands for now, add 1, and make `x` stand for that from here on. Press **Step** on the program above and watch the Variables panel. The highlighted line hasn't happened yet. The panel changes after you press.
+
+## Values and expressions
+
+A **value** is a piece of data: `5`, `2.5`, `"hello"`. An **expression** is anything Python can work out to get a value, like `2 + 3`. A **variable** is a name that stands for a value.
+
+The arithmetic mostly works the way you learned it, including doing multiplication before addition, and brackets first. `*` means multiply, and `**` means "to the power of".
+
+<CodeLab code={`print(2 + 3 * 4)
+print((2 + 3) * 4)
+print(2 ** 10)
+print(7 / 2)
+print(6 / 2)
+print(7 // 2)
+print(7 % 2)
+`} />
+
+Division needs a closer look, because Python has three kinds:
+
+- `/` is ordinary division. "Division (`/`) always returns a float", says the tutorial, and a **float** is a number with a decimal point. So `6 / 2` is `3.0`, not `3`.
+- `//` divides and rounds down to a whole number, so `7 // 2` is `3`.
+- `%` gives the remainder after dividing, so `7 % 2` is `1`. It's the way to ask "does this divide exactly?", because the remainder is then 0.
+
+<Callout kind="trap" title="Rounds down, not towards zero">
+`-7 // 2` is `-4`, not `-3`, because `//` always goes down the number line. `int(...)`, which makes a whole number out of what you give it and has its own section below, goes the other way: `int(-3.5)` is `-3`. If you work with negative numbers, try both.
+</Callout>
+
+Here's what the wrong division does. There's no error in this mission, which is what makes it worth doing.
+
+<CodeLab mission="prog-vals-share" />
+
+## A variable is a name, not a box
+
+Before you press **Step** on this one, say what `b` will be at the end.
+
+<CodeLab code={`a = 5
+b = a
+a = 7
+print(a, b)
+`} />
+
+`b` is still 5. `b = a` made `b` stand for the value `a` stood for at that moment. Changing what `a` stands for afterwards doesn't reach `b`. There's no lasting connection between them. (Lists behave in a way that looks different, and [the lesson on lists](/learn/programming/lists/) has that story.)
+
+`print(a, b)` also shows that `print` can take several things, separated by commas. It puts a space between them.
+
+### What names are allowed
+
+A name can use letters, digits and underscores, can't start with a digit, and capital letters make a different name. Python also keeps some words for itself, called **keywords**: `if`, `for`, `class` and others. Try each of these in the lab below, one at a time, and read what comes back:
+
+- `2x = 3` (starts with a digit)
+- `my name = 3` (a space)
+- `my-name = 3` (a minus sign)
+- `class = 3` (a keyword)
+
+<CodeLab code={`my_name = 3
+print(my_name)
+`} />
+
+The message for `my-name = 3` is the odd one out: "cannot assign to expression here. Maybe you meant '==' instead of '='?" It's confusing until you see how Python read it: `my` minus `name`, a sum, and you can't store something in a sum. You'll meet `==` in the next lesson, and that guess is no help here. An error tells you where Python got stuck, which isn't always what you did wrong.
+
+### Names you have to spell the same way
+
+Run this, read the message, and fix it.
+
+<CodeLab code={`score = 10
+print(Score)
+`} />
+
+`NameError` again. To Python, `score` and `Score` are as different as `score` and `banana`. A name also has to exist before you use it. Move `print(total)` above `total = 3` in your head, and you already know what would happen, because Python runs from the top.
+
+## A line that does nothing
+
+This program has a bug, and no error message will ever tell you about it. Press **Step**, and watch `score`.
+
+<CodeLab code={`score = 10
+score + 5
+print(score)
+`} />
+
+`score + 5` is a fine expression. Python worked it out, got 15, and threw it away, because nothing said to keep it. Working something out doesn't change a name. Assigning does. To add 5, write `score = score + 5`, or the shorter form you'll see everywhere, `score += 5`, which means the same thing here.
+
+<Callout kind="trap">
+Plenty of mistakes don't produce an error. Silent ones are harder, because the program looks like it worked. A surprising result with no message usually means the program did exactly what you wrote, so go back to reading it line by line, or press **Step**.
+</Callout>
+
+## Types
+
+Every value has a **type**, which says what kind of thing it is and what you can do with it. You can think of a type as a set of values, plus the things those values can do. You can ask Python what type something is:
+
+<CodeLab code={`print(type(41))
+print(type(4.1))
+print(type("41"))
+print(type(True))
+print(type(None))
+`} />
+
+Each line says `class` because **class** is Python's word for a type of thing. It's the same word as the keyword you met above, and you'll see it in other programs before you need to write one. For now, read `<class 'int'>` as "the type `int`". These are the basic ones:
+
+| Type | Name | Examples | What it's for |
+|---|---|---|---|
+| Whole number | `int` | `41`, `-3`, `0` | Counting. An `int` can be as long as your memory allows. |
+| Decimal number | `float` | `4.1`, `3.0` | Measuring. Many are close approximations rather than exact values. |
+| Text | `str` | `"41"`, `"hello"` | Anything in quote marks. Short for string. |
+| Truth value | `bool` | `True`, `False` | The answer to a yes or no question. |
+| Nothing | `NoneType` | `None` | The value that means "no value". |
+
+The type decides what an operation means, and sometimes whether it's allowed at all. Say what you expect from each line, and run them. It stops at the last line on purpose.
+
+<CodeLab code={`print(4 + 1)
+print("4" + "1")
+print("4" * 3)
+print("4" + 1)
+`} rows={6} />
+
+`+` adds numbers and joins strings. `*` with a string repeats it. And `"4" + 1` is a **TypeError**, because Python won't guess whether you meant 5 or `"41"`. The message reads: `can only concatenate str (not "int") to str`. **Concatenate** means join end to end, so it's saying "I can only join a string onto a string, and you gave me a whole number".
+
+That TypeError is a good error, and the two lines above it are the dangerous ones. `"4" + "1"` is `"41"` and `"4" * 3` is `"444"`, with no complaint. If you meant a sum, nothing tells you.
+
+### A name has no type of its own
+
+The value has the type, and the name doesn't. A name can stand for a number now and a string later. Python allows it, and it's usually a mistake to do it on purpose:
+
+<CodeLab code={`x = 41
+print(type(x))
+x = "forty-one"
+print(type(x))
+`} />
+
+### Changing a value's type
+
+`int()`, `float()` and `str()` make a new value of that type from the one you give them.
+
+<CodeLab code={`print(int("41") + 1)
+print(str(41) + "1")
+print(float("2.5") * 2)
+print(int(3.9))
+print(round(3.9))
+print(int("abc"))
+`} rows={8} />
+
+Two things are worth a closer look. `int(3.9)` is 3, because `int` chops the decimals off and doesn't round. And `int("abc")` is a **ValueError**: the type is one `int` accepts (text), but this particular value can't be read as a number. Try `int("3.5")` too. It fails as well, which surprises people, because `int(3.5)` works. If you have a string with a decimal in it, it has to go through `float` first.
+
+## When a real program would ask
+
+A real program often asks a person for something, and on real Python that's `input()`. It waits for someone to type, then gives back what they typed. The docs say it "converts it to a string". So if someone types 41, you get the string `"41"`, every time.
+
+The labs so far can't wait for typing. Try it: put `name = input()` in any lab up to here, and the page says "Not your bug". [Bad input and things going wrong](/learn/programming/input-and-errors/), later on this trail, has labs with an input box. Until then, these lessons set a variable at the top instead, like `age_text = "41"`. Change that line, and you're doing by hand what a person would do. When you move to real Python, you'd replace that one line with `age_text = input()`, and the rest of the program stays the same.
+
+This is the mistake everyone makes with `input()`. Here it is with the variable standing in:
+
+<CodeLab mission="prog-vals-age" />
+
+<Callout kind="real" title="Decimals aren't exact">
+Floats are stored in binary, and most decimals can't be written exactly in binary, just as 1/3 can't be written exactly in decimal. So `0.1 + 0.2` prints `0.30000000000000004`, here and on real Python. It's not a bug in either. For now: don't use floats where every last penny has to add up, and don't expect them to come out perfectly round.
+</Callout>
+
+<GoDeeper title="True is secretly a number">
+`bool` is a kind of `int`: `True` behaves as 1 and `False` as 0. So `True + 1` is 2, and `1 == True` is true. That can be handy for counting how many things passed a test, and it can also hide a mistake, since a program that adds a yes-or-no value to a number gets no TypeError.
+
+The word for how Python treats types is **dynamic**: it checks a value's type while the program runs, at the moment an operation needs it, so `"4" + 1` only fails when that line is reached. Languages with **static** types check before running anything. Each approach has its costs.
+
+An `int` in Python has no fixed size. `2 ** 100` is exact, all 31 digits of it. In many other languages, whole numbers have a fixed size and go wrong when they get too big. Python's don't overflow, though very large ones get slow. Try `print(2 ** 20000)`, and you'll get a `ValueError`: printing a number past about 4,300 digits is refused by default, as a safety limit, though the number itself is fine.
+</GoDeeper>
+
+<Quiz
+  id="prog-vals-1"
+  q="After these lines, what are a and b? a = 1, then b = a, then a = a + 1."
+  options={["a is 2 and b is 2, because b is linked to a", "a is 2 and b is 1, because b took the value a had at that moment", "It's an error, because a can't equal a + 1"]}
+  answer={1}
+  explain="The = sign runs once, then it's over. b took the value 1 and doesn't follow a afterwards. And a = a + 1 isn't a claim that the two are equal: it's an instruction to work out a + 1 and store the result under the name a."
+/>
+
+<Quiz
+  id="prog-vals-2"
+  q="Which line runs with no error and gives an answer you probably didn't want, if you meant to add two numbers?"
+  options={["print('4' + 1)", "print('4' + '1')", "print(int('abc') + 1)"]}
+  answer={1}
+  explain="Joining two strings is perfectly legal, so it prints 41 and says nothing. The other two stop with an error: a TypeError and a ValueError. The error is the kinder outcome, because you find out straight away."
+/>
+
+<Quiz
+  id="prog-vals-3"
+  q="What is 7 / 2 and what is 7 // 2?"
+  options={["3.5 and 3", "3 and 3.5", "3.5 and 4"]}
+  answer={0}
+  explain="/ is ordinary division and always gives a float. // divides and rounds down to a whole number. Even 6 / 2 gives 3.0, with the decimal point."
+/>
+
+## What to remember
+
+- `=` is an instruction: work out the right side, then make the left name stand for it.
+- A name takes a value at one moment. It doesn't stay linked to another name.
+- A value has a type, and the type decides what `+` and `*` mean and what's allowed.
+- `/` gives a float, `//` rounds down, and `%` gives the remainder.
+- Text that looks like a number isn't one, and real `input()` always gives you text.
+- `score + 5` on its own changes nothing, and nothing warns you.

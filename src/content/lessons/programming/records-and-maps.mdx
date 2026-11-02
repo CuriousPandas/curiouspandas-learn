@@ -1,0 +1,257 @@
+---
+title: Records, maps and sets
+summary: Sort one of two side-by-side lists and every name gets the wrong age, with no error. Learn dictionaries as records and as lookups, what a set is good for, what order each one keeps, and how to choose between them.
+minutes: 22
+xp: 65
+tiers: [browser]
+builds_on: [programming/lists]
+sources:
+  - title: The Python Tutorial - Data Structures (tuples, sets, dictionaries)
+    url: https://docs.python.org/3/tutorial/datastructures.html
+  - title: Python documentation - Built-in Types (dict order, set)
+    url: https://docs.python.org/3/library/stdtypes.html
+  - title: Python documentation - Glossary (hashable)
+    url: https://docs.python.org/3/glossary.html#term-hashable
+---
+
+Two lists, side by side: `names[0]` goes with `ages[0]`, and so on. It's the first way most people think of storing this. Run it, then read the output carefully.
+
+<CodeLab code={`names = ["Mei", "Bo", "Ana"]
+ages = [41, 7, 19]
+print(names[1], "is", ages[1])
+
+ages.sort()
+print(names[1], "is", ages[1])
+`} />
+
+Bo is 7, and then Bo is 19. There's no error, and nobody asked for Bo's age to change. The only thing connecting a name to an age was your memory of which position is which. Sort one list, or remove an item from one and not the other, and every line after that is quietly wrong.
+
+Things that belong together should be stored together.
+
+## A dictionary maps keys to values
+
+A **dictionary**, or `dict`, stores pairs. Each **key** leads to a **value**. You write it with curly brackets, and look things up with square brackets. Instead of asking for position 1, you ask for `"name"`.
+
+<CodeLab code={`mei = {"name": "Mei", "age": 41}
+print(mei["name"])
+print(mei["age"])
+mei["age"] = 42
+mei["city"] = "Leeds"
+print(mei)
+print(len(mei))
+`} rows={8} />
+
+Assigning to a key either changes it or adds it, and you don't need to say which. Press **Step**, and watch `mei` in the Variables panel.
+
+### Asking for a key that isn't there
+
+Reading a missing key is an error. Run it, and read the message.
+
+<CodeLab code={`mei = {"name": "Mei", "age": 41}
+print(mei["height"])
+`} />
+
+The message is just `KeyError: 'height'`: only the key it couldn't find. It reads oddly at first, so learn to recognise it. The error is doing you a favour, because if a missing key gave back something empty, a misspelled key would look like a real answer.
+
+When a key really might be missing, there are two polite ways to ask:
+
+<CodeLab code={`mei = {"name": "Mei", "age": 41}
+
+print("height" in mei)
+if "height" in mei:
+    print(mei["height"])
+
+print(mei.get("height"))
+print(mei.get("height", "unknown"))
+`} rows={9} />
+
+`in` checks the **keys**, not the values: `41 in mei` is `False`. For a missing key, `.get` gives you `None`, or a default that you choose, with no error. That quietness has a cost: it's exactly the empty answer that a misspelling would produce, so use `.get` when a missing key is normal, and square brackets when it would be a bug.
+
+Dots don't reach keys: `mei.name` is an `AttributeError`, although that form does work in some other languages. Try it.
+
+## Two jobs for one type
+
+A dictionary does two quite different jobs, and it helps to know which you're doing.
+
+**A record** describes one thing. The keys are fixed, and you chose them when you wrote the program: `{"name": "Mei", "age": 41}`. You'd have a list of these, one per person.
+
+<CodeLab code={`people = [
+    {"name": "Mei", "age": 41},
+    {"name": "Bo", "age": 7},
+    {"name": "Ana", "age": 19},
+]
+
+def age_of(person):
+    return person["age"]
+
+for p in sorted(people, key=age_of):
+    print(p["name"], "is", p["age"])
+`} rows={12} />
+
+Now the sort can't separate a name from its age, because they're in one record. `key=age_of` tells `sorted` to order people by what that function returns. You pass the function's name, with no brackets, because `sorted` will call it itself, once per person.
+
+**A map** looks things up. The keys come from your data, and you don't know them when you write the program. A phone book is one: any name might be in it. Counting is the classic use.
+
+<CodeLab mission="prog-map-count" />
+
+And the two jobs often appear together: a list of records goes in, and a map comes out.
+
+<CodeLab mission="prog-map-orders" />
+
+<Callout kind="trap" title="A record has the same aliasing as a list">
+Dictionaries are mutable, so everything in [the lesson on lists](/learn/programming/lists/) applies. `b = mei` makes a second name for one dictionary, and a function handed a record can change it. `mei.copy()` makes a new one, and it's a shallow copy.
+</Callout>
+
+## What order does a dictionary keep?
+
+The order you put the keys in. The docs say: "Changed in version 3.7: Dictionary order is guaranteed to be insertion order." You can count on it, and older Python write-ups that say dictionaries have no order are out of date. There are three details worth running:
+
+<CodeLab code={`d = {"b": 1, "a": 2}
+d["c"] = 3
+print(list(d))
+
+d["b"] = 9
+print(list(d))
+
+del d["b"]
+d["b"] = 1
+print(list(d))
+
+print({"a": 1, "b": 2} == {"b": 2, "a": 1})
+print([1, 2] == [2, 1])
+`} rows={13} />
+
+Updating a key doesn't move it. Deleting one and adding it again puts it at the end. And order doesn't count when comparing: two dictionaries with the same pairs are equal, though two lists in different orders aren't.
+
+### Going through a dictionary
+
+A loop over a dictionary gives you its keys. Use `.items()` to get each key and value together.
+
+<CodeLab code={`stock = {"tea": 3, "milk": 0, "bread": 5}
+
+for name in stock:
+    print(name)
+
+for name, count in stock.items():
+    print(name, count)
+
+print(list(stock.values()))
+`} rows={10} />
+
+Changing a dictionary's size while looping over it is one thing Python does stop. Compare this with the silent version on lists:
+
+<CodeLab code={`stock = {"tea": 3, "milk": 0, "bread": 5}
+for name in stock:
+    if stock[name] == 0:
+        del stock[name]
+print(stock)
+`} />
+
+`RuntimeError: dictionary changed size during iteration`. To fix it, loop over a copy of the keys: `for name in list(stock):`. Changing a value that's already there, without adding or removing a key, is fine.
+
+### What can be a key
+
+Numbers and strings can be keys. A list can't, because lists can change. Try this:
+
+<CodeLab code={`spots = {}
+spots[(3, 4)] = "tree"
+print(spots[(3, 4)])
+spots[[3, 4]] = "rock"
+`} />
+
+`unhashable type: 'list'`. **Hashable** roughly means "has a fixed fingerprint", which a value that can change doesn't. The first line worked because `(3, 4)` isn't a list. It's a tuple.
+
+## Tuples: a small fixed record
+
+A **tuple** is written with round brackets, and it works like a list that can't be changed. It suits things that belong together and always have the same shape, like a pair of coordinates.
+
+<CodeLab code={`point = (3, 4)
+print(point[0])
+x, y = point
+print(x, y)
+print(type((1)), type((1,)))
+point[0] = 9
+`} />
+
+`x, y = point` gives each part a name, which is called **unpacking**. It's what `for name, count in stock.items()` was doing. It's the comma that makes a tuple, not the brackets: `(1)` is just the number 1, and `(1,)` is a tuple with one item. And assigning to one is a `TypeError`, as you've just seen.
+
+## Sets: only whether it's there
+
+A **set** holds values with no duplicates and no positions. It answers one question well: is this in here?
+
+<CodeLab code={`seen = {"tea", "milk"}
+seen.add("tea")
+seen.add("bread")
+print(len(seen))
+print("tea" in seen)
+print(sorted(seen))
+
+print(sorted(set([3, 1, 3, 2, 1])))
+print(sorted({1, 2, 3} & {2, 3, 4}))
+print(sorted({1, 2} | {2, 3}))
+print(sorted({1, 2, 3} - {2}))
+print(type({}), type(set()))
+`} rows={12} />
+
+Adding `"tea"` a second time does nothing, and there's no error. `set(...)` is the short way to remove duplicates. `&` keeps what's in both, `|` combines, and `-` removes. Also note the last line: `{}` is an empty dictionary, not an empty set, so an empty set has to be written `set()`.
+
+<CodeLab mission="prog-set-common" />
+
+<Callout kind="real" title="Sets on this page keep an order that real ones don't promise">
+Here's a real difference between this page and real Python. The docs say: "Being an unordered collection, sets do not record element position or order of insertion." Real Python 3.12 prints `{3, 1, 2}` as `{1, 2, 3}`. A set of strings can come out in a different order each time you run the program, because string hashes change from one run to the next. This page's sets happen to keep the order things went in, so `print({3, 1, 2})` shows `{3, 1, 2}` here.
+
+Don't let that teach you the wrong thing. Never rely on a set's order. If the order matters, use `sorted(...)`, as every program in this lesson does. Code written that way behaves the same here and on real Python. A dictionary's order really is promised, and a set's isn't.
+</Callout>
+
+## Which one do I want?
+
+| You want | Use | Example |
+|---|---|---|
+| Things in order, where duplicates are fine | List | The songs in a playlist |
+| A small fixed group that won't change | Tuple | A coordinate `(3, 4)` |
+| One thing, described by named parts | Dictionary as a record | `{"name": "Mei", "age": 41}` |
+| To look something up by a key from your data | Dictionary as a map | Word to count |
+| To know if something is there, or remove duplicates | Set | Words already seen |
+
+There's also a speed reason to choose well, and it can be enormous. `x in a_list` looks through the items one at a time. `x in a_set` and `key in a_dict` don't, because of how they're built. You can see the difference in [Count the steps, not the seconds](/learn/algorithms/counting-steps/), and [Hash tables and the collision](/learn/algorithms/hash-tables/) shows how they work.
+
+<GoDeeper title="Why a key has to be unchangeable">
+A dictionary works out a number from each key, called a **hash**, and uses it to decide where to store the pair. That's how it finds a key without searching. If a key could change after it was stored, its hash would change, and the dictionary would look in the wrong place and never find it. That's why lists aren't allowed.
+
+Keys that are equal have to hash the same, so `1`, `1.0` and `True` are all the same key. `{1: "a", 1.0: "b", True: "c"}` ends up as `{1: 'c'}`: the first key stays, and the last value wins. A tuple can be a key only if everything inside it can be: `([1], 2)` fails too.
+
+The Python glossary's entry for **hashable** is the place to read more, and the Hash tables lesson on this site builds one.
+</GoDeeper>
+
+<Quiz
+  id="prog-map-1"
+  q="d = {&quot;a&quot;: 1}. What does d[&quot;b&quot;] do, and what does d.get(&quot;b&quot;) do?"
+  options={["Both give None", "d['b'] raises a KeyError, and d.get('b') gives None", "Both raise a KeyError"]}
+  answer={1}
+  explain="Square brackets treat a missing key as a mistake and say so. get treats it as normal and gives you None, or a default you pass. Use each one on purpose: a misspelled key with get looks just like a missing value."
+/>
+
+<Quiz
+  id="prog-map-2"
+  q="You run print(sorted(set([3, 1, 3]))). What can you say about the output?"
+  options={["It is [1, 3], here and on real Python", "It could be in any order, since sets have no order", "It is [3, 1, 3]"]}
+  answer={0}
+  explain="The set drops the duplicate, and sorted always gives a list in order, whatever order the set was in. That's why a program that needs an order should use sorted, and not depend on the set."
+/>
+
+<Quiz
+  id="prog-map-3"
+  q="You add keys b, then a, then update b. In what order does list(d) give them?"
+  options={["a, b, because keys are sorted", "b, a, because insertion order is kept and an update doesn't move a key", "a, b, because the updated key moves to the end"]}
+  answer={1}
+  explain="Dictionaries keep the order keys were first added, guaranteed since Python 3.7. Updating a value leaves the key where it was. Only deleting a key and adding it again moves it to the end."
+/>
+
+## What to remember
+
+- Keep things that belong together in one record, because parallel lists drift apart with no error.
+- A dictionary maps keys to values. A missing key with square brackets is a `KeyError`, and `.get` gives you `None` or a default.
+- `in` on a dictionary checks keys, not values.
+- Dictionaries keep insertion order, and it's guaranteed. Two dictionaries with the same pairs are equal in any order.
+- A set has no duplicates and promises no order, so use `sorted` if order matters.
+- `{}` is an empty dictionary. An empty set is `set()`.

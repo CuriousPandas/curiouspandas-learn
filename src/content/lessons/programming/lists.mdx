@@ -1,0 +1,254 @@
+---
+title: Lists of things
+summary: Make a second name for a list, change it through that name, and the first one changes too. Learn lists from the start, then cause the traps that catch everybody, aliasing, the default that remembers, and changing a list while you loop over it.
+minutes: 24
+xp: 65
+tiers: [browser]
+builds_on: [programming/functions]
+sources:
+  - title: The Python Tutorial - An Informal Introduction to Python (lists, assignment never copies)
+    url: https://docs.python.org/3/tutorial/introduction.html
+  - title: The Python Tutorial - Data Structures (list methods)
+    url: https://docs.python.org/3/tutorial/datastructures.html
+  - title: The Python Tutorial - More Control Flow Tools (modifying a collection while looping, default values)
+    url: https://docs.python.org/3/tutorial/controlflow.html
+  - title: Python FAQ - Why did changing list 'y' also change list 'x'? and Why are default values shared between objects?
+    url: https://docs.python.org/3/faq/programming.html
+  - title: Python documentation - Built-in Types (list.sort, sequence operations)
+    url: https://docs.python.org/3/library/stdtypes.html
+---
+
+Before you press **Run**, say what the last line prints.
+
+<CodeLab code={`a = [1, 2]
+b = a
+b.append(3)
+print(b)
+print(a)
+`} />
+
+`a` changed, even though nothing on those lines mentions changing `a`. We'll come back to that, because it's the most important thing in this lesson. First, what a list is.
+
+## A list holds things in order
+
+A **list** is one value that holds many values, in order. You write it with square brackets. Each item has a position, called its **index**, and counting starts at 0.
+
+<CodeLab code={`teas = ["green", "black", "mint"]
+print(teas)
+print(len(teas))
+print(teas[0])
+print(teas[2])
+print(teas[-1])
+`} />
+
+`len` gives the length. `teas[0]` is the first item, and `teas[2]` is the third. Negative numbers count from the end, so `teas[-1]` is the last. A list of three items has indexes 0, 1 and 2, which means **there's no `teas[3]`**. That's the fencepost error from [the loops lesson](/learn/programming/loops/) again. Change a line to `print(teas[3])` and read it: `list index out of range`. You'll also meet this one, the same mistake in another costume: `teas[len(teas)]`.
+
+Lists can change. You can replace, add and remove items, and every line here changes the list itself. Press **Step**, and watch `teas` in the Variables panel.
+
+<CodeLab code={`teas = ["green", "black"]
+teas[0] = "white"
+teas.append("mint")
+teas.insert(1, "oolong")
+teas.remove("black")
+last = teas.pop()
+print(last)
+print(teas)
+`} rows={9} />
+
+`teas.append(...)` is a **method**: a function that belongs to a value, called with a dot. `append` adds to the end, `insert` adds at a position, `remove` takes out the first match, and `pop` takes out an item and hands it back. `remove` and `pop` give an error when they can't do the job: try `teas.remove("coffee")`, and `[].pop()`. `insert` doesn't: a position past the end just adds at the end, with no complaint. Then try `teas.push("x")`, which is how some other languages spell `append`. It's `AttributeError: 'list' object has no attribute 'push'`.
+
+### Slices and other useful things
+
+A **slice** gives you a new list with part of the old one. `teas[1:3]` means from index 1 up to, but not including, index 3. That's the same rule as `range`.
+
+<CodeLab code={`nums = [10, 20, 30, 40, 50]
+print(nums[1:3])
+print(nums[:2])
+print(nums[3:])
+print(nums[::-1])
+print(30 in nums)
+print(99 in nums)
+print(nums + [60])
+print([0] * 3)
+print(sum(nums), min(nums), max(nums))
+`} rows={11} />
+
+Leave out a number and it means "from the start" or "to the end". A third number is the step, as in `range`, so `[::-1]` goes through backwards. A slice is forgiving where an index isn't: `nums[3:100]` is fine, and it gives whatever is there.
+
+`30 in nums` asks whether 30 is in the list, and gives `True` or `False`. It looks through the list one item at a time, so on a very long list it isn't free. [Count the steps, not the seconds](/learn/algorithms/counting-steps/) is about exactly that.
+
+### Going through a list
+
+This is what `for` was built for. Use `for x in items` when you want the items, and `enumerate` when you want the position as well.
+
+<CodeLab code={`teas = ["green", "black", "mint"]
+
+for tea in teas:
+    print(tea)
+
+for i, tea in enumerate(teas):
+    print(i, tea)
+
+for i in range(len(teas)):
+    print(i, teas[i])
+`} rows={11} />
+
+`for i, tea in` gives two names at once, because `enumerate` hands back a pair each time: the position and the item. [Records, maps and sets](/learn/programming/records-and-maps/) calls that unpacking. The last two loops print the same thing. Plenty of beginners' code uses the `range(len(...))` form, and it's fine, but `enumerate` has fewer places to go wrong.
+
+### Sorting, and the mistake with sort
+
+`sorted(x)` makes a new sorted list. `x.sort()` changes the list itself, and it returns `None`. Python's docs say why: "To remind users that it operates by side effect, it does not return the sorted sequence". So this common line loses your list:
+
+<CodeLab code={`nums = [3, 1, 2]
+result = nums.sort()
+print(result)
+print(nums)
+print(sorted([3, 1, 2]))
+`} />
+
+If you keep going and use `result[0]`, the error is `'NoneType' object is not subscriptable`. **Subscriptable** means "can be used with square brackets", and `NoneType` is once again the clue to a value you thought you had. The same goes for `append`: `b = a.append(3)` makes `b` be `None`.
+
+## Two names, one list
+
+Back to the start. The tutorial says it directly: "Simple assignment in Python never copies data." And it goes on: "Any changes you make to the list through one variable will be seen through all other variables that refer to it."
+
+So `b = a` doesn't make a second list. There's one list, and now two names refer to it. When you first learned variables, it looked as if `b = a` copied, because with numbers and strings you can't tell. You can't change a number. `a = a + 1` makes a new number and points `a` at it, and `b` is left where it was. A list really can be changed in place, so now it shows. Values that can be changed are called **mutable**, and those that can't are **immutable**. Having two names for one value is called **aliasing**.
+
+Python can tell you whether two names refer to the same list. `==` asks whether the contents match, and `is` asks whether it's the same list.
+
+<CodeLab code={`a = [1, 2]
+b = a
+c = [1, 2]
+print(a == b, a is b)
+print(a == c, a is c)
+c.append(3)
+print(a, c)
+`} />
+
+Use `is` for things like lists, and for `None`. On numbers and strings, real Python's answer depends on how it happened to store them, so it can say `False` for two equal strings. This page refuses to guess, and `==` is what you want there.
+
+To get a real copy, ask for one. All three of these make a new list:
+
+<CodeLab code={`a = [1, 2]
+b = a[:]
+c = list(a)
+d = a.copy()
+b.append("b")
+c.append("c")
+d.append("d")
+print(a, b, c, d)
+`} rows={9} />
+
+### A function gets the same list
+
+When you pass a list to a function, the parameter is one more name for that list. So a function can change your list, and nothing at the place you called it says so. That's a side effect you can't see from the outside.
+
+<CodeLab mission="prog-list-copy" />
+
+Changing what you were given isn't always wrong. `sort` and `append` do it on purpose. What matters is that it's on purpose, and that whoever calls the function knows.
+
+<Callout kind="trap" title="Changing the list, or making a new one">
+These look like the same thing, and they aren't. Step through it, and watch `b`.
+
+<CodeLab code={`a = [1, 2]
+b = a
+a += [3]
+print(a, b)
+a = a + [4]
+print(a, b)
+`} />
+
+`a += [3]` changes the list in place, so `b` sees it. `a = a + [4]` builds a new list and points `a` at it, so `b` keeps the old one and doesn't see the 4.
+</Callout>
+
+## The default that remembers
+
+Default values looked harmless in [the functions lesson](/learn/programming/functions/). With a list, they bite. The tutorial has this under the heading of an important warning: "The default value is evaluated only once."
+
+<CodeLab mission="prog-list-default" />
+
+The FAQ's version is plain: "Default values are created exactly once, when the function is defined." And it gives the fix you just wrote: use `None` as the default, and create the list inside.
+
+## Changing a list while you loop over it
+
+The tutorial again: "Code that modifies a collection while iterating over that same collection can be tricky to get right." That's a polite way to put it, because you get no error and a wrong answer.
+
+<CodeLab mission="prog-list-remove" />
+
+The usual fixes are to build a new list, as you did, or to loop over a copy with `for x in items[:]:`. Going through it backwards with indexes also works, but it's harder to read.
+
+## A shorter way to build a list
+
+Building a new list from an old one comes up so often that Python has a short form, called a **list comprehension**. Read it left to right as "x times 10, for each x in nums, keeping only those where x is more than 1". You never have to use it, and you'll see it often in other people's code.
+
+<CodeLab code={`nums = [1, 2, 3]
+
+doubled = []
+for x in nums:
+    doubled.append(x * 10)
+print(doubled)
+
+print([x * 10 for x in nums])
+print([x * 10 for x in nums if x > 1])
+`} rows={10} />
+
+<Callout kind="real" title="What a list really is">
+Python's lists are built for adding and removing at the end. `insert(0, x)` and `pop(0)` have to move everything else along, which gets slow on long lists, and the step counter on this page charges for that. [Arrays, linked lists and the cost of inserting](/learn/algorithms/arrays-and-lists/) has the measurements. On a list of ten items, you won't notice.
+</Callout>
+
+<GoDeeper title="Copies only go one level down">
+A list can hold anything, including other lists. Copying with `[:]`, `list()` or `.copy()` makes a new outer list holding the same items. So if those items are lists, both copies share them. That's called a **shallow copy**.
+
+<CodeLab code={`rows = [[1], [2]]
+copy = rows[:]
+copy.append([3])
+copy[0].append(9)
+print(rows)
+print(copy)
+
+grid = [[0]] * 3
+grid[0].append(1)
+print(grid)
+
+better = [[0] for row in range(3)]
+better[0].append(1)
+print(better)
+`} rows={14} />
+
+The `[3]` went only into `copy`, because the outer lists are separate. The `9` shows in both, because `rows[0]` and `copy[0]` are the same inner list. `[[0]] * 3` is the classic version: it's one inner list with three names, so a change to "one row" changes all of them. The comprehension runs `[0]` afresh on each pass, so each row is its own list.
+
+Real Python's `copy.deepcopy` copies all the way down. It needs `import`, which this page doesn't have.
+</GoDeeper>
+
+<Quiz
+  id="prog-list-1"
+  q="a = [1, 2], then b = a, then b.append(3). What is a?"
+  options={["[1, 2], because b is a separate copy", "[1, 2, 3], because a and b are two names for one list", "It's an error, because a list can have only one name"]}
+  answer={1}
+  explain="Assignment never copies. Both names refer to the same list, so a change through either shows through both. If you want a copy, ask for one: b = a[:] or b = list(a)."
+/>
+
+<Quiz
+  id="prog-list-2"
+  q="teas has 3 items. Which of these is an IndexError?"
+  options={["teas[-1]", "teas[0:100]", "teas[3]"]}
+  answer={2}
+  explain="The indexes of a 3-item list are 0, 1 and 2, so teas[3] is one past the end. teas[-1] is the last item. A slice like teas[0:100] takes whatever is there and doesn't complain."
+/>
+
+<Quiz
+  id="prog-list-3"
+  q="def f(x, items=[]) appends x to items and returns items. What does the second of two calls, f(1) then f(2), return?"
+  options={["[2]", "[1, 2]", "None"]}
+  answer={1}
+  explain="The default list is created once, when def runs, and every call that leaves items out shares it. So the second call adds to the list the first one already changed. Use items=None and make a new list inside."
+/>
+
+## What to remember
+
+- A list holds items in order, numbered from 0, and the last index is one less than the length.
+- `b = a` makes a second name, not a second list. Use `a[:]`, `list(a)` or `a.copy()` for a copy.
+- A function that receives a list can change it, and the caller sees that.
+- `sort` and `append` change the list and return `None`. `sorted` returns a new list.
+- A default like `items=[]` is one list, shared by every call. Use `None`, and make a new one inside.
+- Don't change a list while looping over it. Build a new one, or loop over a copy.

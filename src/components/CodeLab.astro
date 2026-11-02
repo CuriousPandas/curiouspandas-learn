@@ -11,11 +11,15 @@ interface Props {
   growArg?: 'list' | 'n';
   sizes?: string;
   rows?: number;
+  /** Lines the program's input() reads, one per line. Gives the lab an input box. */
+  stdin?: string;
 }
 const { code = '', mission, grow, growArg = 'list', sizes = '100,1000,10000', rows } = Astro.props;
 // Sized and filled from what it will really show: a mission's starter replaces
 // `code`. Filling it here too means the program is on the page without scripts.
 const shown = (mission && CODE_MISSIONS[mission]?.starter) || code;
+const given = mission ? CODE_MISSIONS[mission]?.given : undefined;
+const stdinText = (mission ? CODE_MISSIONS[mission]?.stdin?.join('\n') : undefined) ?? Astro.props.stdin;
 const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1));
 ---
 <div class="widget card codelab" data-codelab data-mission={mission} data-grow={grow} data-grow-arg={growArg} data-sizes={sizes}>
@@ -27,11 +31,23 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
   </div>
   <div class="cl-grid">
     <div class="cl-main">
+      {given && (
+        <div class="cl-given">
+          <span class="eyebrow">Already written for you <span class="muted cl-keys">You can read this and call it. You can't change it.</span></span>
+          <pre data-given tabindex="0">{given}</pre>
+        </div>
+      )}
       <label class="cl-editor" data-edit>
         <span class="eyebrow">Your program <span class="muted cl-keys">Tab indents. To leave the editor by keyboard, press Esc, then Tab.</span></span>
         <textarea data-src rows={lineCount} spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off">{shown}</textarea>
       </label>
       <ol class="cl-listing" data-listing aria-label="Program, with the line about to run highlighted" hidden></ol>
+      {stdinText !== undefined && (
+        <label class="cl-stdin">
+          <span class="eyebrow">What the user types <span class="muted cl-keys">One line for each input() call. Change it and run again.</span></span>
+          <textarea data-stdin rows={Math.min(8, Math.max(2, stdinText.split('\n').length))} spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off">{stdinText}</textarea>
+        </label>
+      )}
       <div class="controls">
         <button class="btn small primary" type="button" data-run>Run</button>
         <button class="btn small" type="button" data-step>Step</button>
@@ -44,6 +60,10 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
         <section>
           <h4>Output</h4>
           <pre class="cl-out" data-out tabindex="0" role="log" aria-label="Program output"></pre>
+          <div class="cl-tb" data-tb-box hidden>
+            <h4>Python's error report <span class="muted">read it from the bottom up</span></h4>
+            <pre data-tb tabindex="0"></pre>
+          </div>
         </section>
         <section>
           <h4>Variables <span class="muted">and the call stack, newest call last</span></h4>
@@ -67,7 +87,7 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
 
 <script>
   import { PyProgram } from '../lib/py/vm.ts';
-  import { summarise, measureGrowth, classify, type RunResult } from '../lib/py/lab.ts';
+  import { summarise, measureGrowth, classify, formatTraceback, type RunResult } from '../lib/py/lab.ts';
   import { CODE_MISSIONS, type CodeState } from '../lib/cs/missions.ts';
   import { mountMission, el } from '../lib/ui.ts';
 
@@ -78,17 +98,43 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
     const src = q<HTMLTextAreaElement>('[data-src]'), out = q('[data-out]'), status = q('[data-status]');
     const vars = q('[data-vars]'), steps = q('[data-steps]'), listing = q('[data-listing]'), editLabel = q('[data-edit]');
     const runBtn = q<HTMLButtonElement>('[data-run]'), stepBtn = q<HTMLButtonElement>('[data-step]'), editBtn = q<HTMLButtonElement>('[data-edit-btn]');
+    const tbBox = q('[data-tb-box]'), tb = q('[data-tb]');
+    const stdinBox = root.querySelector<HTMLTextAreaElement>('[data-stdin]');
+    const originalStdin = stdinBox?.value;
 
     const mission = root.dataset.mission ? CODE_MISSIONS[root.dataset.mission] : undefined;
     if (root.dataset.mission && !mission) throw new Error(`CodeLab: no mission called ${root.dataset.mission}`);
     if (mission?.starter !== undefined) src.value = mission.starter;
     const original = src.value;
+    // A line per input(). Only a trailing newline is dropped: an empty line in the
+    // middle is a real answer, the user pressing Enter with nothing typed.
+    const options = () => ({ given: mission?.given, stdin: stdinBox ? stdinBox.value.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n') : undefined });
     const state: CodeState = mission ? mission.setup() : { runs: [], growth: [] };
-    const refresh = mission ? mountMission(q('[data-mission-panel]'), mission, () => state, () => {}) : () => {};
+    const refresh = mission ? mountMission(q('[data-mission-panel]'), mission, () => state) : () => {};
 
     let prog: PyProgram | null = null, stepping = false, timer = 0, stale = false;
 
     const setStatus = (text: string, kind = '') => { status.textContent = text; status.className = `cl-status ${kind}`; };
+
+    // Whose fault it is, in the first words, and what to do next. Never a red error line:
+    // those mean the learner's program, and the lessons teach them to believe it.
+    const sandboxBug = (detail: string) => `This is a bug in this page's Python sandbox, not in your code, so your program may be fine. The run has ended. You can press Run to try again, or try it on a real install. Details for a bug report: ${detail}`;
+
+    /** Anything unexpected ends the run, says so, and hands the buttons back. It must never look like a program still running: "a1".strip(1) once left this on "Running…" with Stop hanging. */
+    function crashed(e: unknown) {
+      if (timer) { clearTimeout(timer); timer = 0; }
+      runBtn.textContent = 'Run';
+      stepBtn.disabled = false;
+      prog = null;
+      setEditing(true);
+      tbBox.hidden = true;
+      setStatus(sandboxBug(e instanceof Error ? `${e.name}: ${e.message}` : String(e)), 'warn bug');
+      // As text, with the message spelled out. A raw object reaches a console listener
+      // as "JSHandle@object" in Firefox, and Firefox's stack leaves the message out.
+      console.error(`The code lab failed: ${e instanceof Error ? `${e.name}: ${e.message}\n${e.stack ?? ''}` : String(e)}`);
+    }
+    /** Every way into this lab's code goes through here: the buttons, and each slice of a run. */
+    const guarded = (fn: () => void) => () => { try { fn(); } catch (e) { crashed(e); } };
 
     function showVars(p: PyProgram) {
       const frames = p.view();
@@ -102,7 +148,8 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
     }
 
     function showListing(p: PyProgram) {
-      const lines = src.value.replace(/\r\n/g, '\n').split('\n'), at = p.finished ? 0 : p.nextLine;
+      // Inside given code the line number belongs to that code, not to this listing.
+      const lines = src.value.replace(/\r\n/g, '\n').split('\n'), at = p.finished || p.inGiven ? 0 : p.nextLine;
       listing.replaceChildren(...lines.map((l, i) => el('li', i + 1 === at ? { class: 'at', 'aria-current': 'step' } : {}, el('code', {}, l || ' '))));
       listing.querySelector('.at')?.scrollIntoView({ block: 'nearest' });
     }
@@ -113,14 +160,19 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
       stale = false;
       const depth = r.depth > 1 ? `, ${r.depth} calls deep at most` : '';
       if (r.status === 'done') setStatus(`Finished in ${fmt(r.ops)} step${r.ops === 1 ? '' : 's'}${depth}.`, 'ok');
+      else if (r.status === 'crash') { setStatus(sandboxBug(r.error?.message ?? 'no details'), 'warn bug'); console.error(`The Python sandbox failed: ${r.error?.message}`); }
       else if (r.status === 'budget') setStatus(`Stopped at ${fmt(r.ops)} steps, the limit for this page. Either this is slow, or it would never finish, and from out here those two look the same.`, 'warn');
       else if (r.status === 'output') setStatus('Stopped: it printed more than this page will hold.', 'warn');
       else if (r.error?.type === 'SandboxLimit') setStatus(`Not your bug: ${r.error.message}.`, 'warn');
       else if (r.error) {
         const trail = r.error.stack.length > 1 ? ` Called from: ${r.error.stack.slice(0, -1).map((f) => `${f.fn === '<module>' ? 'the program' : f.fn} (line ${f.line})`).join(', then ')}.` : '';
         setStatus(`${r.error.type} on line ${r.error.line}: ${r.error.message}.${trail}`, 'bad');
+        tb.textContent = formatTraceback(r.error, r.src, mission?.given);
+        tbBox.hidden = false;
       }
     }
+
+    const clearOutput = () => { out.textContent = ''; tb.textContent = ''; tbBox.hidden = true; };
 
     function finish(p: PyProgram) {
       const r = summarise(p, src.value);
@@ -142,30 +194,43 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
     }
 
     function run() {
-      if (timer) { clearTimeout(timer); timer = 0; runBtn.textContent = 'Run'; stepBtn.disabled = false; setStatus(`You stopped it at ${fmt(prog?.ops ?? 0)} steps.`, 'warn'); prog = null; return; }
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+        runBtn.textContent = 'Run';
+        stepBtn.disabled = false;
+        const ops = prog?.ops ?? 0;
+        // It counts as a run: a mission's "run it and see it never stop" step says to press
+        // Stop, and pressing it used to tick nothing.
+        if (prog) { prog.stop(); state.runs.push(summarise(prog, src.value)); }
+        prog = null;
+        setStatus(`You stopped it at ${fmt(ops)} steps.`, 'warn');
+        refresh();
+        return;
+      }
       setEditing(true);
-      const p = new PyProgram(src.value);
+      const p = new PyProgram(src.value, options());
       prog = p;
-      out.textContent = '';
+      clearOutput();
       runBtn.textContent = 'Stop';
       stepBtn.disabled = true;
       setStatus('Running…');
       // In slices so a runaway loop leaves the page responsive and Stop clickable.
-      const slice = () => {
+      const slice = guarded(() => {
         timer = 0;
         p.run(150_000);
         steps.textContent = `${fmt(p.ops)} steps`;
         if (p.finished) { finish(p); return; }
         timer = window.setTimeout(slice, 0);
-      };
+      });
       if (p.finished) finish(p); else timer = window.setTimeout(slice, 0);
     }
 
     function step() {
       if (!stepping || !prog || prog.finished) {
-        prog = new PyProgram(src.value);
+        prog = new PyProgram(src.value, options());
         setEditing(false);
-        out.textContent = '';
+        clearOutput();
         if (prog.finished) { finish(prog); return; }
         showListing(prog);
         showVars(prog);
@@ -179,22 +244,23 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
       if (prog.finished) { finish(prog); return; }
       showListing(prog);
       showVars(prog);
-      setStatus(`About to run line ${prog.nextLine}.`);
+      setStatus(prog.inGiven ? 'Inside the code written for you. Press Step to carry on.' : `About to run line ${prog.nextLine}.`);
     }
 
-    runBtn.addEventListener('click', run);
-    stepBtn.addEventListener('click', step);
-    editBtn.addEventListener('click', () => { setEditing(true); prog = null; setStatus('Back to editing. Run or Step starts from the top.'); src.focus(); });
-    q('[data-reset]').addEventListener('click', () => {
+    runBtn.addEventListener('click', guarded(run));
+    stepBtn.addEventListener('click', guarded(step));
+    editBtn.addEventListener('click', guarded(() => { setEditing(true); prog = null; setStatus('Back to editing. Run or Step starts from the top.'); src.focus(); }));
+    q('[data-reset]').addEventListener('click', guarded(() => {
       if (timer) { clearTimeout(timer); timer = 0; runBtn.textContent = 'Run'; stepBtn.disabled = false; }
       src.value = original;
+      if (stdinBox) stdinBox.value = originalStdin!;
       setEditing(true);
       prog = null;
-      out.textContent = '';
+      clearOutput();
       steps.textContent = '0 steps';
       vars.replaceChildren(el('p', { class: 'muted' }, 'Press Step to watch these change.'));
       setStatus('Code reset. Not run yet.');
-    });
+    }));
 
     // Output from before an edit must not read as output from the code on screen.
     src.addEventListener('input', () => {
@@ -234,8 +300,8 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
     if (measure) {
       const fn = root.dataset.grow!, sizes = root.dataset.sizes!.split(',').map(Number);
       const args = (n: number) => (root.dataset.growArg === 'n' ? [n] : [Array.from({ length: n }, (_, i) => i)]);
-      measure.addEventListener('click', () => {
-        const check = new PyProgram(src.value);
+      measure.addEventListener('click', guarded(() => {
+        const check = new PyProgram(src.value, options());
         check.run();
         const checked = summarise(check, src.value);
         report(checked);
@@ -259,7 +325,7 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
         q('[data-shape]').textContent = shape === 'unknown' ? 'Not enough sizes finished to name a shape.' : `Shape over these sizes: ${shape}.`;
         state.growth.push({ src: src.value, fn, points, shape });
         refresh();
-      });
+      }));
     }
   }
 </script>
@@ -271,6 +337,12 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
   .codelab .cl-editor { display: flex; flex-direction: column; gap: 4px; }
   .codelab .cl-editor[hidden] { display: none; }
   .codelab .cl-keys { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .codelab .cl-stdin { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .codelab .cl-given { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .codelab .cl-given pre { margin: 0; max-height: 260px; overflow: auto; background: var(--bg-2); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 13px/1.5 var(--mono); }
+  .codelab .cl-tb { margin-top: 10px; min-width: 0; }
+  .codelab .cl-tb[hidden] { display: none; }
+  .codelab .cl-tb pre { margin: 0; max-height: 300px; overflow: auto; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; padding: 10px 12px; font: 13px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   .codelab textarea { width: 100%; box-sizing: border-box; background: var(--term-bg); color: var(--term-ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 13.5px/1.55 var(--mono); resize: vertical; tab-size: 4; overflow: auto; white-space: pre; }
   .codelab .cl-listing { margin: 0; padding: 10px 12px 10px 42px; background: var(--term-bg); color: var(--term-ink); border-radius: 10px; font: 13.5px/1.55 var(--mono); overflow: auto; max-height: 420px; }
   .codelab .cl-listing[hidden] { display: none; }

@@ -1,0 +1,151 @@
+---
+title: Read the error, then use the debugger
+summary: A bug report tells you where a program hurt, and that often isn't where it's wrong. Read a traceback from the bottom up, step through a program that gives no error at all, and fix real planted bugs by testing a guess instead of changing things until it works.
+minutes: 22
+xp: 55
+tiers: [browser, machine]
+builds_on: [programming/input-and-errors]
+sources:
+  - title: Computer History Museum - First Instance of Actual Computer Bug Being Found
+    url: https://www.computerhistory.org/tdih/september/9/
+  - title: Naval History and Heritage Command - NH 96566-KN, The First "Computer Bug"
+    url: https://www.history.navy.mil/our-collections/photography/numerical-list-of-images/nhhc-series/nh-series/NH-96000/NH-96566-KN.html
+  - title: Python tutorial - Errors and Exceptions, including how to read a traceback
+    url: https://docs.python.org/3/tutorial/errors.html
+  - title: Python tutorial - for statements, on changing a collection while looping over it
+    url: https://docs.python.org/3/tutorial/controlflow.html#for-statements
+  - title: Python docs - pdb, the debugger that comes with Python
+    url: https://docs.python.org/3/library/pdb.html
+  - title: Andreas Zeller and others - The Debugging Book (free)
+    url: https://www.debuggingbook.org/
+---
+
+On 9 September 1947, the team running the Harvard Mark II found a moth trapped in one of its relays. They taped it into the logbook and someone wrote: "First actual case of bug being found." Grace Hopper was there and, as the Computer History Museum puts it, "made the incident famous later on in her many public lectures".
+
+It's a good story, and it's often told wrong. It isn't where the word came from: the same museum page traces "bug" to Thomas Edison in the 1800s, and the note only works as a joke if the word already existed. And the museum says Hopper was present, not that she found it. The log is still a fine lesson, though. Somebody found the exact place the machine was failing, and wrote down what they found.
+
+Your bugs won't have wings, and they come in three kinds. Each needs a different approach:
+
+- **It crashes.** You get a report. Start there.
+- **It gives a wrong answer and no error.** Nothing tells you where to look, so you have to watch it run.
+- **It works when you try it, and fails for someone else.** You have a guess to test, and the input to find.
+
+## Read the report from the bottom up
+
+When an exception reaches the top, Python prints a **traceback**: the trail of function calls that were waiting when things went wrong. This one comes from the program in the lab below.
+
+```text
+Traceback (most recent call last):
+  File "<lab>", line 18, in <module>
+    print(report(["tea,2.50", "cake,4.00"]))
+  File "<lab>", line 16, in report
+    return total(prices)
+  File "<lab>", line 9, in total
+    t = t + p
+TypeError: unsupported operand type(s) for +: 'int' and 'str'
+```
+
+Beginners read this from the top, get lost in the noise, and give up. Read it from the **bottom**:
+
+1. **The last line says what went wrong.** You tried to add an `int` and a `str`. So one of those values isn't what you assumed.
+2. **The line above it says where.** Line 9, inside `total`: `t = t + p`.
+3. **Going up the list shows how you got there.** `total` was called from line 16 in `report`, which was called from line 18, the top of the program. "Most recent call last" means the newest call is at the bottom.
+
+Then you ask the real question: not "what's wrong with line 9?", but "how did a `str` get here?" A traceback tells you where it hurt. It doesn't tell you where the mistake is, and on this next one those are different places.
+
+<CodeLab mission="prog-debug-traceback" rows={18} />
+
+<Callout kind="real">
+The report in this lab follows Python's format, and this site's tests compare it with the real interpreter's on every change. It isn't identical. Real Python 3.11 and later adds a row of markers such as `^^^^` or `~~^~~` under a line to point at the part of it that failed, and this lab leaves those out. Where it says `<lab>`, a real one shows your file's path. For a misspelled name, real Python often adds a suggestion, which is worth reading: `NameError: name 'totl' is not defined. Did you mean: 'total'?`. This lab doesn't. When one statement runs over several lines, real Python can point at the inner line where this lab points at the first. And Python 3.11 lists an extra frame called `<listcomp>` for a list comprehension, where 3.12 and this lab don't. Any time a traceback shows other people's code in a library, keep going up until you reach a line of yours: that's usually where to start.
+</Callout>
+
+## No error, wrong answer: use Step
+
+A program with no crash gives you no report. Printing values is one way in, and it's a good one. The other is a **debugger**, a tool that runs your program one line at a time and shows you every variable as you go. In these labs that's the **Step** button.
+
+The way to use it is not to watch passively. **Before each press, say what you expect to happen.** The bug is on the first line where your expectation and the program disagree. If you only watch, your eye slides over the moment it goes wrong.
+
+<CodeLab mission="prog-debug-step" rows={18} />
+
+## Test a guess, don't just change things
+
+The tempting way to debug is to change something, run it, and change something else until it works. That can make the symptom go away and leave you with a program you understand less than before, with no way of knowing whether the bug has really gone.
+
+The reliable way is the one scientists use:
+
+1. **Observe.** What exactly happens, and on what input? Find the smallest input that shows it.
+2. **Guess.** Say why, specifically. "It's broken" isn't a guess. "Removing an item makes the loop skip the next one" is.
+3. **Predict.** If your guess is right, what else must be true? Name something you haven't seen yet.
+4. **Test.** Run that one thing. If the prediction fails, the guess was wrong, and you've learned something for the cost of one run.
+5. **Then fix,** and check that the original failure is gone.
+
+Change one thing at a time. If you change three things and it starts working, you don't know which one did it, or whether the other two broke something else.
+
+<CodeLab mission="prog-debug-hypothesis" rows={9} />
+
+<Callout kind="trap" title="If the fix only handles the input you tried, the bug is still there">
+Adding `if items == [...]: return 3` makes the failing example pass and fixes nothing. The missions here check your fix on inputs you never see, for that reason. In your own work, nobody does this for you. A test that tries other inputs is how you do it yourself, and that's the next lesson.
+</Callout>
+
+<Callout kind="real">
+This sandbox has **Step** and no breakpoints. On a real machine, Python comes with a debugger called `pdb`: put `breakpoint()` on a line and the program stops there and lets you look around. Editors such as VS Code do the same with a click in the margin, and a window of variables like the one in this lab. They add one thing this lab doesn't have: a *breakpoint* lets you run at full speed to the interesting line, instead of stepping through a million loop passes to reach it.
+</Callout>
+
+<Quiz
+  id="prog-debug-1"
+  q="A traceback ends: File 'shop.py', line 40, in checkout / total = price * qty / TypeError: can't multiply sequence by non-int of type 'float'. What do you do first?"
+  options={["Rewrite line 40, since that's where the error is", "Find out what price and qty really are at that line, and where the wrong one came from", "Read the first line of the traceback, because that's the root cause"]}
+  answer={1}
+  explain="The last line says what went wrong and the one above says where. A sequence is being multiplied by a float, so one of them is the wrong type: probably a string that was never converted. Line 40 may be fine. Find out how the bad value got there."
+/>
+
+<Quiz
+  id="prog-debug-2"
+  q="You guess that a function fails when the list is empty. What's the best next step?"
+  options={["Add a check for an empty list, then see if the bug report stops", "Call the function with an empty list and check that it fails the way you predicted", "Rewrite the function so it's cleaner, which often clears up bugs"]}
+  answer={1}
+  explain="One run tests the guess. If it doesn't fail on an empty list, you've just saved yourself from fixing something that wasn't broken, and you still have the real bug to find."
+/>
+
+<Quiz
+  id="prog-debug-3"
+  q="Why do the missions in this lesson check your fix on inputs you never saw?"
+  options={["To make them harder", "Because a fix aimed at one failing example can make that example pass and leave the bug in place", "Because the visible examples were wrong"]}
+  answer={1}
+  explain="Passing on the one input you were looking at isn't evidence that the logic is right. Other inputs are how you tell a real fix from a patch over a symptom."
+/>
+
+<DoItForReal id="prog-debug-pdb" needs="terminal" xp={20}>
+
+On a real machine with Python 3, save this as `bug.py`:
+
+```python
+# real machine
+def longest_run(items):
+    best = 0
+    current = 0
+    previous = None
+    for x in items:
+        breakpoint()
+        if x == previous:
+            current += 1
+        else:
+            current = 1
+        best = max(best, current)
+        previous = x
+    return best
+
+print(longest_run(["a", "a", "b"]))
+```
+
+Run `python3 bug.py`. At the `(Pdb)` prompt, type `p current` to print a value, `n` for the next line, `c` to carry on to the next stop, and `q` to quit. Quitting prints a traceback ending in `bdb.BdbQuit`. That's normal: it's `pdb` stopping your program, and not a new bug. Python's docs list the rest.
+
+</DoItForReal>
+
+## What to remember
+
+- Read a traceback from the bottom: what went wrong, where, then how it got there.
+- Where it crashed and where it's wrong are often two different places.
+- With no error, step through it, and say what you expect before each step.
+- A guess you can test beats a change you hope will work.
+- A fix isn't done until it works on inputs you weren't looking at.

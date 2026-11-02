@@ -1,0 +1,252 @@
+---
+title: "Functions: name a job, reuse it"
+summary: A function gives a job a name, so you can use it without thinking about how it works. Learn def, parameters and return, why print and return are different, why a variable inside a function can't be seen outside it, and what the call stack is.
+minutes: 22
+xp: 60
+tiers: [browser]
+builds_on: [programming/loops]
+sources:
+  - title: The Python Tutorial - More Control Flow Tools (defining functions, default arguments, keyword arguments)
+    url: https://docs.python.org/3/tutorial/controlflow.html
+  - title: Python FAQ - What are the rules for local and global variables?
+    url: https://docs.python.org/3/faq/programming.html#what-are-the-rules-for-local-and-global-variables-in-python
+  - title: Python documentation - Built-in Exceptions (UnboundLocalError)
+    url: https://docs.python.org/3/library/exceptions.html
+---
+
+Here's a small program with a bug that isn't in the code yet. It works out a price with tax, in three places.
+
+<CodeLab code={`tea = 3 * 1.25
+print(tea)
+milk = 2 * 1.25
+print(milk)
+bread = 4 * 1.25
+print(bread)
+`} />
+
+It works. The bug comes the day the tax rate changes. You have to find every `1.25`, change each one, and not miss any. This program has three, and real programs can have them in many files. If you miss one, no error appears. Some prices are just wrong.
+
+A **function** gives a job a name, and it keeps the steps in one place.
+
+<CodeLab code={`def with_tax(price):
+    return price * 1.25
+
+print(with_tax(3))
+print(with_tax(2))
+print(with_tax(4))
+`} />
+
+Now the rate lives in one place. Press **Step**, and go slowly, because there's a lot to see here. Notice what the highlight does when it reaches a `with_tax(...)` line.
+
+## The parts
+
+```python
+def with_tax(price):
+    return price * 1.25
+
+print(with_tax(3))
+```
+
+- **`def`** defines a function. It teaches Python a new word. It doesn't run the body.
+- **`with_tax`** is the name, with the same naming rules as any variable.
+- **`price`** is a **parameter**: a name for whatever gets handed in.
+- **The colon and the indent** work just as they do for `if`.
+- **`return`** ends the function, and hands a value back.
+- **`with_tax(3)`** is a **call**, which runs the body now. The `3` is an **argument**, the value handed in. Inside this call, `price` stands for 3.
+
+So a call is an expression, and its value is whatever the function returns. That's why you can put it in a `print`, or in a sum: `with_tax(3) + with_tax(2)`.
+
+## Defining isn't running
+
+This is the first thing to catch people out. Run this, and work out why nothing happens.
+
+<CodeLab code={`def say_hello():
+    print("Hello")
+
+say_hello
+`} />
+
+The `def` only defines the function, and the last line names it without calling it. There's no error, and nothing is printed. A call needs the brackets, even with nothing inside them: change the last line to `say_hello()`.
+
+Order matters too. Python runs from the top, so a function has to be defined before the line that calls it runs. Move the `say_hello()` line above the `def`, and read the `NameError`.
+
+The number of arguments has to fit as well. Python tells you exactly what's missing, so try these in the lab: call `with_tax()`, then call `with_tax(1, 2)`.
+
+<CodeLab code={`def with_tax(price):
+    return price * 1.25
+
+print(with_tax(3))
+`} />
+
+You'll get `with_tax() missing 1 required positional argument: 'price'`, and `with_tax() takes 1 positional argument but 2 were given`. **Positional** means matched up by position, first argument to first parameter.
+
+## Return and print aren't the same
+
+`print` shows something to a person looking at the screen. `return` hands a value to the code that called the function. On screen, they can look identical, and that's what makes this mistake so common.
+
+<CodeLab mission="prog-fn-fahrenheit" />
+
+Here's what the mistake does when something tries to use the answer. Run it, and read the error, which appears some way from the real cause.
+
+<CodeLab code={`def double(x):
+    print(x * 2)
+
+result = double(4)
+print(result)
+print(result + 1)
+`} />
+
+It printed 8, then `None`, then stopped with a `TypeError`: `unsupported operand type(s) for +: 'NoneType' and 'int'`. An **operand** is a thing an operator works on, so it's saying "I can't add None and a whole number". The tutorial explains where the `None` came from: "even functions without a `return` statement do return a value", and "This value is called `None`". When you see `NoneType` in an error, a good first question is: which function did I forget to return from?
+
+Anything after a `return` doesn't run, because `return` ends the function right there.
+
+<CodeLab code={`def describe(n):
+    if n > 0:
+        return "positive"
+    return "not positive"
+    print("this line never runs")
+
+print(describe(5))
+print(describe(-5))
+`} rows={9} />
+
+That also shows a tidy pattern. You don't need an `else` after a `return`, because you only reach the next line if the `if` didn't return.
+
+## What happens inside stays inside
+
+A variable made inside a function belongs to that call. It's called a **local variable**. It comes into being when the call starts, and it's gone when the call ends. Run this.
+
+<CodeLab code={`def add_tax(price):
+    total = price * 1.25
+    return total
+
+print(add_tax(10))
+print(total)
+`} />
+
+`total` isn't defined out there. The name exists only while `add_tax` runs. Press **Step** and watch the Variables panel: while the function is running, there's a new box with its own variables, and it disappears when the function returns. That is the point. You can use any names you like inside a function with no risk of damaging something elsewhere. A function's insides are its own business, which is what lets you use it without knowing them.
+
+The part of a program where a name can be seen is called its **scope**. A function can **read** a variable from outside. But if it **assigns** to that name anywhere in the body, Python treats that name as local for the whole function. So this surprises nearly everybody:
+
+<CodeLab code={`count = 0
+
+def bump():
+    count = count + 1
+
+bump()
+print(count)
+`} />
+
+The message is `cannot access local variable 'count' where it is not associated with a value`. It says that because `count = ...` appears in the function, so Python decided `count` is local throughout. Then the right side tries to read that local before it has a value. The outside `count` doesn't come into it. Python's FAQ states the rule: "If a variable is assigned a value anywhere within the function's body, it's assumed to be a local unless explicitly declared as global."
+
+There are two ways out. The better one is to pass the value in and return the new one:
+
+<CodeLab code={`def bump(count):
+    return count + 1
+
+count = 0
+count = bump(count)
+print(count)
+`} />
+
+The other is to write `global count` as the first line of the function. That works, and it means any function can change the value from anywhere, which makes programs hard to follow. It's a reasonable last resort.
+
+## Side effects
+
+A function's **side effect** is anything it does apart from returning a value: printing, changing something outside itself, writing a file. `with_tax` has none. Hand it the same price, and you get the same answer, and nothing else in the world changes. That makes it easy to test and easy to trust.
+
+`print` inside a function is a side effect, and that's why a function that prints can't be reused in a place where you wanted the value and not the text on the screen. Side effects aren't bad, since a program with none would be no use to anyone. Keep them where you can see them, and make the working-out functions return values. [The lesson on lists](/learn/programming/lists/) shows a side effect that is much easier to miss.
+
+## Default values, and naming your arguments
+
+A parameter can have a default, used when the caller leaves it out. A caller can also name an argument, which helps when a call would otherwise read like a row of unexplained numbers.
+
+<CodeLab code={`def with_tax(price, rate=1.25):
+    return price * rate
+
+print(with_tax(10))
+print(with_tax(10, 1.05))
+print(with_tax(10, rate=1.05))
+print(with_tax(price=10, rate=1.05))
+`} rows={7} />
+
+Parameters with defaults have to come after the ones without. Try swapping them, and read the message. There's a trap with a list as a default, and it has its own section in [the lesson on lists](/learn/programming/lists/).
+
+## Breaking a job into smaller jobs
+
+A function can call other functions, and that's how a big job gets done: split it into smaller jobs, each with a name. This is called **decomposition**.
+
+<CodeLab mission="prog-fn-leap" />
+
+Once `is_leap` exists, you can use it without thinking about centuries. You only have to know what it promises. Hiding the details behind a name like this is called **abstraction**, and you've been relying on it from the start: you've never seen the code inside `print`.
+
+You can write that promise down, too. A string on the first line of a function is called a **docstring**. Python keeps it with the function, and a comment wouldn't get that treatment.
+
+<CodeLab code={`def is_leap(year):
+    """Return True if year is a leap year in the Gregorian calendar."""
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+print(is_leap.__doc__)
+print(is_leap(2000))
+`} />
+
+`is_leap.__doc__` reads the string Python kept. The dot means "the one belonging to", and you'll see much more of it with [lists](/learn/programming/lists/). The double underscores mark a name that Python set up itself.
+
+<Callout kind="real" title="What this page leaves out">
+Real Python's `help(is_leap)` prints that docstring along with the function's parameters. This page doesn't have `help`, and it says so rather than calling it your mistake. Functions can also do more on real Python, such as accepting any number of arguments with `*args`. This page refuses those by name as well. Everything you've written in this lesson ran the same on both when we tested it on Python 3.12.
+</Callout>
+
+<GoDeeper title="The call stack">
+When a function calls another function, the first one waits. Python keeps track with the **call stack**: a pile of the calls in progress, newest on top. Each has its own local variables and its own place in the code. When a function returns, its entry comes off the pile, and the one below carries on from where it stopped.
+
+The Variables panel shows this pile, newest call last. Step through this, and watch it grow and shrink:
+
+<CodeLab code={`def square(n):
+    result = n * n
+    return result
+
+def sum_of_squares(a, b):
+    first = square(a)
+    second = square(b)
+    return first + second
+
+print(sum_of_squares(3, 4))
+`} rows={11} />
+
+That's also what a traceback is on real Python. It lists the calls that led to the error, with the newest last, and this page's red message gives you the same information in its "Called from" part. Try making `square` fail by changing `n * n` to `n * m`.
+
+When Python looks up a name, the tutorial says it looks in "the local symbol table, then in the local symbol tables of enclosing functions, then in the global symbol table, and finally in the table of built-in names". (A **symbol table** is the list of names and what they stand for.) That last step is where `print` comes from. It also means you can hide `print` by accident, with `print = 5`, and then every `print(...)` after that is a `TypeError`.
+</GoDeeper>
+
+<Quiz
+  id="prog-fn-1"
+  q="A function prints its answer and has no return. You write x = f(3). What is x?"
+  options={["The value it printed", "None", "It's an error at that line"]}
+  answer={1}
+  explain="A function that reaches its end with no return hands back None. The value on the screen went to the person watching, not to the code. The error comes later, if you try to use x as a number."
+/>
+
+<Quiz
+  id="prog-fn-2"
+  q="Inside a function you write total = 5. Outside the function, there is also a variable called total, holding 100. After the call, what does the outside total hold?"
+  options={["5, because the function changed it", "100, because the function's total is a separate local variable", "It's an error, because a name can only be used once"]}
+  answer={1}
+  explain="Assigning inside a function makes a local variable, even when the same name exists outside. They're separate, and that's what makes functions safe to use without knowing what's inside them."
+/>
+
+<Quiz
+  id="prog-fn-3"
+  q="Which of these calls say_hello and runs its body?"
+  options={["def say_hello():", "say_hello", "say_hello()"]}
+  answer={2}
+  explain="def only defines it. The bare name just refers to the function, and on a line by itself it does nothing, with no error. The brackets are what call it."
+/>
+
+## What to remember
+
+- `def` defines a function, and calling it with brackets runs it.
+- `return` hands a value back, and `print` only shows one. With no `return`, you get `None`.
+- A variable assigned inside a function is local: it can't be seen outside, and it's gone when the call ends.
+- Assigning to a name anywhere in a function makes it local everywhere in that function.
+- Pass values in and return results, in preference to changing things from a distance.
+- Name a job, and you can stop thinking about how it's done.
