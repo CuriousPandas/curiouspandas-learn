@@ -129,7 +129,9 @@ const lineCount = rows ?? Math.min(18, Math.max(5, shown.split('\n').length + 1)
       setEditing(true);
       tbBox.hidden = true;
       setStatus(sandboxBug(e instanceof Error ? `${e.name}: ${e.message}` : String(e)), 'warn bug');
-      console.error(e);
+      // As text, with the message spelled out. A raw object reaches a console listener
+      // as "JSHandle@object" in Firefox, and Firefox's stack leaves the message out.
+      console.error(`The code lab failed: ${e instanceof Error ? `${e.name}: ${e.message}\n${e.stack ?? ''}` : String(e)}`);
     }
     /** Every way into this lab's code goes through here: the buttons, and each slice of a run. */
     const guarded = (fn: () => void) => () => { try { fn(); } catch (e) { crashed(e); } };
