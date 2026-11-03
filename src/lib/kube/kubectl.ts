@@ -9,7 +9,7 @@
 // namespaces lesson exists to fix.
 
 import {
-  Cluster, SECONDS_PER_TICK, LIVENESS, key, clone, parseCron, templateHash,
+  Cluster, SECONDS_PER_TICK, EPOCH_MS, LIVENESS, key, clone, parseCron, templateHash,
   type Pod, type Node, type Deployment, type Job, type CronJob, type DaemonSet, type KEvent,
 } from './cluster.ts';
 import {
@@ -42,6 +42,39 @@ export function human(seconds: number) {
   return `${Math.floor(h / 24)}d`;
 }
 const age = (c: Cluster, since: number) => human((c.tick - since) * SECONDS_PER_TICK);
+
+/**
+ * kubectl describe writes through Go's tabwriter: a run of consecutive lines
+ * that contain a tab is one block, and each column in it is padded to its
+ * widest cell plus two. A line with no tab ends the block, which is why the
+ * Limits lines of a container are aligned on their own and the Requests
+ * lines line up with everything below them.
+ */
+export function tabw(text: string): string {
+  const ls = text.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < ls.length;) {
+    if (!ls[i].includes('\t')) { out.push(ls[i++]); continue; }
+    let j = i;
+    while (j < ls.length && ls[j].includes('\t')) j++;
+    const rows = ls.slice(i, j).map((l) => l.split('\t'));
+    const w: number[] = [];
+    for (const r of rows) r.slice(0, -1).forEach((c, k) => { w[k] = Math.max(w[k] ?? 0, c.length); });
+    for (const r of rows) out.push(r.map((c, k) => (k < r.length - 1 ? c.padEnd(w[k] + 2) : c)).join(''));
+    i = j;
+  }
+  return out.join('\n');
+}
+
+/** How describe prints a time: Go's "Mon, 02 Jan 2006 15:04:05 -0700", here always UTC. */
+export function stamp(c: Cluster, tick: number) {
+  const d = new Date(EPOCH_MS + tick * SECONDS_PER_TICK * 1000);
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()];
+  const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()];
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  void c;
+  return `${day}, ${p2(d.getUTCDate())} ${mon} ${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())} +0000`;
+}
 
 function table(rows: string[][]): string {
   const w = rows[0].map((_, i) => Math.max(...rows.map((r) => r[i].length)));
@@ -237,7 +270,8 @@ const NOT_HERE: Record<string, string> = {
   cordon: 'node maintenance is taught with its own simulator', uncordon: 'node maintenance is taught with its own simulator', drain: 'node maintenance is taught with its own simulator',
   expose: 'Services are taught with their own simulator', attach: 'there is no process to attach to', cp: 'there are no files to copy', debug: 'there is no process to debug',
   auth: 'RBAC is taught in the cluster-access lesson', certificate: 'certificates are not modelled', replace: 'use kubectl apply -f here', wait: 'time runs on its own here: run get again',
-  diff: 'use kubectl get -o yaml and compare', kustomize: 'Kustomize has its own lesson', annotate: 'annotations are not modelled beyond rollout restart', autoscale: 'autoscaling has its own lesson',
+  diff: 'use kubectl get -o yaml and compare', events: 'kubectl get events shows the same list here', 'api-versions': 'kubectl api-resources lists what it models',
+  proxy: 'there is no network to proxy to', completion: 'there is no shell to complete in', plugin: 'there are no plugins', alpha: 'alpha commands are not modelled', kustomize: 'Kustomize has its own lesson', annotate: 'annotations are not modelled beyond rollout restart', autoscale: 'autoscaling has its own lesson',
 };
 
 function run(c: Cluster, argv: string[], observe: Observer | undefined, files: Files): Out[] {
@@ -418,14 +452,13 @@ function listKind(c: Cluster, kind: string, wide: boolean): { head: string[]; it
         }),
       };
     case 'nodes':
-      // CPU and MEMORY are this sandbox's own columns: on a real cluster the
-      // same numbers are under "Allocated resources" in kubectl describe node.
+      // Real kubectl's columns, nothing more. This once added CPU and MEMORY
+      // columns of its own, and a mission sent learners to `get nodes` to see
+      // how full the nodes were, which no real cluster would show them. The
+      // numbers are under "Allocated resources" in kubectl describe node.
       return {
-        head: ['NAME', 'STATUS', 'ROLES', 'AGE', 'VERSION', 'CPU (requested/allocatable)', 'MEMORY (requested/allocatable)'],
-        items: c.nodes.map((n) => {
-          const u = c.used(n.name);
-          return { ns: '', name: n.name, obj: nodeObj(c, n), labels: n.labels, row: [n.name, 'Ready', roles(n), age(c, n.created - 1000), 'v1.36.1', `${u.cpu}m/${n.cpu}m`, `${fmtMem(u.mem)}/${fmtMem(n.mem)}`] };
-        }),
+        head: ['NAME', 'STATUS', 'ROLES', 'AGE', 'VERSION', ...(wide ? ['INTERNAL-IP', 'EXTERNAL-IP', 'OS-IMAGE', 'KERNEL-VERSION', 'CONTAINER-RUNTIME'] : [])],
+        items: c.nodes.map((n, i) => ({ ns: '', name: n.name, obj: nodeObj(c, n), labels: n.labels, row: [n.name, 'Ready', roles(n), age(c, n.created - 1000), 'v1.36.1', ...(wide ? [`172.18.0.${i + 2}`, '<none>', 'Debian GNU/Linux 13 (trixie)', '(simulated)', 'containerd://2.3.1'] : [])] })),
       };
     case 'namespaces':
       return { head: ['NAME', 'STATUS', 'AGE'], items: [...c.namespaces.values()].sort((a, b2) => a.name.localeCompare(b2.name)).map((n) => ({ ns: '', name: n.name, obj: namespaceObj(c, n), labels: n.labels, row: [n.name, n.terminating ? 'Terminating' : 'Active', age(c, n.created - (n.name.startsWith('kube') || n.name === 'default' ? 1000 : 0))] })) };
@@ -514,7 +547,9 @@ function customCell(obj: unknown, path: string) {
 function eventsBlock(c: Cluster, evs: KEvent[]) {
   if (!evs.length) return 'Events:  <none>';
   const rows = evs.slice(-12).map((e) => ['  ' + e.type, e.reason, e.count > 1 ? `${age(c, e.tick)} (x${e.count} over ${age(c, e.first)})` : age(c, e.tick), e.from, e.field ? `${e.field}: ${e.message}` : e.message]);
-  return `Events:\n${table([['  Type', 'Reason', 'Age', 'From', 'Message'], ['  ----', '------', '----', '----', '-------'], ...rows])}`;
+  // describe pads its Events with two spaces (tabwriter), not get's three:
+  // "  Type    Reason             Age   From" on kind v1.36.1.
+  return `Events:\n${tabw([['  Type', 'Reason', 'Age', 'From', 'Message'], ['  ----', '------', '----', '----', '-------'], ...rows].map((r) => r.join('\t')).join('\n'))}`;
 }
 
 const labelLines = (l: Record<string, string>, w = 18) => {
@@ -523,40 +558,53 @@ const labelLines = (l: Record<string, string>, w = 18) => {
   return ks.map((k, i) => (i ? ' '.repeat(w) : '') + `${k}=${l[k]}`).join('\n');
 };
 
-function envLines(c: Cluster, ns: string, x: { env: Record<string, string>; envRefs: Template['envRefs']; envFrom: Template['envFrom'] }, indent: string) {
-  const from = x.envFrom.length ? `\n${indent}Environment Variables from:\n${x.envFrom.map((e) => `${indent}  ${e.name}  ${e.kind === 'configMap' ? 'ConfigMap' : 'Secret'}  Optional: false`).join('\n')}` : '';
-  const items = [
-    ...x.envRefs.map((r) => [`${r.name}:`, r.kind === 'configMap' ? `<set to the key '${r.key}' of config map '${r.ref}'>` : `<set to the key '${r.key}' in secret '${r.ref}'>`, 'Optional: false']),
-    ...Object.entries(x.env).map(([k, v]) => [`${k}:`, v]),
+type CtrX = { env: Record<string, string>; envRefs: Template['envRefs']; envFrom: Template['envFrom']; mounts: Template['mounts'] };
+
+/**
+ * One container's lines as describe writes them, with tabs where kubectl's
+ * tabwriter puts them (tabw lines them up). Shared by describe pod, where
+ * `status` carries State, Ready and Restart Count, and by every Pod Template
+ * block, which has none. Shapes from kubectl 1.37.2 against kind v1.36.1: a
+ * podinfo pod on the tilt platform, and a Deployment with resources, a probe,
+ * env from a ConfigMap and a Secret, and three volumes.
+ */
+function ctrLines(t: Template, name: string, image: string, x: CtrX, main: boolean, status: string[] = []) {
+  const out = [`${'  '}${name}:`, `    Image:\t${image}`, '    Port:\t<none>', '    Host Port:\t<none>', ...status];
+  if (main) {
+    out.push('    Limits:', `      memory:\t${fmtMem(t.limits.mem)}`, '    Requests:', `      cpu:\t${fmtCpu(t.requests.cpu)}`, `      memory:\t${fmtMem(t.requests.mem)}`);
+    // Real describe leaves out a probe that is not set, rather than printing <none>.
+    if (t.liveness) out.push(`    Liveness:\t${probeText(LIVENESS)}`);
+    if (t.startupProbe) out.push(`    Startup:\t${probeText(t.startupProbe)}`);
+  }
+  if (x.envFrom.length) out.push('    Environment Variables from:', ...x.envFrom.map((e) => `      ${e.name}\t${e.kind === 'configMap' ? 'ConfigMap' : 'Secret'}\tOptional: false`));
+  const vars = [
+    ...x.envRefs.map((r) => `      ${r.name}:\t${r.kind === 'configMap' ? `<set to the key '${r.key}' of config map '${r.ref}'>` : `<set to the key '${r.key}' in secret '${r.ref}'>`}\tOptional: false`),
+    ...Object.entries(x.env).map(([k, v]) => `      ${k}:\t${v}`),
   ];
-  void c; void ns;
-  if (!items.length) return `${from}\n${indent}Environment:    <none>`;
-  const w = Math.max(...items.map((i) => i[0].length)) + 2;
-  return `${from}\n${indent}Environment:\n${items.map((i) => `${indent}  ${i[0].padEnd(w)}${i.slice(1).join('  ')}`).join('\n')}`;
+  out.push(...(vars.length ? ['    Environment:', ...vars] : ['    Environment:\t<none>']));
+  // kubectl lists mounts sorted by path, whatever order the spec gives them in.
+  const mounts = [...x.mounts].sort((a, b) => a.mountPath.localeCompare(b.mountPath));
+  out.push(...(mounts.length ? ['    Mounts:', ...mounts.map((m) => `      ${m.mountPath} from ${m.name} (rw${m.subPath ? `,path="${m.subPath}"` : ''})`)] : ['    Mounts:\t<none>']));
+  return out;
 }
 
-function ctrBlock(c: Cluster, p: Pod, name: string, image: string, st: { status: string; ready: boolean; restarts: number; startedAt?: number; last?: Pod['last'] }, x: { env: Record<string, string>; envRefs: Template['envRefs']; envFrom: Template['envFrom']; mounts: Template['mounts'] }, main: boolean) {
+function ctrBlock(c: Cluster, p: Pod, name: string, image: string, st: { status: string; ready: boolean; restarts: number; startedAt?: number; last?: Pod['last'] }, x: CtrX, main: boolean) {
   const t = p.template;
-  let state: string;
-  if (st.status === 'Running') state = `Running\n      Started:      ${age(c, st.startedAt ?? 0)} ago`;
-  else if (st.status === 'Terminated' && st.last) state = `Terminated\n      Reason:       ${st.last.reason}\n      Exit Code:    ${st.last.exitCode}`;
-  else state = `Waiting\n      Reason:       ${main ? (p.status === 'Pending' || p.status === 'Initializing' ? (p.status === 'Initializing' ? 'PodInitializing' : 'Pending') : p.status === 'ContainerCreating' && t.initContainers.length && p.initDone >= t.initContainers.length ? 'PodInitializing' : p.status) : p.status === 'CreateContainerConfigError' || p.status === 'ErrImagePull' || p.status === 'ImagePullBackOff' ? p.status : st.last ? 'CrashLoopBackOff' : 'PodInitializing'}`;
-  const last = st.last && (st.status !== 'Terminated') ? `\n    Last State:     Terminated\n      Reason:       ${st.last.reason}\n      Exit Code:    ${st.last.exitCode}` : '';
-  const mounts = x.mounts.length ? x.mounts.map((m) => `\n      ${m.mountPath} from ${m.name} (rw${m.subPath ? `,path="${m.subPath}"` : ''})`).join('') : ' <none>';
-  return `  ${name}:
-    Image:          ${image}
-    State:          ${state}${last}
-    Ready:          ${st.ready ? 'True' : 'False'}
-    Restart Count:  ${st.restarts}${main ? `
-    Limits:
-      memory:  ${fmtMem(t.limits.mem)}
-    Requests:
-      cpu:     ${fmtCpu(t.requests.cpu)}
-      memory:  ${fmtMem(t.requests.mem)}
-    Liveness:   ${t.liveness ? `http-get http://:8080/ delay=${LIVENESS.initialDelaySeconds}s timeout=1s period=${LIVENESS.periodSeconds}s #success=1 #failure=${LIVENESS.failureThreshold}` : '<none>'}
-    Startup:    ${t.startupProbe ? `http-get http://:8080/ delay=${t.startupProbe.initialDelaySeconds}s timeout=1s period=${t.startupProbe.periodSeconds}s #success=1 #failure=${t.startupProbe.failureThreshold}` : '<none>'}` : ''}${envLines(c, p.ns, x, '    ')}
-    Mounts:${mounts}`;
+  let state: string[];
+  if (st.status === 'Running') state = ['    State:\tRunning', `      Started:\t${stamp(c, st.startedAt ?? 0)}`];
+  else if (st.status === 'Terminated' && st.last) state = ['    State:\tTerminated', `      Reason:\t${st.last.reason}`, `      Exit Code:\t${st.last.exitCode}`];
+  else state = ['    State:\tWaiting', `      Reason:\t${main ? c.mainWaitReason(p) : p.status === 'CreateContainerConfigError' || p.status === 'ErrImagePull' || p.status === 'ImagePullBackOff' ? p.status : st.last ? 'CrashLoopBackOff' : 'PodInitializing'}`];
+  const last = st.last && st.status !== 'Terminated' ? ['    Last State:\tTerminated', `      Reason:\t${st.last.reason}`, `      Exit Code:\t${st.last.exitCode}`] : [];
+  // A pod with no node has no container status, so describe prints no State,
+  // Ready or Restart Count for it (kind v1.36.1, a pod Pending on a nodeSelector).
+  const status = p.node ? [...state, ...last, `    Ready:\t${st.ready ? 'True' : 'False'}`, `    Restart Count:\t${st.restarts}`] : [];
+  return tabw(ctrLines(t, name, image, x, main, status).join('\n'));
 }
+
+// kubectl 1.37 prints successThreshold= and failureThreshold= here, not the
+// older #success= and #failure=.
+const probeText = (pr: { initialDelaySeconds: number; periodSeconds: number; failureThreshold: number }) =>
+  `http-get http://:8080/ delay=${pr.initialDelaySeconds}s timeout=1s period=${pr.periodSeconds}s successThreshold=1 failureThreshold=${pr.failureThreshold}`;
 
 function tolerationLines(t: Template, extra: boolean, w = 29) {
   const all = [...t.tolerations.map((x) => `${x.key ?? ''}${x.operator === 'Exists' ? '' : `=${x.value ?? ''}`}${x.effect ? `:${x.effect}` : ''}${x.operator === 'Exists' ? ' op=Exists' : ''}`),
@@ -655,7 +703,10 @@ function describe(c: Cluster, rest: string[], observe?: Observer): Out[] {
       for (const r of pick(c.replicasets.values())) {
         const live = c.live(r.name, r.ns);
         const fail = r.failures > 0 && live.length < r.replicas;
-        parts.push(`Name:           ${r.name}\nNamespace:      ${r.ns}\nSelector:       ${labelText({ ...r.template.labels, 'pod-template-hash': r.hash })}\nControlled By:  Deployment/${r.owner}\nReplicas:       ${live.length} current / ${r.replicas} desired\nPods Status:    ${live.filter((x) => x.status === 'Running').length} Running / ${live.filter((x) => x.status !== 'Running').length} Waiting / 0 Succeeded / 0 Failed\nPod Template:\n${podTemplate(r.template)}${fail ? '\nConditions:\n  Type             Status  Reason\n  ----             ------  ------\n  ReplicaFailure   True    FailedCreate' : ''}\n${eventsBlock(c, c.events.filter((e) => e.ns === r.ns && e.object === `replicaset/${r.name}`))}`);
+        // Labels and the controller's annotations as kind v1.36.1 showed them for a Deployment's ReplicaSet.
+        const owner = c.getDeployment(r.ns, r.owner);
+        const ann = owner ? [`deployment.kubernetes.io/desired-replicas: ${owner.replicas}`, `deployment.kubernetes.io/max-replicas: ${owner.replicas + c.fenceposts(owner.replicas).surge}`, `deployment.kubernetes.io/revision: ${r.revision}`] : [`deployment.kubernetes.io/revision: ${r.revision}`];
+        parts.push(`Name:           ${r.name}\nNamespace:      ${r.ns}\nSelector:       ${labelText({ ...r.template.labels, 'pod-template-hash': r.hash })}\nLabels:         ${labelLines({ ...r.template.labels, 'pod-template-hash': r.hash }, 16)}\nAnnotations:    ${ann.join('\n' + ' '.repeat(16))}\nControlled By:  Deployment/${r.owner}\nReplicas:       ${live.length} current / ${r.replicas} desired\nPods Status:    ${live.filter((x) => x.status === 'Running').length} Running / ${live.filter((x) => x.status !== 'Running').length} Waiting / 0 Succeeded / 0 Failed\nPod Template:\n${podTemplate({ ...r.template, labels: { ...r.template.labels, 'pod-template-hash': r.hash } })}${fail ? '\nConditions:\n  Type             Status  Reason\n  ----             ------  ------\n  ReplicaFailure   True    FailedCreate' : ''}\n${eventsBlock(c, c.events.filter((e) => e.ns === r.ns && e.object === `replicaset/${r.name}`))}`);
       }
       break;
     default:
@@ -664,38 +715,88 @@ function describe(c: Cluster, rest: string[], observe?: Observer): Out[] {
   return say(parts.join('\n\n\n'));
 }
 
-function podTemplate(t: Template, indent = '  ') {
-  const ctr = (name: string, image: string, x: Parameters<typeof envLines>[2]) => `${indent} ${name}:\n${indent}  Image:      ${image}${envLines({} as Cluster, '', x, indent + '  ').replace('Environment:    ', 'Environment:  ')}`;
-  return `${indent}Labels:  ${labelLines(t.labels, indent.length + 9)}${t.initContainers.length ? `\n${indent}Init Containers:\n${t.initContainers.map((x) => ctr(x.name, x.image, x)).join('\n')}` : ''}
-${indent}Containers:
-${[ctr(t.name, t.image, t), ...t.sidecars.map((x) => ctr(x.name, x.image, x))].join('\n')}
-${indent}Volumes:         ${t.volumes.length ? t.volumes.map((v) => v.name).join(', ') : '<none>'}
-${indent}Node-Selectors:  ${labelText(t.nodeSelector)}
-${indent}Tolerations:     ${tolerationLines(t, false, indent.length + 17)}`;
+/**
+ * The Pod Template block of describe deployment, replicaset, job, cronjob and
+ * daemonset, in the shape kubectl 1.37.2 printed for kind v1.36.1: Port and
+ * Host Port lines, resources and probes when set, then Environment, Mounts,
+ * Volumes, Node-Selectors and Tolerations, aligned by tabwriter's rules.
+ */
+function podTemplate(t: Template) {
+  const ctr = (name: string, image: string, x: CtrX, main: boolean) => ctrLines(t, ` ${name}`, image, x, main);
+  const labels = Object.keys(t.labels).sort().map((k, i) => `${i ? '' : '  Labels:'}\t${k}=${t.labels[k]}`);
+  const vols = t.volumes.length ? ['  Volumes:', ...t.volumes.flatMap((v) => [`   ${v.name}:`,
+    `    Type:\t${v.configMap ? 'ConfigMap (a volume populated by a ConfigMap)' : v.secret ? 'Secret (a volume populated by a Secret)' : 'EmptyDir (a temporary directory that shares a pod\'s lifetime)'}`,
+    ...(v.configMap ? [`    Name:\t${v.configMap}`, '    Optional:\tfalse'] : v.secret ? [`    SecretName:\t${v.secret}`, '    Optional:\tfalse'] : ['    Medium:\t', '    SizeLimit:\t<unset>'])])] : ['  Volumes:\t<none>'];
+  const tols = tolerationLines(t, false, 0).split('\n').map((x, i) => `${i ? '' : '  Tolerations:'}\t${x.trim()}`);
+  return tabw([
+    ...(labels.length ? labels : ['  Labels:\t<none>']),
+    ...(t.initContainers.length ? ['  Init Containers:', ...t.initContainers.flatMap((x) => ctr(x.name, x.image, x, false))] : []),
+    '  Containers:',
+    ...[ctr(t.name, t.image, t, true), ...t.sidecars.map((x) => ctr(x.name, x.image, x, false))].flat(),
+    ...vols,
+    `  Node-Selectors:\t${labelText(t.nodeSelector)}`,
+    ...tols,
+  ].join('\n'));
 }
 
+/**
+ * describe deployment as kubectl 1.37.2 printed it for kind v1.36.1. Its
+ * Events are the Deployment's own, ScalingReplicaSet and nothing else: the
+ * ReplicaSet's FailedCreate refusals are on the ReplicaSet. This once mixed
+ * them in, so a learner looked for the refusal where no real cluster shows it.
+ */
 function describeDeploy(c: Cluster, d: Deployment) {
   const st = c.deploymentStatus(d.name, d.ns);
   const sets = [...c.replicasets.values()].filter((r) => r.ns === d.ns && r.owner === d.name);
-  const ev = c.events.filter((e) => e.ns === d.ns && (e.object === `deployment/${d.name}` || sets.some((r) => e.object === `replicaset/${r.name}`)));
+  const cur = sets.find((r) => r.hash === templateHash(d.template));
+  const rsText = (r: typeof sets[number]) => `${r.name} (${c.live(r.name, r.ns).length}/${r.replicas} replicas created)`;
+  const old = sets.filter((r) => r !== cur && r.replicas > 0).sort((a, b) => a.created - b.created);
+  const ev = c.events.filter((e) => e.ns === d.ns && e.object === `deployment/${d.name}`);
+  // Conditions and the ReplicaSet lines share one tabwriter block; a condition
+  // row ends in a space before its tab, which is why ReplicaFailure widens it.
+  const block = tabw([
+    '  Type\tStatus\tReason', '  ----\t------\t------',
+    ...d.conditions.map((x) => `  ${x.type} \t${x.status}\t${x.reason}`),
+    `OldReplicaSets:\t${old.length ? old.map(rsText).join(', ') : '<none>'}`,
+    `NewReplicaSet:\t${cur ? rsText(cur) : '<none>'}`,
+  ].join('\n'));
   return `Name:                   ${d.name}
 Namespace:              ${d.ns}
+CreationTimestamp:      ${stamp(c, d.created)}
 Labels:                 ${labelLines(d.labels, 24)}
+Annotations:            deployment.kubernetes.io/revision: ${d.revision}
 Selector:               app=${d.labels.app ?? d.name}
-Replicas:               ${st.desired} desired | ${st.upToDate} updated | ${st.current} total | ${st.available} available
-StrategyType:           RollingUpdate (maxSurge 1, maxUnavailable 0)
+Replicas:               ${st.desired} desired | ${st.upToDate} updated | ${st.current} total | ${st.available} available | ${st.unavailable} unavailable
+StrategyType:           RollingUpdate
+MinReadySeconds:        0
+RollingUpdateStrategy:  25% max unavailable, 25% max surge
 Pod Template:
 ${podTemplate(d.template)}
 Conditions:
-  Type             Status  Reason
-  ----             ------  ------
-  Available        ${st.available >= st.desired ? 'True ' : 'False'}   ${st.available >= st.desired ? 'MinimumReplicasAvailable' : 'MinimumReplicasUnavailable'}${st.replicaFailure ? '\n  ReplicaFailure   True    FailedCreate' : ''}
+${block}
 ${eventsBlock(c, ev)}`;
 }
 
 function describeNode(c: Cluster, n: Node) {
   const u = c.used(n.name);
   const pods = [...c.pods.values()].filter((p) => p.node === n.name && c.holds(p) && p.status !== 'Terminating');
+  // Columns, percentages (truncated, as kubectl does) and the resource rows
+  // copied from describe node on kind v1.36.1. The sandbox's pods set no CPU
+  // limit and no ephemeral storage, so those read 0 (0%), as they would.
+  const pct = (v: number, of: number) => `${Math.floor((v / of) * 100)}%`;
+  const memLim = (p: Pod) => p.template.limits.mem;
+  const podTable = tabw([
+    '  Namespace\tName\tCPU Requests\tCPU Limits\tMemory Requests\tMemory Limits\tAge',
+    '  ---------\t----\t------------\t----------\t---------------\t-------------\t---',
+    ...pods.map((p) => `  ${p.ns}\t${p.name}\t${p.template.requests.cpu}m (${pct(p.template.requests.cpu, n.cpu)})\t0 (0%)\t${fmtMem(p.template.requests.mem)} (${pct(p.template.requests.mem, n.mem)})\t${fmtMem(memLim(p))} (${pct(memLim(p), n.mem)})\t${age(c, p.created)}`),
+  ].join('\n'));
+  const limMem = pods.reduce((m, p) => m + memLim(p), 0);
+  const alloc = tabw([
+    '  Resource\tRequests\tLimits', '  --------\t--------\t------',
+    `  cpu\t${u.cpu}m (${pct(u.cpu, n.cpu)})\t0 (0%)`,
+    `  memory\t${fmtMem(u.mem)} (${pct(u.mem, n.mem)})\t${fmtMem(limMem)} (${pct(limMem, n.mem)})`,
+    '  ephemeral-storage\t0 (0%)\t0 (0%)', '  hugepages-1Gi\t0 (0%)\t0 (0%)', '  hugepages-2Mi\t0 (0%)\t0 (0%)',
+  ].join('\n'));
   return `Name:               ${n.name}
 Roles:              ${roles(n)}
 Labels:             ${labelLines(n.labels, 20)}
@@ -706,13 +807,10 @@ Allocatable:
   memory:             ${fmtMem(n.mem)}
   pods:               110
 Non-terminated Pods:          (${pods.length} in total)
-${table([['  Namespace', 'Name', 'CPU Requests', 'Memory Requests'], ['  ---------', '----', '------------', '---------------'], ...pods.map((p) => ['  ' + p.ns, p.name, `${p.template.requests.cpu}m (${Math.round((p.template.requests.cpu / n.cpu) * 100)}%)`, `${fmtMem(p.template.requests.mem)} (${Math.round((p.template.requests.mem / n.mem) * 100)}%)`])])}
+${podTable}
 Allocated resources:
   (Total limits may be over 100 percent, i.e., overcommitted.)
-  Resource           Requests
-  --------           --------
-  cpu                ${u.cpu}m (${Math.round((u.cpu / n.cpu) * 100)}%)
-  memory             ${fmtMem(u.mem)} (${Math.round((u.mem / n.mem) * 100)}%)
+${alloc}
 Events:              <none>`;
 }
 
@@ -729,7 +827,7 @@ Completions:      ${j.completions}
 Completion Mode:  NonIndexed
 Suspend:          ${j.suspend}
 Backoff Limit:    ${j.backoffLimit}
-Start Time:       ${age(c, j.created)} ago${j.condition === 'Complete' ? `\nCompleted At:     ${age(c, j.finishedAt!)} ago\nDuration:         ${human((j.finishedAt! - j.created) * SECONDS_PER_TICK)}` : ''}
+Start Time:       ${stamp(c, j.created)}${j.condition === 'Complete' ? `\nCompleted At:     ${stamp(c, j.finishedAt!)}\nDuration:         ${human((j.finishedAt! - j.created) * SECONDS_PER_TICK)}` : ''}
 Pods Statuses:    ${st.active} Active (${st.ready} Ready) / ${st.succeeded} Succeeded / ${st.failed} Failed
 Pod Template:
 ${podTemplate(j.template)}
@@ -810,6 +908,10 @@ function logs(c: Cluster, rest: string[], observe?: Observer): Out[] {
     if (!ctr.hasLast) return [...out, ...lines(`Error from server (BadRequest): previous terminated container "${ctr.name}" in pod "${pod.name}" not found`, 'err')];
     return [...out, ...lines(tail(ctr.previous, s(p, '--tail')).join('\n'))];
   }
+  // A pod no node has taken has no container to read from: on kind v1.36.1
+  // `kubectl logs` of one printed nothing and exited 0. "waiting to start:
+  // Pending" was this sandbox's invention; Pending is not a container reason.
+  if (!pod.node) return out;
   if (ctr.waiting) return [...out, ...lines(`Error from server (BadRequest): container "${ctr.name}" in pod "${pod.name}" is waiting to start: ${ctr.waiting}`, 'err')];
   return [...out, ...lines(tail(ctr.logs, s(p, '--tail')).join('\n'))];
 }
@@ -1198,12 +1300,17 @@ function patchObject(c: Cluster, kind: string, ns: string, name: string, body: a
   switch (kind) {
     case 'deployments': {
       const d = c.deployment(name, ns);
-      keys(body.spec, ['replicas', 'template'], 'spec');
-      const before = JSON.stringify([d.replicas, d.template]);
+      keys(body.spec, ['replicas', 'template', 'progressDeadlineSeconds'], 'spec');
+      const before = JSON.stringify([d.replicas, d.template, d.progressDeadlineSeconds]);
       if (body.spec?.replicas !== undefined) d.replicas = Number(body.spec.replicas);
+      if (body.spec?.progressDeadlineSeconds !== undefined) {
+        const v = Number(body.spec.progressDeadlineSeconds);
+        if (!Number.isInteger(v) || v <= 0) throw new Error('error: this sandbox takes progressDeadlineSeconds as a whole number of seconds above 0');
+        d.progressDeadlineSeconds = v;
+      }
       if (body.spec?.template) c.updateTemplate(name, (x) => patchTemplate(x, body.spec.template, kind, name), ns);
       if (body.metadata) labelsFrom(d.labels, body.metadata);
-      return before !== JSON.stringify([d.replicas, d.template]);
+      return before !== JSON.stringify([d.replicas, d.template, d.progressDeadlineSeconds]);
     }
     case 'daemonsets': {
       const ds = c.daemonsets.get(key(ns, name));
@@ -1492,11 +1599,19 @@ function taint(c: Cluster, rest: string[], observe?: Observer): Out[] {
   if (t.kind !== 'nodes') throw new Error(`error: invalid resource type ${t.kind}, only node types are supported`);
   const n = c.nodes.find((x) => x.name === t.name);
   if (!n) throw notFound('nodes', t.name);
+  // kubectl reads a word with no =, : or trailing - as another node's name, not a taint.
+  const names = t.rest.filter((x) => !/[=:]|-$/.test(x));
+  if (names.length) throw new Error(t.rest.length === names.length ? 'error: at least one taint update is required' : 'error: this sandbox taints one node at a time');
   if (!t.rest.length) throw new Error('error: at least one taint update is required');
   let removed = false, added = false;
   for (const spec of t.rest) {
+    // Both messages copied from kubectl 1.37.2 (taint --dry-run=client against kind v1.36.1).
+    const eff = /:([^:=-]*)-?$/.exec(spec)?.[1];
+    if (eff !== undefined && !['NoSchedule', 'NoExecute', 'PreferNoSchedule'].includes(eff)) throw new Error(`error: invalid taint effect: ${eff}, unsupported taint effect
+See 'kubectl taint -h' for help and examples`);
     const m = /^([\w./-]*[\w.])(?:=([\w.-]*))?(?::(NoSchedule|NoExecute|PreferNoSchedule))?(-)?$/.exec(spec);
-    if (!m) throw new Error(`error: invalid taint spec: ${spec}`);
+    if (!m) throw new Error(`error: invalid taint spec: ${spec}
+See 'kubectl taint -h' for help and examples`);
     const [, k, v, effect, minus] = m;
     if (minus) {
       const before = n.taints.length;
@@ -1505,7 +1620,9 @@ function taint(c: Cluster, rest: string[], observe?: Observer): Out[] {
       removed = true;
       continue;
     }
-    if (!effect) throw new Error(`error: invalid taint spec: ${spec}, unknown taint effect`);
+    // kubectl reads key=value with no effect as a key with an = in it, and refuses the key.
+    if (!effect) throw new Error(`error: invalid taint spec: ${spec}, name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')
+See 'kubectl taint -h' for help and examples`);
     if (n.taints.some((x) => x.key === k && x.effect === effect) && !b(p, '--overwrite')) throw new Error(`error: node ${n.name} already has ${k} taint(s) with same effect(s) and --overwrite is false`);
     n.taints = [...n.taints.filter((x) => !(x.key === k && x.effect === effect)), { key: k, ...(v !== undefined ? { value: v } : {}), effect: effect as 'NoSchedule' }];
     added = true;
@@ -1534,6 +1651,9 @@ function rollout(c: Cluster, rest: string[]): Out[] {
   const d = c.deployment(t.name, ns);
   if (sub === 'status') {
     const st = c.deploymentStatus(t.name, ns);
+    // A Deployment past its progress deadline makes rollout status fail
+    // (exit 1) with this line, seen on kind v1.36.1 with progressDeadlineSeconds: 30.
+    if (d.conditions.some((x) => x.type === 'Progressing' && x.reason === 'ProgressDeadlineExceeded')) throw new Error(`error: deployment "${t.name}" exceeded its progress deadline`);
     // The same three waiting messages, in the same order, as kubectl's own
     // rollout status: a stuck new pod reads "new replicas have been
     // updated", which is the line the Deployment docs show for a bad tag.
@@ -1707,16 +1827,16 @@ DESCRIPTION:
     ConfigMap holds configuration data for pods to consume.
 
 FIELDS:
-  apiVersion	<string>
-  binaryData	<map[string]string>
-  data	<map[string]string>
+  apiVersion\t<string>
+  binaryData\t<map[string]string>
+  data\t<map[string]string>
     Data contains the configuration data. Each key must consist of alphanumeric
     characters, '-', '_' or '.'. Values with non-UTF-8 byte sequences must use
     the BinaryData field. The keys stored in Data must not overlap with the keys
     in the BinaryData field, this is enforced during validation process.
-  immutable	<boolean>
-  kind	<string>
-  metadata	<ObjectMeta>`,
+  immutable\t<boolean>
+  kind\t<string>
+  metadata\t<ObjectMeta>`,
 };
 
 function explain(rest: string[]): Out[] {

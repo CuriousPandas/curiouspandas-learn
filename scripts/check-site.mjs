@@ -371,7 +371,9 @@ await scenario('kube-pending', '/learn/kubernetes/scheduling/', async (page) => 
   await expectText(page, `${r} .term-out`, /0\/2 nodes are available: 2 Insufficient cpu\./);
   if (await doneSteps(page, r) < 2) throw new Error('find + describe did not tick two steps');
   await page.selectOption(`${r} [data-speed]`, '150');
-  await type(page, r, 'kubectl get nodes');
+  // describe, not get: a real get nodes has no CPU column, and the step says so.
+  await type(page, r, 'kubectl describe nodes');
+  await expectText(page, `${r} .term-out`, /Allocated resources:/);
   await type(page, r, 'kubectl set resources deployment big --requests=cpu=500m');
   await expectText(page, `${r} .m-debrief`, /places pods by what they/, 25000);
 });

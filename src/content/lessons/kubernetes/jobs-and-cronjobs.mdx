@@ -10,6 +10,8 @@ sources:
     url: https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
   - title: Kubernetes docs - Jobs
     url: https://kubernetes.io/docs/concepts/workloads/controllers/job/
+  - title: Kubernetes source (release-1.36) - CronJob controller, the missed-schedules warning
+    url: https://github.com/kubernetes/kubernetes/blob/release-1.36/pkg/controller/cronjob/utils.go
 ---
 
 Finance notices first: the nightly report hasn't arrived for a week. The CronJob is there. Its schedule is right. There are no errors in any event, no crashed pods, nothing red. It just hasn't made a Job since last Tuesday.
@@ -26,11 +28,12 @@ After each failure the next try waits longer. On a kind v1.36.1 cluster, a Job w
 
 A **CronJob** makes a Job on a **schedule**, written in cron's five fields: minute, hour, day of month, month, day of week. `0 2 * * *` is 02:00 every day. `*/1 * * * *` is every minute. Each Job it makes is named after the CronJob plus the scheduled time as a number of minutes since 1970, which is why a real one is called something like `tick-29894752`.
 
-## Three quiet ways a schedule stops
+## Two quiet ways a schedule stops
 
 1. **suspend**. A CronJob has a field `spec.suspend`. Set it to `true`, during an incident say, and the controller makes no new Jobs. That's a valid, deliberate setting, so nothing ever reports it. The only sign is the SUSPEND column.
 2. **concurrencyPolicy: Forbid**. The docs: "if it is time for a new Job run and the previous Job run hasn't finished yet, the CronJob skips the new Job run." A run that gets slower than its interval silently skips every other slot. The only trace is a Normal event, `Not starting job because prior execution is running and concurrency policy is Forbid`.
-3. **Too many missed runs**. The docs again: "If there are more than 100 missed schedules, then it does not start the Job and logs the error", the error being `too many missed start times. Set or decrease .spec.startingDeadlineSeconds or check clock skew`. The count runs from the last scheduled time, so a long gap on a frequent schedule is the risk; the error itself names the two things to check.
+
+You may also read that a CronJob with **too many missed runs** stops. It doesn't, and it isn't quiet. When more than 100 scheduled times have passed since the last run, the v1.36 controller records a Warning event, `too many missed start times. Set or decrease .spec.startingDeadlineSeconds or check clock skew`, and then starts the most recent run anyway, unless a `startingDeadlineSeconds` you set has already passed for it (`pkg/controller/cronjob/utils.go`). The docs' sentence just before that message says "it does not start the Job", but the line just after it says what the source does: "This behavior is applicable for catch-up scheduling and does not mean the CronJob will stop running."
 
 ## Find it, restart it, run it now
 
@@ -51,7 +54,7 @@ Resuming doesn't make up for lost time. The docs say that when suspend goes from
   q="A CronJob hasn't made a Job in days. Its events are empty and its schedule is valid. What do you check first?"
   options={["The node's clock", "kubectl get cronjob: the SUSPEND column", "The image tag"]}
   answer={1}
-  explain="suspend: true stops all new runs and reports nothing, because it isn't an error. Forbid with a slow run, and more than 100 missed schedules, are the other quiet causes."
+  explain="suspend: true stops all new runs and reports nothing, because it isn't an error. Forbid with a slow run is the other quiet cause. More than 100 missed schedules only warns: the newest run still starts."
 />
 
 <Quiz
@@ -71,7 +74,7 @@ Resuming doesn't make up for lost time. The docs say that when suspend goes from
 />
 
 <Callout kind="real">
-The sandbox's clock knows only UTC, so it refuses any `timeZone` other than UTC, and it doesn't model `startingDeadlineSeconds`, parallel Jobs or indexed completions. It never reaches 100 missed runs in a session either, so the "too many missed start times" error is quoted from the docs above rather than shown live.
+The sandbox's clock knows only UTC, so it refuses any `timeZone` other than UTC, and it doesn't model `startingDeadlineSeconds`, parallel Jobs or indexed completions. It never reaches 100 missed runs in a session either, so the "too many missed start times" warning is quoted from the source above rather than shown live. Its pods also take two ticks, 10 seconds, to start and fail, where a real one fails within a second or two, so its gaps between retries are longer than the 11, 21 and 41 seconds a real cluster showed.
 </Callout>
 
 ## What to remember

@@ -17,7 +17,7 @@ When you change a Deployment's image, Kubernetes doesn't stop everything and sta
 
 Two knobs control the pace. **maxSurge** sets how many extra pods may exist during the update, and **maxUnavailable** sets how many may be missing. Both default to **25%**. The docs put it as: at least 75% of the desired pods are up, and at most 125% exist.
 
-The key rule: beyond the maxUnavailable allowance, an old pod is removed only when a new one is **Ready**. The allowance is 25% rounded down: zero for the three replicas below, one for four, two for ten. So if the new version never becomes Ready, at most that 25% of the old version is ever removed. With small replica counts, none is.
+The key rule: beyond the maxUnavailable allowance, an old pod is removed only when a new one is **Ready**. The allowance is 25% rounded down: zero for the three replicas below, one for four, two for ten. So if the new version never becomes Ready, at most that 25% of the old version is ever removed. With small replica counts, none is. On a kind v1.36.1 cluster, a broken tag at four replicas left three old pods serving beside two stuck new ones; at ten, eight old beside five new (the surge rounds *up*: one at four, three at ten). The sandbox follows the same rules, so you can scale `hello` to 4 or 10 before the typo and count.
 
 ## Ship a typo
 
@@ -29,13 +29,13 @@ The key rule: beyond the maxUnavailable allowance, an old pod is removed only wh
 
 ## Stuck is not the same as fixed
 
-The Kubernetes docs walk through exactly this case, a mistyped image tag, and say plainly: *the rollout gets stuck*. After `progressDeadlineSeconds` (600 by default) the Deployment reports `ProgressDeadlineExceeded`. Then, again in the docs' words, Kubernetes **takes no action on a stalled Deployment other than to report a status condition**. Nothing rolls back by itself. A person (or a tool like Flagger) has to.
+The Kubernetes docs walk through exactly this case, a mistyped image tag, and say plainly: *the rollout gets stuck*. After `progressDeadlineSeconds` (600 by default) without progress, the Deployment's `Progressing` condition turns `False` with reason `ProgressDeadlineExceeded`, and `kubectl rollout status` stops waiting and fails with `error: deployment "hello" exceeded its progress deadline`. The sandbox does the same after ten minutes of its clock, under a minute of yours at the default speed. Then, again in the docs' words, Kubernetes **takes no action on a stalled Deployment other than to report a status condition**. Nothing rolls back by itself. A person (or a tool like Flagger) has to.
 
 Your options are what you just did: fix the tag and roll forward, or `kubectl rollout undo` to go back to the previous template.
 
 ## When the safe default is the wrong one
 
-Rolling updates assume old and new pods can run side by side. A database with one volume can't. The tilt platform's lab 07 reproduces a real incident: a MySQL Deployment on `RollingUpdate`, where the new pod waits forever for a file lock the old pod holds. **733 restarts, two days, zero alerts.** The old pod kept serving the whole time, so everything looked green. For one replica on one ReadWriteOnce volume, `strategy: Recreate`, which stops the old pod first, is the only correct choice.
+Rolling updates assume old and new pods can run side by side. A database with one volume can't. The tilt platform's lab 07 reproduces a real incident: a MySQL Deployment on `RollingUpdate`, where the new pod waits forever for a file lock the old pod holds. **733 restarts, two days, zero alerts.** The old pod kept serving the whole time, so everything looked green. For one replica on one ReadWriteOnce volume, a Deployment needs `strategy: Recreate`, which stops the old pod first. (A StatefulSet, the quiz below says, is the fuller answer.)
 
 <Quiz
   id="kube-rollout-1"
@@ -63,6 +63,8 @@ Rolling updates assume old and new pods can run side by side. A database with on
 
 <Callout kind="real">
 Progressive delivery goes further. Flagger, in tilt lab 06, sends a slice of traffic to the new version, watches its success rate, and promotes or rolls back on its own. It's built from pieces you already have: the Deployment, the Gateway and Prometheus.
+
+The sandbox's Deployments always use the default `RollingUpdate` with 25% surge and unavailability; it refuses a change of strategy rather than pretend to do one, so `Recreate` is real-cluster only. It also doesn't rebalance a rollout that you scale while it's in flight the way the real controller does, proportionally across the old and new ReplicaSets.
 </Callout>
 
 <DoItForReal id="kube-rollout-real" lab="07-stateful-rollout">
@@ -76,12 +78,19 @@ kubectl -n lab07 logs -l app=mysql --tail=5 | grep -i lock
 ./scripts/platform.sh lab 07
 ```
 
-Then try the typo for real on `hello`:
+Then try the typo for real, in a scratch namespace of its own rather than on the platform's `hello`. Run on 2026-11-03 against Kubernetes v1.36.1; the short deadline is only so you needn't wait ten minutes.
 
 ```bash
-kubectl -n hello set image deploy/hello podinfo=ghcr.io/stefanprodan/podinfo:does-not-exist
-kubectl -n hello get rs
-kubectl -n hello rollout undo deploy/hello
+kubectl create namespace rollout-lab
+kubectl -n rollout-lab create deployment web --image=nginx:1.27-alpine --replicas=4
+kubectl -n rollout-lab rollout status deploy/web
+kubectl -n rollout-lab patch deploy web -p '{"spec":{"progressDeadlineSeconds":30}}'
+kubectl -n rollout-lab set image deploy/web nginx=nginx:1.27-alpinO
+kubectl -n rollout-lab get rs                   # old 3, new 2: one old pod gone, 25% of four
+kubectl -n rollout-lab rollout status deploy/web   # waits, then: exceeded its progress deadline
+kubectl -n rollout-lab describe deploy web       # Progressing False ProgressDeadlineExceeded
+kubectl -n rollout-lab rollout undo deploy/web
+kubectl delete namespace rollout-lab
 ```
 
 </DoItForReal>
