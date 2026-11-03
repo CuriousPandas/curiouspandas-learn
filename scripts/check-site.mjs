@@ -4277,6 +4277,8 @@ await scenario('kube-placement', '/learn/kubernetes/placement/', async (page) =>
   await page.waitForTimeout(2000);
   await type(page, r, 'kubectl get pods -o wide');
   await expectText(page, `${r} .m-debrief`, /closer together than you think/, 30000);
+});
+
 // ---- Kubernetes networking and packaging (NetSim, RenderLab, ApiLab) ----------
 
 await scenario('kube-net-services', '/learn/kubernetes/pods-and-services/', async (page) => {
@@ -4426,6 +4428,7 @@ await scenario('kube-api-removed', '/learn/kubernetes/extending-kubernetes/', as
   await page.click(`${r} [data-apply]`);
   await expectText(page, `${r} .m-debrief`, /they arrive while everything still works/);
 });
+
 // ---- kubernetes batch C: storage and cluster operations (cs/k8s-c) ----------
 // Both sandboxes tick on a timer, so each scenario turns the speed to fast and
 // waits on what appears, the way a person waits for a pod. Each one also

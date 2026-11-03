@@ -4,7 +4,7 @@ summary: When a node's kubelet goes quiet, Kubernetes waits, marks the node, wai
 minutes: 18
 xp: 40
 tiers: [browser, machine]
-builds_on: [kubernetes/control-plane]
+builds_on: [kubernetes/control-plane, kubernetes/daemonsets-and-taints]
 sources:
   - title: Kubernetes docs - Nodes (heartbeats and the node controller)
     url: https://kubernetes.io/docs/concepts/architecture/nodes/
