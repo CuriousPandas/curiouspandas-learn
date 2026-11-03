@@ -1,0 +1,153 @@
+---
+title: The claim that stayed Pending
+summary: A pod that needs a disk asks for one with a claim, and the claim waits until something can satisfy it. Find out what it is waiting for, tell a broken claim from a patient one, and learn which deletes take your data with them.
+minutes: 18
+xp: 40
+tiers: [browser, machine]
+builds_on: [kubernetes/rollouts, kubernetes/scheduling]
+sources:
+  - title: Kubernetes docs - Persistent Volumes
+    url: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+  - title: Kubernetes docs - Storage Classes
+    url: https://kubernetes.io/docs/concepts/storage/storage-classes/
+  - title: Kubernetes docs - Volumes (CSI)
+    url: https://kubernetes.io/docs/concepts/storage/volumes/
+  - title: TemplateMechanics/tilt - helm/wazuh/pvcs.yaml
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/wazuh/pvcs.yaml
+  - title: TemplateMechanics/tilt - labs/07-stateful-rollout/mysql.yaml
+    url: https://github.com/TemplateMechanics/tilt/blob/main/labs/07-stateful-rollout/mysql.yaml
+---
+
+The tilt platform's security stack, wazuh, once never started on kind. Nothing crashed. Its indexer pod sat in Pending, and stayed there. The fix is one deleted line in a file, and the comment left beside it tells the whole story:
+
+> It used to say "hostpath", which is Docker Desktop's class; on kind that class does not exist, the claim stayed Pending and wazuh never started.
+
+To see why one word stopped a whole application, you need three objects.
+
+## Claims, volumes and classes
+
+A container's own files vanish when it is replaced. Anything that must survive goes on a **volume** that lives outside the container.
+
+- A **PersistentVolume** (PV) is a piece of real storage: a cloud disk, a network share, or, on kind, a directory on the node.
+- A **PersistentVolumeClaim** (PVC, or *claim*) is a request for one: "1Gi, mountable read-write". A pod names a claim, never a volume. The claim is **Bound** once a volume is matched to it, and **Pending** until then.
+- A **StorageClass** says *how* to make a volume when a claim asks for one. Its **provisioner** is the program that creates the storage. In clouds that is usually a driver written to the Container Storage Interface, which the Kubernetes docs describe this way: "(CSI) defines a standard interface for container orchestration systems (like Kubernetes) to expose arbitrary storage systems to their container workloads." kind ships a simpler one, `rancher.io/local-path`, which makes a directory on the node.
+
+A claim names its class with `storageClassName`. Leave it out, and the cluster's **default** class (the one marked `(default)` in `kubectl get sc`) is filled in when the claim is created.
+
+So a claim that names a class nobody installed has no way to get a volume, and nothing gives up on it. The Kubernetes docs state the general rule in their section on binding, where they explain how a claim is matched to a volume:
+
+> Claims will remain unbound indefinitely if a matching volume does not exist.
+
+## Find it
+
+The indexer below is the wazuh shape: a claim on `hostpath` and a pod that needs it. There is a second claim, `scratch`, that looks just as stuck. It isn't. Find out which is which, then fix the real one by editing its file.
+
+<StorageSim mission="storage-pending" title="hostpath, on kind" />
+
+<Callout kind="tip">
+`kubectl describe pvc` ends with the claim's Events, and that is where its reason is written. `kubectl get pvc` shows only the word Pending for both claims.
+</Callout>
+
+## Two kinds of Pending
+
+The broken claim's event says `storageclass.storage.k8s.io "hostpath" not found`. Nothing in this cluster will satisfy it until that class (or a matching volume) exists, and Kubernetes won't give up waiting.
+
+The decoy's says `waiting for first consumer to be created before binding`. Its class, `standard`, uses the **WaitForFirstConsumer** binding mode, which the docs describe as one that "will delay the binding and provisioning of a PersistentVolume until a Pod using the PersistentVolumeClaim is created." The reason is placement. A volume made before the scheduler has picked a node might be made somewhere the pod can't run. So it waits for the pod, then makes the volume where the pod lands. Pending is the correct state for that claim, and "fixing" it would be a mistake.
+
+<Callout kind="trap">
+You can't repair the broken claim in place. A claim's spec, its class included, is fixed once it exists: the real API answers `spec is immutable after creation except resources.requests and volumeAttributesClassName for bound claims`. Editing the file and applying it over the existing claim is refused the same way, because `kubectl apply` sends the removal of the old class. Delete the claim, fix the file, apply it again. Making a StorageClass called `hostpath` would also get the claim bound, and would hide the mismatch until the next cluster, which won't have your invented class either.
+</Callout>
+
+## Deleting a claim can delete the data
+
+Every volume carries a **reclaim policy** that decides what happens when its claim is deleted. kind's `standard` class creates volumes with `Delete`: the claim goes, and the volume and its data go with it. `Retain` keeps the volume. The docs describe it this way:
+
+> When the PersistentVolumeClaim is deleted, the PersistentVolume still exists and the volume is considered "released". But it is not yet available for another claim because the previous claimant's data remains on the volume.
+
+A Released volume is not handed to the next claim that comes along. A new claim with the same name gets a new, empty volume. Getting old data back is a deliberate act by whoever runs the cluster.
+
+One more guard: a claim that a pod still uses is not removed when you delete it, once that pod has been placed on a node, running or not. The `kubernetes.io/pvc-protection` finalizer holds it in `Terminating` until the pod is gone. On a real cluster, `kubectl delete pvc` sits and waits for that; the sandbox gives you the prompt back. (A **finalizer** is a note on an object that stops it being removed until some controller has done its work.)
+
+<Quiz
+  id="kube-volumes-1"
+  q="Two claims both show Pending in kubectl get pvc. How do you tell a broken one from one that is waiting correctly?"
+  options={["The broken one has been Pending longer", "kubectl describe pvc: the events say why, for example a class that is not found versus waiting for a first consumer", "Delete both and see which comes back"]}
+  answer={1}
+  explain="get shows only the phase. describe shows the persistentvolume-controller's events, which name the reason. A WaitForFirstConsumer claim with no pod is fine; a claim on a missing class will never bind."
+/>
+
+<Quiz
+  id="kube-volumes-2"
+  q="A claim names storageClassName: hostpath on a kind cluster. How do you fix it?"
+  options={["kubectl patch the claim's storageClassName to standard", "Delete the claim, change or remove storageClassName in the manifest, and apply it again", "Wait: the provisioner will retry"]}
+  answer={1}
+  explain="A claim's spec can't be changed after creation (except its size and volume attributes class when bound), so a patch is refused. Retrying won't help either: the docs say a claim with no matching volume stays unbound indefinitely."
+/>
+
+<Quiz
+  id="kube-volumes-3"
+  q="You delete a claim whose volume's reclaim policy is Delete. What happens to the data?"
+  options={["It stays on the node until the volume is reused", "The volume is deleted, and with it the data", "It moves to the default class"]}
+  answer={1}
+  explain="Delete removes the PersistentVolume and its storage when the claim goes. Retain leaves a Released volume behind, data intact, for someone to reclaim by hand."
+/>
+
+<Callout kind="real">
+The sandbox is one node with kind's local-path provisioner, the setup every message here was copied from (Kubernetes 1.36.1). Real clusters add what it leaves out: several nodes, so a volume made in the wrong zone strands a pod, which is what WaitForFirstConsumer prevents; access modes that the storage really enforces across nodes (local-path offers `ReadWriteOnce`, which tilt's lab 07 notes and which still lets several pods on one node share the volume, and `ReadWriteOncePod`, but never a mode shared across nodes: on tiltdev a `ReadWriteMany` claim stayed Pending with `NodePath only supports ReadWriteOnce and ReadWriteOncePod (1.22+) access modes`, a third kind of Pending); volume expansion, snapshots and CSI's attach and mount steps. It models one container per pod and only PersistentVolumeClaim volumes, and refuses any other field by name rather than ignoring it.
+</Callout>
+
+## What to remember
+
+- A pod names a claim; a claim names a class; the class's provisioner makes the volume.
+- `kubectl describe pvc` holds the reason. A missing class waits, with no time limit, until the class exists; WaitForFirstConsumer resolves when a pod uses the claim.
+- A claim's class can't be changed, by patch or by applying an edited file: delete it, fix the manifest, apply again.
+- `Delete` deletes your data with the claim. Set `Retain` on a volume before you delete a claim you might want back.
+
+<DoItForReal id="kube-volumes-real">
+
+On the tilt platform, in a scratch namespace you delete at the end. These steps were run on tiltdev (Kubernetes 1.36.1) while this lesson was written, and printed what the sandbox prints.
+
+```bash
+kubectl --context kind-tiltdev get sc     # standard (default), rancher.io/local-path, WaitForFirstConsumer
+kubectl --context kind-tiltdev create namespace storage-lab
+```
+
+Save this as `pvcs.yaml`, then `kubectl --context kind-tiltdev -n storage-lab apply -f pvcs.yaml`:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wrong-class
+spec:
+  storageClassName: hostpath
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+```
+
+```bash
+K="kubectl --context kind-tiltdev"
+$K -n storage-lab get pvc                      # both Pending
+$K -n storage-lab describe pvc wrong-class     # "hostpath" not found
+$K -n storage-lab describe pvc data            # waiting for first consumer
+$K -n storage-lab run writer --image=busybox:1.36   --overrides='{"spec":{"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"data"}}],"containers":[{"name":"writer","image":"busybox:1.36","command":["sleep","3600"],"volumeMounts":[{"name":"d","mountPath":"/data"}]}]}}'
+$K -n storage-lab get pvc,pv                   # data is Bound; read its RECLAIM POLICY
+$K delete namespace storage-lab                # and watch the PV go with it
+$K get pv
+```
+
+Then read the comment above `accessModes` in tilt's `labs/07-stateful-rollout/mysql.yaml`, and the `storageClassName` comment in `helm/wazuh/pvcs.yaml`.
+
+</DoItForReal>

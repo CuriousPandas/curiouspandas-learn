@@ -1,0 +1,124 @@
+---
+import '../styles/widgets.css';
+import { CHART_TEMPLATE, CHART_VALUES, CHART_SCHEMA, BASE_FILES } from '../lib/kube-net/render.ts';
+interface Props { title?: string }
+const { title = 'Render lab: Helm and Kustomize' } = Astro.props;
+---
+<div class="widget card rlab" data-rlab>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info">Helm 4.1.4 · Kustomize v5.8.1, as measured</span>
+    <span class="spacer"></span>
+    <button class="btn small" type="button" data-reset>Start over</button>
+  </div>
+  <div class="rl-grid">
+    <div class="rl-col">
+      <section class="rl-box">
+        <div class="eyebrow">Helm · chart web 0.1.0</div>
+        <details><summary>The chart's templates/deployment.yaml and values.yaml (read-only)</summary>
+          <pre class="rl-ro">{CHART_TEMPLATE}</pre>
+          <pre class="rl-ro">{CHART_VALUES}</pre>
+          <p class="muted small">values.schema.json, used only when ticked below:</p>
+          <pre class="rl-ro">{CHART_SCHEMA}</pre>
+        </details>
+        <label class="rl-field">my-values.yaml <span class="muted small">(passed with -f)</span>
+          <textarea data-values rows="4" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea></label>
+        <label class="rl-field">--set <input type="text" data-set spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="e.g. image.tag=2.0" /></label>
+        <label class="rl-check"><input type="checkbox" data-schema /> The chart ships values.schema.json</label>
+        <div class="rl-cmd"><code data-helm-cmd></code><button class="btn small primary" type="button" data-helm>Render</button></div>
+      </section>
+      <section class="rl-box">
+        <div class="eyebrow">Kustomize · overlay/kustomization.yaml</div>
+        <details><summary>The base it builds on: ../base (read-only)</summary>
+          {Object.entries(BASE_FILES).map(([f, src]) => <><p class="small"><code>{f}</code></p><pre class="rl-ro">{src}</pre></>)}
+        </details>
+        <textarea data-overlay rows="8" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="overlay/kustomization.yaml"></textarea>
+        <div class="rl-cmd"><code>kubectl kustomize overlay</code><button class="btn small primary" type="button" data-kust>Build</button></div>
+      </section>
+    </div>
+    <div class="rl-col">
+      <div data-mission-panel></div>
+      <section class="rl-box">
+        <div class="eyebrow">Output <span class="muted" data-what></span></div>
+        <pre class="rl-out" data-out aria-live="polite">Render or Build to see the YAML that would be applied.</pre>
+        <p class="muted small" data-legend hidden>Highlighted lines differ from the same tool's output with no changes.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { RENDER_MISSION, renderHelm, renderKustomize, type RenderState } from '../lib/kube-net/lab-missions.ts';
+  import { helmTemplate, kustomize, changedLines } from '../lib/kube-net/render.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-rlab]')) {
+    let state: RenderState = RENDER_MISSION.setup();
+    const values = root.querySelector<HTMLTextAreaElement>('[data-values]')!;
+    const set = root.querySelector<HTMLInputElement>('[data-set]')!;
+    const schema = root.querySelector<HTMLInputElement>('[data-schema]')!;
+    const overlay = root.querySelector<HTMLTextAreaElement>('[data-overlay]')!;
+    const outBox = root.querySelector<HTMLElement>('[data-out]')!;
+    const what = root.querySelector<HTMLElement>('[data-what]')!;
+    const legend = root.querySelector<HTMLElement>('[data-legend]')!;
+    const cmd = root.querySelector<HTMLElement>('[data-helm-cmd]')!;
+    const fill = () => { values.value = state.helm.valuesFile; set.value = state.helm.set; schema.checked = state.helm.schema; overlay.value = state.overlay; };
+    const showCmd = () => { cmd.textContent = `helm template shop ./web -f my-values.yaml${state.helm.set.trim() ? ` --set ${state.helm.set.trim()}` : ''}`; };
+    const sync = () => { state.helm.valuesFile = values.value; state.helm.set = set.value.trim(); state.helm.schema = schema.checked; state.overlay = overlay.value; showCmd(); };
+    for (const x of [values, set, overlay]) x.addEventListener('input', sync);
+    schema.addEventListener('change', sync);
+    const refresh = mountMission(root.querySelector<HTMLElement>('[data-mission-panel]')!, RENDER_MISSION, () => state);
+
+    const show = (text: string, base: string | null, bad: boolean, label: string) => {
+      what.textContent = `· ${label}`;
+      const changed = base === null ? new Set<number>() : changedLines(base, text);
+      outBox.classList.toggle('bad', bad);
+      outBox.replaceChildren(...text.split('\n').map((l, i) => el('span', { class: changed.has(i) ? 'chg' : '' }, l + '\n')));
+      legend.hidden = !changed.size;
+      refresh();
+    };
+    root.querySelector('[data-helm]')!.addEventListener('click', () => {
+      sync();
+      const r = renderHelm(state);
+      const base = helmTemplate({ release: 'shop', valuesFile: '', set: '', schema: false });
+      show(r.ok ? r.output : r.error, r.ok && base.ok ? base.output : null, !r.ok, r.ok ? 'helm template (exit 0)' : 'helm template (exit 1)');
+    });
+    root.querySelector('[data-kust]')!.addEventListener('click', () => {
+      sync();
+      const r = renderKustomize(state);
+      const base = kustomize('resources:\n- ../base\n');
+      // A silent no-op is still silent here: the real tool printed no warning
+      // for an images entry that matched nothing, so neither does this output.
+      show(r.ok ? r.output : r.error, r.ok && base.ok ? base.output : null, !r.ok, r.ok ? 'kubectl kustomize (exit 0)' : 'kubectl kustomize (exit 1)');
+    });
+    root.querySelector('[data-reset]')!.addEventListener('click', () => {
+      state = RENDER_MISSION.setup();
+      fill(); showCmd();
+      outBox.classList.remove('bad');
+      outBox.textContent = 'Render or Build to see the YAML that would be applied.';
+      what.textContent = ''; legend.hidden = true;
+      refresh();
+    });
+    fill(); showCmd(); refresh();
+  }
+</script>
+
+<style is:global>
+  .rlab .rl-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 900px) { .rlab .rl-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+  .rlab .rl-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .rlab .rl-box { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .rlab .rl-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; min-width: 0; }
+  .rlab .rl-check { display: flex; gap: 6px; align-items: center; font-size: 0.85rem; min-width: 0; }
+  .rlab textarea, .rlab input[type="text"] { width: 100%; box-sizing: border-box; font: 0.8rem/1.4 var(--mono); background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px; }
+  .rlab textarea { resize: vertical; }
+  .rlab .rl-cmd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+  .rlab .rl-cmd code { overflow-wrap: anywhere; font-size: 0.78rem; min-width: 0; }
+  .rlab pre { margin: 0; overflow: auto; max-height: 360px; font: 0.76rem/1.4 var(--mono); background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px; white-space: pre; }
+  .rlab pre.rl-ro { max-height: 200px; }
+  .rlab .rl-out.bad { color: var(--berry); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .rlab .rl-out .chg { background: var(--sun-soft); display: inline; }
+  .rlab .small { font-size: 0.78rem; margin: 0; }
+  .rlab [hidden] { display: none; }
+  .rlab details summary { cursor: pointer; font-size: 0.82rem; }
+</style>

@@ -39,12 +39,15 @@ if (answer < 0 || answer >= options.length) throw new Error(`Quiz ${id}: answer 
   }
 </script>
 <style>
-  .quiz { margin: 28px 0; padding: 16px 18px; }
+  /* Wrapping for the whole card, not per part: an option quoting a long token
+     (a traceparent header) pushed past a 375 px screen in CI's wider Linux
+     fonts, and once options wrapped, questions quoting a base64 string and a
+     pod-security label did the same. */
+  .quiz { margin: 28px 0; padding: 16px 18px; overflow-wrap: anywhere; }
   .q-head { display: flex; justify-content: space-between; align-items: center; }
   .q { font-weight: 650; margin: 8px 0 12px; }
   .opts { display: grid; gap: 8px; }
-  /* min-width and wrapping: an option quoting a long token (a traceparent
-     header) pushed past a 375 px screen in CI's wider Linux fonts. */
+  /* min-width: a grid item won't shrink below its content without it. */
   .opt { min-width: 0; overflow-wrap: anywhere; text-align: left; font: inherit; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); cursor: pointer; }
   .opt:hover:not([disabled]) { border-color: var(--sky); }
   .opt.right { background: var(--bamboo-soft); border-color: var(--bamboo); font-weight: 650; }

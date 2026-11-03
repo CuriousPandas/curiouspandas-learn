@@ -1,0 +1,109 @@
+---
+title: "Pending: didn't match Pod's node affinity"
+summary: You can tell the scheduler where a pod must go, should go, and must not go. Each rule that can't be met leaves a pod Pending with a precise reason, and each rule that's only a preference fails without a word.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+builds_on: [kubernetes/scheduling, kubernetes/daemonsets-and-taints]
+sources:
+  - title: Kubernetes docs - Assigning Pods to Nodes
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/
+  - title: Kubernetes docs - Pod Topology Spread Constraints
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
+---
+
+The new search service needs a fast disk, so its Deployment says `nodeSelector: {disktype: ssd}`. It's been Pending for an hour. The pod's event starts like this (the line goes on with the scheduler's verdict on preemption, `no new claims to deallocate, preemption: ...`):
+
+```text
+0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 node(s) didn't match Pod's node affinity/selector.
+```
+
+Every node has an SSD. None has the **label** that says so. A label nobody set is a promise nobody kept.
+
+## Where a pod must go
+
+Nodes carry labels like any other object. Some are automatic, such as `kubernetes.io/hostname` and `kubernetes.io/os`; others you add with `kubectl label node`. Three ways to tie a pod to them:
+
+- **nodeSelector**: a list of labels the node must have. The docs call it "the simplest recommended form of node selection constraint".
+- **Node affinity, required** (`requiredDuringSchedulingIgnoredDuringExecution`): the same, with more operators (`In`, `NotIn`, `Exists`). "The scheduler can't schedule the Pod unless the rule is met."
+- **Node affinity, preferred**: "The scheduler tries to find a node that meets the rule. If a matching node is not available, the scheduler still schedules the Pod."
+
+The long names end in `IgnoredDuringExecution`, which the docs explain: "if the node labels change after Kubernetes schedules the Pod, the Pod continues to run." Remove the label later and nothing moves.
+
+## Where a pod must not go: near its siblings
+
+**Pod anti-affinity** places pods by the labels of *other pods*: "don't put me on a node that already runs a pod labelled `app=web`". The **topologyKey** says what counts as "the same place": `kubernetes.io/hostname` means the same node, `topology.kubernetes.io/zone` means the same zone. Required anti-affinity on hostname gives you one replica per node, at most. Ask for more replicas than nodes and the extras wait, with an event that starts:
+
+```text
+0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 node(s) didn't match pod anti-affinity rules.
+```
+
+Preferred anti-affinity never waits. It spreads pods when it can, and when it can't it stacks them, with no event and no warning, because nothing failed.
+
+**Topology spread constraints** say it more directly: keep the count of matching pods in each zone (or node) within `maxSkew` of each other. With `whenUnsatisfiable: DoNotSchedule` an extra pod waits; with `ScheduleAnyway` it's a preference.
+
+## Make the rules work
+
+<KubeSim mission="kube-placement" title="Three nodes, three kinds of rule" />
+
+<Callout kind="trap">
+A spread constraint counts every zone it can see, even one whose nodes are all tainted. On a kind v1.36.1 cluster with one worker in each of two zones, tainting the zone-b worker and creating three replicas with `maxSkew: 1` placed one pod and left two Pending with `didn't match pod topology spread constraints`: zone-b had zero pods and couldn't take any, so zone-a wasn't allowed a second. Untainting it let all three run. (That's the default `nodeTaintsPolicy: Ignore`.)
+</Callout>
+
+<Callout kind="trap">
+Required anti-affinity works both ways. A running pod with a rule against `app=web` keeps any new `app=web` pod off its node, even a pod that has no rules of its own. Its event reads differently: `didn't satisfy existing pods anti-affinity rules`. And adding required anti-affinity to a Deployment that already has two replicas on your only worker stalls the rollout: on the tilt platform the new pod sat Pending beside the two old ones.
+</Callout>
+
+<Quiz
+  id="kube-place-1"
+  q="A pod's event says '2 node(s) didn't match Pod's node affinity/selector'. What's the cheapest correct fix if the hardware really is there?"
+  options={["Delete the nodeSelector", "Label the right node so it matches", "Add more nodes"]}
+  answer={1}
+  explain="The selector is a statement of need. If the node meets it but lacks the label, the label is what's wrong. Deleting the selector lets the pod land on nodes that don't meet the need."
+/>
+
+<Quiz
+  id="kube-place-2"
+  q="web has preferred pod anti-affinity on kubernetes.io/hostname, 4 replicas and 3 nodes. What happens?"
+  options={["One replica stays Pending", "All 4 run; two share a node, with no warning", "The Deployment is rejected"]}
+  answer={1}
+  explain="Preferred rules only change the scheduler's score. When they can't all be met, it places the pod anyway. Required anti-affinity is the version that leaves the fourth Pending."
+/>
+
+<Quiz
+  id="kube-place-3"
+  q="A pod is scheduled by node affinity on zone=a. Later someone removes the zone label from that node. What happens to the pod?"
+  options={["It's evicted", "Nothing: IgnoredDuringExecution means the rule is only checked when scheduling", "It restarts on another node"]}
+  answer={1}
+  explain="All the affinity rules here end in IgnoredDuringExecution. They decide placement once and never move a running pod."
+/>
+
+<Callout kind="real">
+The sandbox models nodeSelector, required node affinity (`In`, `NotIn`, `Exists`, `DoesNotExist`), required and preferred pod anti-affinity, and topology spread with both `whenUnsatisfiable` values, with the scheduler's real event wording. It doesn't model pod affinity (the "put me near" version), preferred node affinity, `matchLabelKeys` or `minDomains`, and its scoring is a simple stand-in: real scheduling weighs a dozen scores, so exactly which node wins a tie can differ.
+</Callout>
+
+## What to remember
+
+- Required rules filter nodes; when none pass, the pod waits and the event names the rule.
+- Preferred rules only score. They fail silently, by stacking.
+- Rules are checked at scheduling time only. Changing labels later moves nothing.
+- Anti-affinity is symmetric, and spread counts tainted zones.
+
+<DoItForReal id="kube-place-real">
+
+On the tilt platform, in a scratch namespace. The platform has one schedulable worker, so any required one-per-node rule above one replica can't be met. Run on 2026-11-03 against Kubernetes v1.36.1.
+
+```bash
+kubectl create namespace place-lab
+kubectl -n place-lab create deployment spread --image=nginx:1.27 --replicas=2
+kubectl -n place-lab patch deployment spread -p '{"spec":{"template":{"spec":{"affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"app":"spread"}},"topologyKey":"kubernetes.io/hostname"}]}}}}}}'
+kubectl -n place-lab get pods -o wide          # two old pods Running, one new pod Pending
+kubectl -n place-lab get events --field-selector reason=FailedScheduling
+kubectl -n place-lab patch deployment spread --type=json -p '[{"op":"replace","path":"/spec/template/spec/affinity","value":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"podAffinityTerm":{"labelSelector":{"matchLabels":{"app":"spread"}},"topologyKey":"kubernetes.io/hostname"}}]}}}]'
+kubectl -n place-lab get pods -o wide          # both on tiltdev-worker
+kubectl delete namespace place-lab
+```
+
+The event started `0/2 nodes are available: 1 node(s) didn't match pod anti-affinity rules, 1 node(s) had untolerated taint(s).` The second patch is a JSON patch because a normal patch would merge the preferred rule in beside the required one rather than replacing it.
+
+</DoItForReal>

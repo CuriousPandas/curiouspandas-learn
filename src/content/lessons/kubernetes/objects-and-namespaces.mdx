@@ -1,0 +1,117 @@
+---
+title: No resources found, and the app is running
+summary: kubectl says there are no pods while the app answers requests. Learn what kubectl is actually asking, where objects live, and how namespaces, labels and contexts decide what you see.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+builds_on: [kubernetes/desired-state]
+sources:
+  - title: Kubernetes docs - Objects In Kubernetes (spec and status)
+    url: https://kubernetes.io/docs/concepts/overview/working-with-objects/
+  - title: Kubernetes docs - Namespaces
+    url: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+  - title: Kubernetes docs - Labels and Selectors
+    url: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+  - title: TemplateMechanics/tilt - scripts/platform.sh (the kube context guard)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/scripts/platform.sh
+---
+
+The shop's web page loads. You open a terminal to check on it and type the command everyone types first:
+
+```bash
+$ kubectl get pods
+No resources found in default namespace.
+```
+
+Nothing is broken. That sentence is true, and it's the most misread line in Kubernetes. Read it again: **in default namespace**. kubectl asked one place and reported what it found there. Your pods are somewhere else.
+
+## What kubectl is actually talking to
+
+kubectl doesn't look at your machines. It sends a request to the **API server**, the one front door of the cluster, and prints the answer. The API server keeps every object you create in a database called **etcd**. A Deployment, a pod, a ConfigMap: each is a stored record, and the controllers you met in the first lesson read and write those records.
+
+Most records, and every one that describes a workload, have the same shape. The docs say "almost every" object has a spec and a status, because some don't: a ConfigMap or a Secret ([a later lesson](/learn/kubernetes/config-and-secrets/)) holds `data` instead, and an event is just a record of something that happened.
+
+- **apiVersion** and **kind**: what sort of object it is, for example `apps/v1` and `Deployment`.
+- **metadata**: its name, its namespace, its **labels**, and a **uid** the API server gives it.
+- **spec**: what you asked for.
+- **status**: what the controllers last saw. The docs put it this way: "The status describes the current state of the object, supplied and updated by the Kubernetes system and its components."
+
+So `spec` is the promise and `status` is the progress report. In everyday use you write the first and read the second. Controllers write status, through a separate part of the API (its **status subresource**); a person can too, with `kubectl patch --subresource=status`, but the controller will overwrite whatever you put there on its next pass.
+
+## Namespaces and labels
+
+A **namespace** is a named section of the cluster. The docs say "Namespaces provide a scope for names. Names of resources need to be unique within a namespace, but not across namespaces." Two teams can each have a Deployment called `web` as long as they're in different namespaces. Most commands look in one namespace at a time, and if you don't say which, kubectl uses the one your **context** names: usually `default`.
+
+A namespace is a scope for names, not a wall. Pods in different namespaces share the same nodes and, unless something else stops them, can reach each other over the network. Nodes themselves belong to no namespace at all.
+
+A **label** is a `key=value` tag on an object, like `app=hello`. Labels are how Kubernetes finds things: a Deployment finds its pods by label, and so can you, with `-l app=hello`. `kubectl create deployment hello` labels everything it makes `app=hello`; the pods also carry a `pod-template-hash` label naming their ReplicaSet.
+
+## Find the app
+
+The shop runs two copies of `hello`. Find them, read how the API server stores their Deployment, then set things up so plain `kubectl get pods` works.
+
+<KubeSim mission="kube-namespaces" title="Where did the pods go?" />
+
+<Callout kind="tip">
+`-n shop` asks one namespace. `-A` (short for `--all-namespaces`) asks all of them and adds a NAMESPACE column. When you're lost, `kubectl get pods -A` is the fastest way to find out where things are.
+</Callout>
+
+<Callout kind="trap">
+`kubectl config set-context --current --namespace=shpo` (a typo) prints `Context "..." modified.` and nothing else. kubectl doesn't check that the namespace exists. From then on every command looks in an empty namespace and says "No resources found in shpo namespace." with no error. Check the NAMESPACE column of `kubectl config get-contexts` when things go quiet.
+</Callout>
+
+## What the YAML tells you that you never wrote
+
+When you read `kubectl get deployment hello -o yaml`, most of it was filled in for you. You typed a name, an image and a replica count. The stored object also has a `uid`, a `creationTimestamp`, a `resourceVersion` that changes on every write, `progressDeadlineSeconds: 600`, `revisionHistoryLimit: 10`, a rolling-update strategy of 25%, `terminationGracePeriodSeconds: 30` and more. Those are **defaults**: the API server writes them in when you leave a field out. When a pod behaves in a way you never asked for, the stored object is the first place to look, because it's what the controllers actually read.
+
+<Quiz
+  id="kube-ns-1"
+  q="kubectl get pods prints 'No resources found in default namespace.' but the app is serving. What's the most likely explanation?"
+  options={["The pods crashed and the traffic is cached", "The pods are in another namespace, or kubectl is pointed at another cluster", "kubectl needs to be restarted"]}
+  answer={1}
+  explain="kubectl asked one namespace on one cluster. Check with kubectl get pods -A, and kubectl config current-context for which cluster you're talking to."
+/>
+
+<Quiz
+  id="kube-ns-2"
+  q="Which part of an object do you write, and which part do controllers write?"
+  options={["You write status; controllers write spec", "You write spec; controllers write status", "Both write both"]}
+  answer={1}
+  explain="spec is the desired state you ask for. status is the current state the system reports back. The control plane keeps working to make status match spec."
+/>
+
+<Quiz
+  id="kube-ns-3"
+  q="Two teams each want a Deployment called web in the same cluster. What lets them?"
+  options={["Different labels", "Different namespaces: names only need to be unique within a namespace", "Nothing: names are unique across the whole cluster"]}
+  answer={1}
+  explain="Namespaces are a scope for names. Labels help you select objects, but two Deployments with the same name in the same namespace are not allowed."
+/>
+
+<Callout kind="real">
+The sandbox has one cluster and one context, called `kind-sandbox`. A real laptop often has several in its kubeconfig file, and the **current context** picks both the cluster and the default namespace. The tilt platform's `platform.sh` names its cluster's context explicitly for this reason: its comment warns that two clusters claiming the same context name end up "silently pointing your kubectl at the wrong cluster". The sandbox's `api-resources` also lists only the dozen kinds it models.
+</Callout>
+
+## What to remember
+
+- "No resources found" means none in the namespace you asked, on the cluster your context points at. Ask `-A` before you panic.
+- Workload objects are apiVersion, kind, metadata, spec and status (ConfigMaps and Secrets hold `data` instead). You write spec; controllers write status.
+- Namespaces scope names. Labels select things. Neither is a security boundary on its own.
+- `-o yaml` shows what's really stored, including the defaults you never typed.
+
+<DoItForReal id="kube-ns-real">
+
+On the tilt platform, all read-only. These were run against the minimal profile's cluster on 2026-11-03 (Kubernetes v1.36.1, kubectl 1.37.2).
+
+```bash
+kubectl get pods                       # No resources found in default namespace.
+kubectl get pods -A | grep hello       # there it is, in the hello namespace
+kubectl config current-context         # kind-tiltdev
+kubectl get ns hello --show-labels     # note istio.io/dataplane-mode=ambient
+kubectl -n hello get deploy hello -o yaml | less
+kubectl api-resources | wc -l          # every kind this cluster knows
+```
+
+In the YAML, find `spec`, `status`, the `uid` and the defaults the manifest in `examples/hello-world/deployment.yaml` never set. On the platform as it was running when this was written, `api-resources` printed 207 lines, because Gateway API, Flux, Istio and the other tools add their own kinds. Yours will differ with the profile you run.
+
+</DoItForReal>

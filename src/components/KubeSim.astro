@@ -30,7 +30,8 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
           <span><i style="background:var(--bamboo)"></i>Running &amp; Ready</span>
           <span><i style="background:var(--sky)"></i>Starting</span>
           <span><i style="background:var(--sun)"></i>Pending</span>
-          <span><i style="background:var(--berry)"></i>Crashing / can't pull</span>
+          <span><i style="background:var(--berry)"></i>Crashing / can't start</span>
+          <span><i style="background:var(--bg-2);outline:1px solid var(--line-2)"></i>Completed</span>
         </div>
       </div>
     </div>
@@ -39,18 +40,19 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
 
 <script>
   import { Cluster, SECONDS_PER_TICK, type Pod } from '../lib/kube/cluster.ts';
-  import { kubectl } from '../lib/kube/kubectl.ts';
-  import { KUBE_MISSIONS, kubeObserve, kubeWatch, type KubeState } from '../lib/missions.ts';
+  import { KUBE_MISSIONS, kubeWatch, type KubeState } from '../lib/missions.ts';
+  import { KUBE_A_MISSIONS, kubeRun } from '../lib/kube/missions.ts';
   import { mountTerminal, mountMission, el } from '../lib/ui.ts';
 
-  const cls = (p: Pod) => p.status === 'Terminating' ? 'term' : p.ready ? 'ok'
-    : p.status === 'Running' || p.status === 'ContainerCreating' ? 'start'
+  const cls = (p: Pod) => p.status === 'Terminating' ? 'term' : p.status === 'Succeeded' ? 'done' : p.ready ? 'ok'
+    : p.status === 'Running' || p.status === 'ContainerCreating' || p.status === 'Initializing' ? 'start'
     : p.status === 'Pending' ? 'pending' : 'bad';
 
   for (const root of document.querySelectorAll<HTMLElement>('[data-kube-sim]')) {
-    const mission = KUBE_MISSIONS[root.dataset.mission ?? ''];
+    const id = root.dataset.mission ?? '';
+    const mission = KUBE_MISSIONS[id] ?? KUBE_A_MISSIONS[id];
     let state: KubeState;
-    const fresh = () => { state = mission ? mission.setup() : { cluster: new Cluster(), history: [], seen: new Set(), deleted: new Set() }; };
+    const fresh = () => { state = mission ? mission.setup() : { cluster: new Cluster(), history: [], seen: new Set(), deleted: new Set(), files: {}, saw: [] }; };
     fresh();
     let refreshMission = () => {};
     const nodesBox = root.querySelector<HTMLElement>('[data-nodes]')!;
@@ -61,17 +63,29 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
     // them all every tick, which swallowed any click whose press and release
     // straddled a tick and threw keyboard focus off a pod each time. Chromium's
     // quick test clicks slipped between ticks; WebKit's did not.
+    // Keyed by namespace/name, the same as the cluster's own maps. Keyed by
+    // bare name, every chip looked "gone" on each tick and was rebuilt, which
+    // is the dropped-click bug described above coming back.
     const chips = new Map<string, HTMLButtonElement>();
+    const chipKey = (p: Pod) => `${p.ns}/${p.name}`;
+    // The owner's name reads better than the first dash-separated word: a Job
+    // called nightly-report would otherwise show as "nightly".
+    const label = (p: Pod) => {
+      const owner = p.ownerKind === 'ReplicaSet' ? state.cluster.replicasets.get(`${p.ns}/${p.owner}`)?.owner ?? p.owner : p.owner || p.name;
+      return { head: owner, tail: p.name === owner ? '' : p.name.split('-').pop() ?? '' };
+    };
     const chip = (p: Pod) => {
-      let b = chips.get(p.name);
+      let b = chips.get(chipKey(p));
       if (!b) {
-        b = el('button', { type: 'button' }, p.name.split('-')[0], el('small', {}, p.name.split('-').pop() ?? ''), el('span', { class: 'restarts' })) as HTMLButtonElement;
-        b.addEventListener('click', () => term.run(`kubectl describe pod ${p.name}`));
-        chips.set(p.name, b);
+        const l = label(p);
+        b = el('button', { type: 'button' }, l.head, el('small', {}, `${l.tail}${p.ns === 'default' ? '' : ` · ${p.ns}`}`), el('span', { class: 'restarts' })) as HTMLButtonElement;
+        b.addEventListener('click', () => term.run(p.ns === state.cluster.context.namespace ? `kubectl describe pod ${p.name}` : `kubectl -n ${p.ns} describe pod ${p.name}`));
+        chips.set(chipKey(p), b);
       }
+      const restarts = state.cluster.totalRestarts(p);
       b.className = `pod ${cls(p)}`;
-      b.title = `${p.name}\n${p.status}${p.restarts ? ` · ${p.restarts} restarts` : ''}\n${p.template.image}`;
-      b.lastElementChild!.textContent = p.restarts ? `↻${p.restarts}` : '';
+      b.title = `${p.name}${p.ns === 'default' ? '' : ` (namespace ${p.ns})`}\n${state.cluster.podStatus(p)} · ${state.cluster.podReady(p)} ready${restarts ? ` · ${restarts} restarts` : ''}\n${p.template.image}`;
+      b.lastElementChild!.textContent = restarts ? `↻${restarts}` : '';
       return b;
     };
     // Remove what left before inserting what arrived, so a pod that stays is
@@ -82,7 +96,7 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
       want.forEach((n, i) => { if (box.childNodes[i] !== n) box.insertBefore(n, box.childNodes[i] ?? null); });
     };
     const placeholder = (text: string) => el('span', { class: 'muted empty' }, text);
-    const nodeEls = new Map<string, { root: HTMLElement; usage: HTMLElement; bar: HTMLElement; pods: HTMLElement; empty: HTMLElement }>();
+    const nodeEls = new Map<string, { root: HTMLElement; usage: HTMLElement; taints: HTMLElement; bar: HTMLElement; pods: HTMLElement; empty: HTMLElement }>();
     const nothingWaiting = placeholder('nothing waiting');
 
     const draw = () => {
@@ -91,13 +105,18 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
       sync(nodesBox, c.nodes.map((n) => {
         let v = nodeEls.get(n.name);
         if (!v) {
-          const usage = el('span', { class: 'muted' }), bar = el('div', { class: 'cap' }, el('i')), pods = el('div', { class: 'pods' });
-          v = { root: el('div', { class: 'node' }, el('div', { class: 'node-head' }, el('strong', {}, n.name), usage), bar, pods), usage, bar, pods, empty: placeholder('no pods') };
+          const usage = el('span', { class: 'muted' }), taints = el('div', { class: 'taints' }), bar = el('div', { class: 'cap' }, el('i')), pods = el('div', { class: 'pods' });
+          v = { root: el('div', { class: 'node' }, el('div', { class: 'node-head' }, el('strong', {}, n.name), usage), taints, bar, pods), usage, taints, bar, pods, empty: placeholder('no pods') };
           nodeEls.set(n.name, v);
         }
         const u = c.used(n.name);
         const pct = Math.min(100, (u.cpu / n.cpu) * 100);
         v.usage.textContent = `${u.cpu}m / ${n.cpu}m CPU requested`;
+        // Taints are drawn because the lessons on them are about what you
+        // cannot see from get pods; labels stay in kubectl, or this box would fill up.
+        const t = n.taints.map((x) => `${x.key}${x.value ? `=${x.value}` : ''}:${x.effect}`).join('  ');
+        if (v.taints.textContent !== (t ? `taint: ${t}` : '')) v.taints.textContent = t ? `taint: ${t}` : '';
+        v.taints.hidden = !t;
         (v.bar.firstChild as HTMLElement).style.width = `${pct}%`;
         v.bar.classList.toggle('full', pct > 90);
         const pods = [...c.pods.values()].filter((p) => p.node === n.name);
@@ -106,7 +125,7 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
       }));
       const waiting = [...c.pods.values()].filter((p) => !p.node && p.status !== 'Terminating');
       sync(pendingBox, waiting.length ? waiting.map(chip) : [nothingWaiting]);
-      for (const name of chips.keys()) if (!c.pods.has(name)) chips.delete(name);
+      for (const k of chips.keys()) if (!c.pods.has(k)) chips.delete(k);
       kubeWatch(state);
       refreshMission();
     };
@@ -117,8 +136,7 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
         ? [`Mission: ${mission.title}. Time runs on its own - watch the cluster react.`, 'Type help for every command this cluster understands.']
         : ['A two-node toy cluster. Controllers, scheduler and kubelet run every tick.', 'Try: kubectl create deployment hello --image=panda/hello:1.0 --replicas=3'],
       onCommand: (line) => {
-        kubeObserve(state, line);
-        const out = kubectl(state.cluster, line);
+        const out = kubeRun(state, line);
         draw();
         return out;
       },
@@ -177,6 +195,9 @@ const { mission, title = 'Cluster simulator' } = Astro.props;
   .kube .pods .pod.pending small { opacity: 1; }
   .kube .pods .pod.bad { background: var(--berry); animation: shake .5s; }
   .kube .pods .pod.term { background: var(--muted); opacity: .45; }
+  .kube .pods .pod.done { background: var(--bg-2); color: var(--ink); outline: 1px solid var(--line-2); }
+  .kube .taints { font: 11px/1.3 var(--mono); color: var(--sun-text); margin-top: 4px; overflow-wrap: anywhere; }
+  .kube .taints[hidden] { display: none; }
   .kube .pods .restarts { position: absolute; top: -7px; right: -7px; background: var(--ink); color: var(--bg); border-radius: 99px; font-size: 10px; padding: 1px 5px; }
   .kube .pods .restarts:empty { display: none; }
   @keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }

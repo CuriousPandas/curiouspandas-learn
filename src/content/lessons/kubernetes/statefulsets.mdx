@@ -1,0 +1,159 @@
+---
+title: Scaled down, and the disks stayed
+summary: A StatefulSet gives each pod a stable name and its own disk, and keeps the disk when the pod goes. Scale down, scale back up and meet your old data, then watch a rollout stop at one broken pod and learn why fixing the template is not enough.
+minutes: 18
+xp: 40
+tiers: [browser, machine]
+builds_on: [kubernetes/volumes, kubernetes/rollouts]
+sources:
+  - title: Kubernetes docs - StatefulSets
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/
+  - title: Kubernetes docs - Persistent Volumes
+    url: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+---
+
+Someone scales a database down from three replicas to one to save money. The bill doesn't move. A month later they scale back up, and the third replica comes back holding a month-old copy of the data, as if nothing had happened.
+
+Both surprises are by design, and the Kubernetes docs say so in one sentence:
+
+> Deleting and/or scaling a StatefulSet down will not delete the volumes associated with the StatefulSet. This is done to ensure data safety, which is generally more valuable than an automatic purge of all related StatefulSet resources.
+
+## What a StatefulSet promises
+
+A Deployment's pods are interchangeable: random names, any order, and they share whatever volume they're given. A **StatefulSet** is for workloads where each copy is somebody in particular, like the members of a database.
+
+- **Stable names.** Pods are numbered from zero: `web-0`, `web-1`, `web-2`. The number is the pod's **ordinal**. A replaced `web-1` is called `web-1` again.
+- **A disk each.** `volumeClaimTemplates` stamps out one claim per ordinal, named `<template>-<statefulset>-<ordinal>`: `data-web-0`, `data-web-1`. A replaced `web-1` gets `data-web-1` back.
+- **Order.** By default (the `OrderedReady` policy) pods start one at a time, in order, and the docs say "Before a scaling operation is applied to a Pod, all of its predecessors must be Running and Ready." Scaling down removes the highest ordinal first.
+
+So the disk outlives the pod on purpose. That is what makes `web-1` still `web-1`.
+
+## Scale down, scale up
+
+<StorageSim mission="storage-sts" title="web, three replicas" />
+
+<Callout kind="tip">
+`kubectl get pods,pvc` shows both at once. Run it a few times as the StatefulSet starts: `web-1` doesn't appear until `web-0` is Ready.
+</Callout>
+
+## The rollout that stopped at web-2
+
+A StatefulSet updates the same way it scales down: from the highest ordinal, one pod at a time, and the docs say "The Kubernetes control plane waits until an updated Pod is Running and Ready prior to updating its predecessor." With a typo'd image, `web-2` never becomes Ready, so `web-1` and `web-0` are never touched. They keep serving the old version. That much is the same safety you saw with Deployments in [A typo is not an outage](/learn/kubernetes/rollouts/).
+
+The trap is the next step. You fix the image, and nothing happens. The docs call this the **forced rollback** case and say plainly:
+
+> In this state, it's not enough to revert the Pod template to a good configuration. Due to a known issue, StatefulSet will continue to wait for the broken Pod to become Ready (which never happens) before it will attempt to revert it back to the working configuration.
+
+Their fix: "After reverting the template, you must also delete any Pods that StatefulSet had already attempted to run with the bad configuration." This still held on Kubernetes 1.36.1 while this lesson was written: after the revert, the stuck pod was still on the bad image 2 minutes 41 seconds later, until it was deleted.
+
+<Callout kind="trap">
+A stuck pod that crashes is not always stuck in the same way. In a test where pod 1's container exited at once, its successor was created anyway. Our reading is that the crashing pod counted as Running and Ready for the instant before it exited, and that was enough. A pod that runs but never passes its readiness probe stalls the StatefulSet every time. When you reason about "stuck behind one ordinal", check which kind of broken you have.
+</Callout>
+
+## Choosing to delete the disks
+
+If you do want claims cleaned up, say so. `persistentVolumeClaimRetentionPolicy` has two settings, `whenDeleted` and `whenScaled`, each `Retain` (the default) or `Delete`:
+
+```bash
+kubectl patch sts web -p '{"spec":{"persistentVolumeClaimRetentionPolicy":{"whenScaled":"Delete"}}}'
+```
+
+With `whenScaled: Delete`, scaling down removes the claims of the ordinals that went, and the reclaim policy you met in [The claim that stayed Pending](/learn/kubernetes/volumes/) then decides whether the volume and its data go too. The sandbox models this patch; try it after the mission.
+
+<Quiz
+  id="kube-sts-1"
+  q="A StatefulSet with three replicas is scaled to one. With default settings, how many of its claims remain?"
+  options={["One, for web-0", "Three: scaling down does not delete the claims", "None: the claims belong to the pods"]}
+  answer={1}
+  explain="The default retention policy is Retain for both deleting and scaling. data-web-1 and data-web-2 stay, which keeps the data safe and keeps costing money until someone deletes them."
+/>
+
+<Quiz
+  id="kube-sts-2"
+  q="You scale the StatefulSet back to three. What does web-2 find on its volume?"
+  options={["An empty disk", "Whatever was on data-web-2 when it was scaled away", "A copy of web-0's data"]}
+  answer={1}
+  explain="web-2 gets data-web-2 back, with its old contents. Stable identity includes the disk. For a database that may mean a stale replica that has to catch up."
+/>
+
+<Quiz
+  id="kube-sts-3"
+  q="A StatefulSet rollout is stuck on web-2 with a bad image. You set the image back. What else must you do?"
+  options={["Nothing; it rolls back by itself", "Delete web-2, so the controller recreates it from the fixed template", "Delete the StatefulSet and create it again"]}
+  answer={1}
+  explain="The controller waits for the broken pod to become Ready before it will replace it, which never happens. The docs' fix is to delete the pods that ran with the bad configuration. Deleting the whole StatefulSet works too but is a much bigger hammer."
+/>
+
+<Callout kind="real">
+The sandbox's StatefulSet has one container and one volume template, `OrderedReady` and `RollingUpdate` only, and no `partition`, `maxUnavailable` or `minReadySeconds`. Real StatefulSets need a headless Service for their pods' DNS names; the sandbox accepts the Service and gives it no behaviour, because it has no network. Pods here stop in a few seconds. The real `busybox` pods took about 30 seconds each (scaling 3 to 1 took 67 seconds for two pods on tiltdev): a shell running as a container's first process ignores the polite stop signal, so Kubernetes waits out the grace period (30 seconds by default) before it kills it.
+</Callout>
+
+## What to remember
+
+- Ordinals, a claim per ordinal, and order: start up from zero, scale down and update from the top.
+- Scaling down or deleting keeps every claim by default. Data survives; so does the bill.
+- A rollout waits at the first pod that is not Running and Ready. Reverting the template doesn't free it: delete the stuck pod.
+
+<DoItForReal id="kube-sts-real">
+
+On the tilt platform, in a scratch namespace. These steps ran on tiltdev (1.36.1) while this lesson was written. Save as `sts.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  clusterIP: None
+  selector:
+    app: web
+  ports:
+  - port: 80
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: web
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command: [sh, -c, "hostname > /data/who.txt; sleep 3600"]
+        volumeMounts:
+        - name: data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 1Gi
+```
+
+```bash
+kubectl --context kind-tiltdev create namespace sts-lab
+kubectl --context kind-tiltdev -n sts-lab apply -f sts.yaml
+kubectl --context kind-tiltdev -n sts-lab get pods,pvc            # run it a few times: web-0, then web-1, then web-2
+kubectl --context kind-tiltdev -n sts-lab exec web-2 -- sh -c "echo written-before-scale-down > /data/note.txt"
+kubectl --context kind-tiltdev -n sts-lab scale sts web --replicas=1
+kubectl --context kind-tiltdev -n sts-lab get pvc                 # three claims remain
+kubectl --context kind-tiltdev -n sts-lab scale sts web --replicas=3
+kubectl --context kind-tiltdev -n sts-lab rollout status sts/web
+kubectl --context kind-tiltdev -n sts-lab exec web-2 -- cat /data/note.txt
+kubectl --context kind-tiltdev delete namespace sts-lab
+kubectl --context kind-tiltdev get sts -A                         # real ones: ours listed Prometheus, Loki and Tempo among others
+```
+
+</DoItForReal>

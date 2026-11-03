@@ -1,0 +1,128 @@
+---
+title: no matches for kind
+summary: A manifest that applied cleanly for years fails after an upgrade with "no matches for kind", and the same error greets a custom resource whose CRD isn't installed. Learn how the API is discovered, versioned and extended, and how to find what still calls a deprecated API before the upgrade that removes it.
+minutes: 17
+xp: 45
+tiers: [browser, machine]
+builds_on: [tools/helm, tools/cloudnative-pg, kubernetes/desired-state]
+sources:
+  - title: Kubernetes docs - Deprecated API Migration Guide (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/reference/using-api/deprecation-guide/
+  - title: Kubernetes docs - Kubernetes Deprecation Policy (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
+  - title: Kubernetes docs - Custom Resources (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
+  - title: Kubernetes docs - Extend the Kubernetes API with CustomResourceDefinitions (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/
+  - title: Kubernetes docs - Operator pattern (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/extend-kubernetes/operator/
+  - title: Kubernetes source v1.36.1 - apiserver/pkg/endpoints/deprecation (the warning's wording)
+    url: https://github.com/kubernetes/kubernetes/blob/v1.36.1/staging/src/k8s.io/apiserver/pkg/endpoints/deprecation/deprecation.go
+  - title: Kubernetes source v1.21.0 - networking/v1beta1 prerelease lifecycle (Ingress deprecated 1.19, removed 1.22)
+    url: https://github.com/kubernetes/kubernetes/blob/v1.21.0/staging/src/k8s.io/api/networking/v1beta1/zz_generated.prerelease-lifecycle.go
+---
+
+The upgrade went fine. The next deploy didn't:
+
+```text
+error: resource mapping not found for name: "shop" namespace: "" from "old.yaml": no matches for kind "Ingress" in version "networking.k8s.io/v1beta1"
+ensure CRDs are installed first
+```
+
+That file had applied without complaint for years. Nothing in it changed. What changed is the list of APIs the cluster serves, and kubectl checked that list before sending anything. The message's own hint, "ensure CRDs are installed first", is about a different cause with the same symptom, which is the second half of this lesson.
+
+## The API is a list you can read
+
+Every object has an `apiVersion` and a `kind`. The apiVersion is a **group** and a **version**: `networking.k8s.io/v1`, or just `v1` for the original core group. The API server publishes the group, version and kind triples it serves, and kubectl reads that list (**discovery**) to work out where to send each object. That's what `kubectl api-resources` prints. If a manifest names a triple that's not on the list, kubectl stops right there: "no matches for kind".
+
+Versions follow a policy. Alpha and beta versions get replaced; the deprecation policy says "Beta API versions are deprecated no more than 9 months or 3 minor releases after introduction", and then removed some releases later. "GA API versions may be marked as deprecated, but must not be removed within a major version of Kubernetes". The migration guide lists each removal and the version that replaces it. For the Ingress above: "The extensions/v1beta1 and networking.k8s.io/v1beta1 API versions of Ingress is no longer served as of v1.22." Its replacement, `networking.k8s.io/v1`, has been "available since v1.19". On the way, `backend` became `defaultBackend`, `serviceName` became `service.name`, `servicePort` became `service.port.number` (or `service.port.name`), and the guide adds that "pathType is now required for each specified path". Changing the apiVersion alone isn't enough.
+
+Removal doesn't delete your objects. The guide says, for each one, "All existing persisted objects are accessible via the new API." What breaks is the YAML in your repo, the Helm chart with an old template, the CI job that applies them.
+
+## The only warning you get
+
+Before an API is removed, it's deprecated, and from v1.19, the deprecation policy says, a request to a deprecated API "Returns a Warning header". kubectl prints it, the request still works, and it's easy to scroll past. Its wording comes from the API server's source:
+
+```text
+Warning: networking.k8s.io/v1beta1 Ingress is deprecated in v1.19+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
+```
+
+The same request also "Sets an apiserver_requested_deprecated_apis gauge metric to 1 in the kube-apiserver process", labelled with the API and the release that removes it. It is a flag, not a count: it says which deprecated APIs someone has requested since that API server started, not who, how often, or whether they still do. A restart clears it, and a cluster with several API servers keeps one per server, so check each. To find the caller, the policy says the same request "Adds a "k8s.io/deprecated":"true" annotation to the audit event", which you can search for if the cluster keeps an audit log. On our tilt cluster it already listed APIs that 1.36 still serves but has deprecated, among them `v1 Endpoints` ("deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice") and a Crossplane API, each with an empty `removed_release`. A request we made ourselves (`kubectl get componentstatuses`) showed up there too.
+
+## Adding your own kinds
+
+The list isn't fixed. A **CustomResourceDefinition** (CRD) adds a new kind to it. The docs: "Once a custom resource is installed, users can create and access its objects using kubectl, just as they do for built-in resources like Pods." Gateway API, cert-manager, Flux and CloudNativePG all work this way; on tilt, much of what you touch is a custom resource. Until its CRD is installed, a custom resource gets exactly the error above, which is why kubectl suggests checking CRDs.
+
+A CRD alone only stores data. "On their own, custom resources let you store and retrieve structured data. When you combine a custom resource with a custom controller, custom resources provide a true declarative API." That pairing is an **operator**: "software extensions to Kubernetes that make use of custom resources to manage applications and their components", following "the control loop", the same loop as [desired state](/learn/kubernetes/desired-state/). [CloudNativePG](/learn/tools/cloudnative-pg/) is one: you write a `Cluster`, and its controller runs PostgreSQL to match. Without the controller, a `Cluster` object would be stored and nothing would happen.
+
+CRDs have versions and deprecations of their own, and an [upgrade can leave old CRDs in place](/learn/tools/helm/). On tilt, `kubectl get crd` lists versions of Kyverno, External Secrets and Crossplane kinds marked deprecated, still served.
+
+Now run the same file against clusters of different versions, then install a CRD.
+
+<ApiLab />
+
+<Callout kind="trap">
+A deprecation warning arrives while everything works, and it's printed by whoever sent the request. A Flux or Argo controller applying from git sees it in its logs, not on your screen. Check the cluster's metric before an upgrade, not your terminal: `kubectl get --raw /metrics | grep apiserver_requested_deprecated_apis`. That reaches one API server, and only remembers requests since it last started; a cluster with several API servers needs each one asked.
+</Callout>
+
+<Callout kind="real">
+The sandbox's versions and dates come from the migration guide and from the Kubernetes source at a release that still served each API; the 1.36 behaviour was run on tilt. We didn't stand up 1.21, 1.24, 1.25 or 1.31 clusters, so on those the warning text is built the way the 1.36.1 source builds it, which the deprecation policy says has been sent since 1.19. The sandbox also uses one kubectl against every version, and doesn't model the version-skew rules between kubectl and a server.
+</Callout>
+
+<Quiz
+  id="kube-ext-1"
+  q="After an upgrade, kubectl apply says no matches for kind CronJob in version batch/v1beta1. What happened to the CronJobs already running?"
+  options={["They were deleted with the API", "Nothing: existing objects are served through the new version, batch/v1; only manifests using the old version fail", "They stopped until you re-apply them"]}
+  answer={1}
+  explain="The migration guide: all existing persisted objects are accessible via the new API. What broke is every file and chart that still says batch/v1beta1."
+/>
+
+<Quiz
+  id="kube-ext-2"
+  q="You apply a custom resource and get 'no matches for kind ... ensure CRDs are installed first'. The API version is right. What is missing?"
+  options={["A controller", "The CustomResourceDefinition that adds that kind to the API", "A namespace"]}
+  answer={1}
+  explain="Without its CRD, the API server doesn't serve that kind, so discovery has no match. A missing controller is a different, quieter failure: the object is stored and nothing acts on it."
+/>
+
+<Quiz
+  id="kube-ext-3"
+  q="How can you find out, before an upgrade, what is still using APIs that the next version removes?"
+  options={["Read your terminal history", "The API server's apiserver_requested_deprecated_apis gauge, set to 1 for each deprecated API any client has requested since that server started, labelled with removed_release", "Run kubectl version"]}
+  answer={1}
+  explain="Warnings go to whichever client made the request, often a controller. The gauge is kept by the API server itself, whoever called. It says which APIs, not who: for the caller, look for the k8s.io/deprecated annotation in the audit log. It resets when the API server restarts, so check every API server."
+/>
+
+<DoItForReal id="kube-ext-real" profile="minimal">
+
+All read-only on tilt (Kubernetes 1.36.1, kubectl 1.37.2), except the last command, which the API server refuses. These ran as written.
+
+```bash
+kubectl get crd | wc -l                                       # one line per CRD, plus a header; 138 lines on our tilt
+kubectl api-resources --api-group=gateway.networking.k8s.io   # what Gateway API's CRDs add
+kubectl explain httproute.spec.parentRefs | head -20          # a CRD's schema, served like a built-in's
+kubectl get --raw /metrics | grep apiserver_requested_deprecated_apis
+kubectl get endpoints -A | head -3                            # Warning: v1 Endpoints is deprecated in v1.33+ ...
+kubectl apply -f - <<'EOF'
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: old
+spec:
+  backend:
+    serviceName: hello
+    servicePort: 80
+EOF
+# error: resource mapping not found for name: "old" namespace: "" from "STDIN": no matches for kind "Ingress" ...
+```
+
+Installing and deleting a CRD changes the whole cluster, so do that on a throwaway kind cluster (`kind create cluster --name crd-lab`, and `kind delete cluster --name crd-lab` after). We did, on 1.36.1: applying a `Bamboo` before its CRD gave the same "no matches for kind" error; after `kubectl apply` of the CRD, `bamboo.panda.example.com/snack created`; `stalks: three` was refused by the CRD's schema (`spec.stalks in body must be of type integer`); and marking `v1` deprecated in the CRD made every request to it print `Warning: panda.example.com/v1 Bamboo is deprecated; use panda.example.com/v2 Bamboo`. A CRD's own versions get deprecation warnings too.
+
+</DoItForReal>
+
+## What to remember
+
+- kubectl checks discovery before it sends anything. "no matches for kind" means this cluster doesn't serve that group, version and kind.
+- Two common causes: an API version removed by an upgrade, or a CRD not installed.
+- Removed versions don't delete objects; they break manifests. Migrate the fields as well as the apiVersion.
+- Deprecation warnings go to whoever made the request. The `apiserver_requested_deprecated_apis` gauge records which deprecated APIs were requested since the API server started, by anyone; the audit log's `k8s.io/deprecated` annotation says who.

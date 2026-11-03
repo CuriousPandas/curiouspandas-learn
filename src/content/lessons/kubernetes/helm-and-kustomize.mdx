@@ -1,0 +1,110 @@
+---
+title: The value Helm ignored
+summary: Misspell a value with helm --set and the chart renders as if you'd said nothing, exit code 0. Learn how Helm charts and Kustomize overlays each turn inputs into manifests, where each is strict, where each is silent, and how to read the output instead of trusting the input.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+builds_on: [tools/helm, platform/gitops]
+sources:
+  - title: Helm docs - Charts, Schema Files
+    url: https://helm.sh/docs/topics/charts/#schema-files
+  - title: Helm docs - Values Files
+    url: https://helm.sh/docs/chart_template_guide/values_files/
+  - title: Kubernetes docs - Declarative Management of Kubernetes Objects Using Kustomize (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/
+  - title: TemplateMechanics/tilt - examples/hello-world/kustomization.yaml
+    url: https://github.com/TemplateMechanics/tilt/blob/main/examples/hello-world/kustomization.yaml
+---
+
+You want three replicas. You type `helm upgrade shop ./web --reuse-values --set replicaCont=3`, one letter short. Helm prints `Release "shop" has been upgraded. Happy Helming!`, `STATUS: deployed`, `REVISION: 2`, exit code 0. The app still runs one replica. Nothing in Helm's output says that `replicaCont` matched nothing, because to Helm it isn't wrong. It's a value nobody happens to read.
+
+## Two ways to make YAML
+
+Most of what runs on a cluster arrives as YAML that someone generated rather than wrote. Two tools do most of that generating, and they work in opposite ways.
+
+**Helm** packages an app as a **chart**: templates with blanks in them, plus a `values.yaml` of defaults. `helm template` (or `install`, or `upgrade`) fills the blanks. In a template, `{{ .Values.replicaCount }}` means "the value at replicaCount". Values come from several places, and the Helm docs give the order. The chart's `values.yaml` is the default, a parent chart's `values.yaml` can override it, "which can in turn be overridden by a user-supplied values file, which can in turn be overridden by --set parameters." Setting a value to `null` removes a default. The [Helm lesson](/learn/tools/helm/) covered what upgrades do to CRDs; this one is about the values going in.
+
+**Kustomize** has no templates. You start from a **base**, plain manifests that already work, and write an **overlay** that changes them: a name prefix, a replica count, an image tag, a patch. In the Kubernetes docs' words, "A base has no knowledge of an overlay and can be used in multiple overlays." It's built into kubectl: `kubectl kustomize DIR` prints the result, and `kubectl apply -k DIR` applies it. tilt's examples are built this way, and Flux applies Kustomizations, as in [GitOps](/learn/platform/gitops/).
+
+## Where each one is silent
+
+A template reads the keys it was written to read. Any other key in the values is carried along and never looked at. So `replicaCont=3` changes nothing, and with Helm 4.1.4 on tilt it rendered `replicas: 1` with exit code 0. The same happens with a typo in a `-f` values file. `--set replicaCount=three` is worse: it rendered `replicas: three`, a word where Kubernetes needs a number, with exit code 0.
+
+The fix belongs to the chart author: a `values.schema.json`. The Helm docs say "the schema is applied to the final .Values object", on `install`, `upgrade`, `lint` and `template`. With a schema that forbids unknown keys, the same typo failed:
+
+```text
+Error: values don't meet the specifications of the schema(s) in the following chart(s):
+web:
+- at '': additional properties 'replicaCont' not allowed
+```
+
+Kustomize is strict where an entry names one object. A `replicas` entry naming a Deployment that isn't there is an error, and so is a patch whose own body names one (`metadata.name: webb`). It is silent where an entry is a rule to match. An `images` entry whose name matches no container changes nothing and prints nothing: `kubectl kustomize` exited 0 with the old image in the output. A patch aimed with a `target:` selector (`kind: Deployment, name: webb`) that matches nothing is skipped the same way, exit 0 and no message. And Kustomize follows a rename only where it knows a field holds a name. With `namePrefix: prod-`, it renamed the ConfigMap and updated the Deployment's `configMapRef` to match, but left the same name inside the container's `args` untouched.
+
+Try both. The output panel highlights every line that differs from the tool's output with no changes, which is the habit to keep: diff the render, not the inputs.
+
+<RenderLab />
+
+<Callout kind="trap">
+Exit code 0 from `helm template`, `helm upgrade` or `kubectl kustomize` means the tool produced YAML. It doesn't mean your change is in it. Render, then look for the line you meant to change: `helm template ... | grep replicas`, or `helm get values RELEASE` to see what a release was actually given.
+</Callout>
+
+<Callout kind="real">
+The sandbox renders one small chart and one base, with only the Kustomize fields the lesson uses, and refuses the rest by name. It types `--set` values the way Helm 4.1.4 did in our runs: whole numbers became integers, and `2.10` stayed the text `2.10`. Older Helm versions may treat that differently; we didn't test them. Real charts use the whole Go template language, with `default`, `if`, `range` and helper templates, and a template can make a typo louder with `required`.
+</Callout>
+
+<Quiz
+  id="kube-pkg-1"
+  q="helm upgrade shop ./web --set replicaCont=3 succeeds, and replicas stay at 1. Why?"
+  options={["Helm upgrades never change replicas", "No template reads replicaCont, so the value is stored and ignored, and the chart's default replicaCount still applies", "The upgrade failed silently"]}
+  answer={1}
+  explain="Templates read the keys they were written for. An unknown key is just more data. Only a values.schema.json that forbids extra keys turns the typo into an error."
+/>
+
+<Quiz
+  id="kube-pkg-2"
+  q="Your overlay has an images entry with name panda/webb and newTag 2.0, and the base runs panda/web:1.0. What does kubectl kustomize do?"
+  options={["Errors: no such image", "Succeeds, and the Deployment still runs panda/web:1.0, with no warning", "Renames the image to panda/webb:2.0"]}
+  answer={1}
+  explain="An images entry is a rule to apply to matching containers. No container matched, so nothing changed, and Kustomize v5.8.1 said nothing about it."
+/>
+
+<Quiz
+  id="kube-pkg-3"
+  q="Where does Kustomize follow a namePrefix rename?"
+  options={["Everywhere the old name appears", "In fields it knows hold a name, like a Deployment's configMapRef; not in free text such as container args", "Nowhere; references must be updated by hand"]}
+  answer={1}
+  explain="Kustomize has rules for where names are referenced. A name inside an arbitrary string isn't one of them, so the rendered output keeps the old name there."
+/>
+
+<DoItForReal id="kube-pkg-real" profile="minimal">
+
+The cluster commands ran on tilt (Helm 4.1.4, kubectl 1.37.2), where Flux's `HelmRelease` objects install ordinary Helm releases, so `helm` can read them. The chart and overlay work runs in a scratch folder.
+
+```bash
+helm list -A                                        # releases Flux installed, e.g. metrics-server in kube-system
+helm -n kube-system get values metrics-server       # USER-SUPPLIED VALUES: only what was set
+kubectl kustomize examples/hello-world | head -20   # from your tilt clone: the Namespace, Service, Deployment
+
+mkdir -p /tmp/pkg-lab && cd /tmp/pkg-lab
+helm create web >/dev/null                          # Helm 4.1.4's starter chart: no values.schema.json
+helm template shop ./web --set replicaCont=3 | grep 'replicas:'    # replicas: 1, and exit 0
+helm template shop ./web --set replicaCount=3 | grep 'replicas:'   # replicas: 3
+
+kubectl create namespace pkg-lab
+helm -n pkg-lab install shop ./web --set image.repository=ghcr.io/stefanprodan/podinfo --set image.tag=6.9.1 --set service.port=9898
+helm -n pkg-lab upgrade shop ./web --reuse-values --set replicaCont=3   # "has been upgraded", STATUS: deployed, REVISION: 2
+kubectl -n pkg-lab get deploy shop-web -o jsonpath='{.spec.replicas}'; echo   # 1
+helm -n pkg-lab get values shop                     # replicaCont: 3, the typo, stored
+helm -n pkg-lab uninstall shop && kubectl delete namespace pkg-lab
+```
+
+`helm get values` is where the typo shows: the release holds `replicaCont: 3`, and nothing reads it.
+
+</DoItForReal>
+
+## What to remember
+
+- Helm fills templates from values: chart defaults, then `-f` files, then `--set`. A key no template reads is silently ignored.
+- Only a `values.schema.json` makes unknown or wrongly typed values an error.
+- Kustomize patches plain YAML. It errors when a `replicas` entry or a patch body names a missing object, and stays silent when a rule like `images`, or a patch's `target:` selector, matches nothing.
+- Exit code 0 means YAML came out. Read it.

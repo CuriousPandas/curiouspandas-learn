@@ -19,7 +19,7 @@ test('a deleted pod is replaced by a new one with a different name', () => {
   assert.match(k(c, `kubectl delete pod ${victim}`), /deleted/);
   c.step(5);
   assert.equal(pods(c).filter((p) => p.ready).length, 3);
-  assert.ok(!c.pods.has(victim), 'the replacement is a new pod, not the old one revived');
+  assert.ok(c.findPod('default', victim) === undefined && pods(c).length === 3, 'the replacement is a new pod, not the old one revived');
 });
 
 test('a pod that fits nowhere stays Pending and the reason is only in events', () => {
@@ -29,7 +29,7 @@ test('a pod that fits nowhere stays Pending and the reason is only in events', (
   c.step(6);
   const pending = pods(c).filter((p) => !p.node);
   assert.equal(pending.length, 1);
-  assert.match(k(c, `kubectl describe pod ${pending[0].name}`), /0\/2 nodes are available: 2 Insufficient cpu\. preemption: 0\/2 nodes are available: 2 No preemption victims found for incoming pod\./);
+  assert.match(k(c, `kubectl describe pod ${pending[0].name}`), /0\/2 nodes are available: 2 Insufficient cpu\. no new claims to deallocate, preemption: 0\/2 nodes are available: 2 No preemption victims found for incoming pod\./);
   // 400m, not 900m: new pods need room beside the old 1500m ones before the
   // old ones are allowed to leave (surge 1, unavailable 0 at 3 replicas).
   k(c, 'kubectl set resources deployment big --requests=cpu=400m');
@@ -93,7 +93,7 @@ test('a bare startupProbe patch would still kill a 60 s app on a real cluster', 
   assert.ok(p.restarts > 0);
   const out = k(c, `kubectl describe pod ${p.name}`);
   assert.match(out, /Startup probe failed/);
-  assert.match(out, /Startup:\s+http-get http:\/\/:8080\/ delay=0s timeout=1s period=10s #success=1 #failure=3/);
+  assert.match(out, /Startup:\s+http-get http:\/\/:8080\/ delay=0s timeout=1s period=10s successThreshold=1 failureThreshold=3/);
 });
 
 test('the impatient liveness probe matches lab 09: checks from 5 s, kills on the second failure', () => {
@@ -102,7 +102,7 @@ test('the impatient liveness probe matches lab 09: checks from 5 s, kills on the
   c.step(4);
   const p = pods(c)[0];
   assert.equal(p.restarts, 1, 'killed about 10 s after starting, long before its 60 s start-up');
-  assert.match(k(c, `kubectl describe pod ${p.name}`), /Liveness:\s+http-get http:\/\/:8080\/ delay=5s timeout=1s period=5s #success=1 #failure=2/);
+  assert.match(k(c, `kubectl describe pod ${p.name}`), /Liveness:\s+http-get http:\/\/:8080\/ delay=5s timeout=1s period=5s successThreshold=1 failureThreshold=2/);
 });
 
 test('a typo in an image tag stalls the rollout and the old version keeps serving', () => {

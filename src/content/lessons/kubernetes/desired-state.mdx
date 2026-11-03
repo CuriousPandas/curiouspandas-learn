@@ -89,12 +89,14 @@ A real cluster adds a lot here: an API server and etcd storing every object, Ser
 
 <DoItForReal id="kube-desired-real" lab="01-deploy-a-service">
 
-With the tilt platform running (`./scripts/platform.sh up`):
+With the tilt platform running (`./scripts/platform.sh up`), in a scratch namespace so nothing is left behind. Run on 2026-11-03 against Kubernetes v1.36.1:
 
 ```bash
-kubectl create deployment hello2 --image=nginx --replicas=3
-kubectl get pods -w        # leave running in one terminal
-kubectl delete pod <one of them>   # in another
+kubectl create namespace selfheal-lab
+kubectl -n selfheal-lab create deployment hello2 --image=nginx:1.27-alpine --replicas=3
+kubectl -n selfheal-lab get pods -w        # leave running in one terminal
+kubectl -n selfheal-lab delete pod <one of them>   # in another
+kubectl delete namespace selfheal-lab      # when you've seen the replacement arrive
 ```
 
 Then do lab 01. It doesn't touch `hello2`: it walks through the `hello` app the platform already deployed, and the Deployment, Service and route that turn its pods into a URL. Its `check.sh` grades you, and it includes a real-browser check that needs Node.js, npm and Google Chrome (see [Run the real platform](/learn/platform/bring-it-home/)).

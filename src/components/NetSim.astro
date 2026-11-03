@@ -1,0 +1,214 @@
+---
+import '../styles/widgets.css';
+interface Props { mission: string; title?: string }
+const { mission, title = 'Cluster network sandbox' } = Astro.props;
+---
+<div class="widget card netsim" data-netsim data-mission={mission}>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info" data-ns-pill></span>
+    <span class="spacer"></span>
+    <div class="controls">
+      <label class="ns-switch" data-cni hidden><input type="checkbox" checked data-cni-box /> Network plugin enforces NetworkPolicy</label>
+      <button class="btn small" type="button" data-install hidden>Install Ingress controller</button>
+      <button class="btn small" type="button" data-reset>Start over</button>
+    </div>
+  </div>
+  <div class="ns-grid">
+    <div class="ns-left">
+      <div class="ns-editor" data-editor hidden>
+        <div class="ns-tabs" role="tablist" data-tabs></div>
+        <textarea data-text spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Manifest editor"></textarea>
+        <div class="ns-edit-foot"><button class="btn small primary" type="button" data-apply>kubectl apply -f <span data-fname></span></button><span class="muted small">Edits stay in this page. Apply runs the command in the terminal below.</span></div>
+      </div>
+      <div data-term></div>
+    </div>
+    <div class="ns-right">
+      <div data-mission-panel></div>
+      <div class="ns-matrix" data-matrix hidden>
+        <div class="eyebrow">Who may connect, by the policies <span class="muted">· re-checked after every command</span></div>
+        <table><thead data-mhead></thead><tbody data-mbody></tbody></table>
+        <p class="muted small" data-mnote></p>
+      </div>
+      <div class="ns-view">
+        <div class="eyebrow">Cluster · what the API server holds</div>
+        <div data-view></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { NET_MISSIONS, installController, type NetState } from '../lib/kube-net/missions.ts';
+  import { run } from '../lib/kube-net/kubectl.ts';
+  import { selectorText, type Net, type Pod } from '../lib/kube-net/net.ts';
+  import { mountTerminal, mountMission, el } from '../lib/ui.ts';
+
+  const short = (p: Pod) => p.name.length > 22 ? `${p.name.split('-')[0]}-…${p.name.slice(-5)}` : p.name;
+
+  function view(net: Net, box: HTMLElement) {
+    const shown = [...net.namespaces.keys()].filter((n) => !['kube-public', 'kube-node-lease'].includes(n) && (n !== 'default' || net.podsIn('default').length));
+    box.replaceChildren(...shown.map((ns) => {
+      const sec = el('section', { class: 'ns-space' });
+      const mesh = net.inMesh(ns) ? ' · in the ambient mesh' : '';
+      sec.append(el('h4', {}, `namespace ${ns}`, el('span', { class: 'muted' }, mesh)));
+      if (ns === 'kube-system') {
+        const dns = net.podsIn('kube-system').filter((p) => p.labels['k8s-app'] === 'kube-dns');
+        sec.append(el('p', { class: dns.length ? 'ns-line' : 'ns-line bad' }, `CoreDNS: ${dns.length} pod${dns.length === 1 ? '' : 's'} behind kube-dns 10.96.0.10`));
+        return sec;
+      }
+      const pods = net.podsIn(ns);
+      if (pods.length) {
+        const ul = el('ul', { class: 'ns-pods' });
+        for (const p of pods) ul.append(el('li', { class: p.ready ? 'ok' : 'unready', title: `${p.name}\n${p.image}\nlabels: ${Object.entries(p.labels).map(([k, v]) => `${k}=${v}`).join(', ')}` }, el('b', {}, short(p)), el('code', {}, p.ip), el('span', { class: 'ns-tag' }, p.ready ? 'ready' : 'not ready')));
+        sec.append(ul);
+      }
+      for (const s of [...net.services.values()].filter((x) => x.ns === ns && !x.system)) {
+        const eps = net.endpoints(s);
+        const sp = s.ports.map((p) => `${p.port}→${p.targetPort}${p.nodePort ? ` · node port ${p.nodePort}` : ''}`).join(', ');
+        const line = el('div', { class: 'ns-svc' },
+          el('div', {}, el('b', {}, `svc/${s.name}`), ` ${s.type} ${s.clusterIP === 'None' ? '(headless)' : s.clusterIP} · ${sp}`, s.type === 'LoadBalancer' ? el('span', { class: 'ns-warn' }, ' · EXTERNAL-IP <pending>') : ''),
+          el('div', { class: 'muted' }, `selector ${s.selector ? selectorText(s.selector) : '<none>'} → `, eps.length ? eps.map((e) => `${e.pod.ip}${e.ready ? '' : ' (not ready)'}`).join(', ') : el('span', { class: 'ns-warn' }, 'no endpoints')));
+        sec.append(line);
+      }
+      for (const pol of [...net.policies.values()].filter((x) => x.ns === ns))
+        sec.append(el('div', { class: 'ns-pol' }, el('b', {}, `netpol/${pol.name}`), ` selects ${selectorText(pol.podSelector) === '<none>' ? 'every pod' : selectorText(pol.podSelector)} · ${pol.types.join(' + ')}`));
+      for (const ing of [...net.ingresses.values()].filter((x) => x.ns === ns))
+        sec.append(el('div', { class: 'ns-ing' }, el('b', {}, `ingress/${ing.name}`), ` class ${ing.className ?? '<none>'} · ${ing.rules.map((r) => `${r.host ?? '*'} → ${r.paths.map((p) => `${p.service}:${p.port}`).join(',')}`).join('; ')} · `, ing.address ? `address ${ing.address}` : el('span', { class: 'ns-warn' }, 'no address')));
+      return sec;
+    }));
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-netsim]')) {
+    const m = NET_MISSIONS[root.dataset.mission ?? ''];
+    if (!m) { root.querySelector('[data-view]')!.textContent = `Unknown mission "${root.dataset.mission}". This is a bug in the page.`; continue; }
+    let state: NetState = m.setup();
+    root.querySelector<HTMLElement>('[data-ns-pill]')!.textContent = `kubectl context namespace: ${m.ns}`;
+    const viewBox = root.querySelector<HTMLElement>('[data-view]')!;
+    const matrix = root.querySelector<HTMLElement>('[data-matrix]')!;
+    const cni = root.querySelector<HTMLElement>('[data-cni]')!;
+    const cniBox = root.querySelector<HTMLInputElement>('[data-cni-box]')!;
+    const install = root.querySelector<HTMLButtonElement>('[data-install]')!;
+    cni.hidden = !m.controls?.includes('cni');
+    install.hidden = !m.controls?.includes('ingress-controller');
+
+    // Editor tabs keep their elements across redraws (WebKit drops clicks on
+    // elements that are replaced under the pointer).
+    const editor = root.querySelector<HTMLElement>('[data-editor]')!;
+    const text = root.querySelector<HTMLTextAreaElement>('[data-text]')!;
+    const fname = root.querySelector<HTMLElement>('[data-fname]')!;
+    const tabs = root.querySelector<HTMLElement>('[data-tabs]')!;
+    let current = '';
+    const files = Object.keys(m.files ?? {});
+    editor.hidden = !files.length;
+    const tabBtns = files.map((f) => {
+      const b = el('button', { type: 'button', role: 'tab', class: 'ns-tab', 'data-file': f }, f) as HTMLButtonElement;
+      b.addEventListener('click', () => open(f));
+      tabs.append(b);
+      return b;
+    });
+    const open = (f: string) => {
+      current = f;
+      text.value = state.ctx.files[f] ?? '';
+      fname.textContent = f;
+      for (const b of tabBtns) b.setAttribute('aria-selected', String(b.dataset.file === f));
+    };
+    text.addEventListener('input', () => { if (current) state.ctx.files[current] = text.value; });
+    if (files.length) open(files[0]);
+
+    let refreshMission = () => {};
+    const draw = () => {
+      const net = state.ctx.net;
+      view(net, viewBox);
+      cniBox.checked = net.enforcing;
+      install.disabled = !!net.ingressController;
+      install.textContent = net.ingressController ? 'Ingress controller installed' : 'Install Ingress controller';
+      if (m.matrix) {
+        matrix.hidden = false;
+        const find = (n: string) => n === 'dns' ? net.podsIn('kube-system').find((p) => p.labels['k8s-app'] === 'kube-dns') : net.podsIn(m.ns).find((p) => p.owner === n || p.name === n);
+        root.querySelector('[data-mhead]')!.replaceChildren(el('tr', {}, el('th', {}, 'from ↓ to →'), ...m.matrix.to.map((t) => el('th', {}, t === 'dns' ? 'DNS (53)' : `${t} (8080)`))));
+        root.querySelector('[data-mbody]')!.replaceChildren(...m.matrix.from.map((f) => el('tr', {}, el('th', {}, f), ...m.matrix!.to.map((t) => {
+          const a = find(f), b = find(t);
+          if (!a || !b) return el('td', { class: 'na' }, '-');
+          if (a === b) return el('td', { class: 'na' }, 'itself');
+          const v = net.policyAllows(a, b, t === 'dns' ? 53 : 8080, t === 'dns' ? 'UDP' : 'TCP');
+          if (v.ok) return el('td', { class: 'yes' }, 'allowed');
+          return net.enforcing ? el('td', { class: 'no' }, `blocked (${v.side})`) : el('td', { class: 'inert' }, `"blocked", but connects`);
+        }))));
+        root.querySelector('[data-mnote]')!.textContent = !net.enforcing
+          ? 'This plugin ignores NetworkPolicy: every cell the policies block still connects.'
+          : net.inMesh(m.ns)
+            ? `Both ends must allow a connection. ${m.ns} is in the ambient mesh, so pod-to-pod traffic travels on port 15008 and that is the port both policies see; and ztunnel answers DNS for Service names itself, so the DNS column only matters for other names.`
+            : 'Both ends must allow a connection: the source\'s egress and the destination\'s ingress.';
+      }
+      refreshMission();
+    };
+
+    const term = mountTerminal(root.querySelector<HTMLElement>('[data-term]')!, {
+      prompt: '$',
+      greeting: [`Mission: ${m.title}. This terminal is your machine; kubectl talks to a two-node kind cluster.`, 'Type help for every command this sandbox understands.'],
+      onCommand: (line) => {
+        const outLines = run(state.ctx, line);
+        draw();
+        return outLines;
+      },
+    });
+    refreshMission = mountMission(root.querySelector<HTMLElement>('[data-mission-panel]')!, m, () => state, (cmd) => term.type(cmd));
+    root.querySelector('[data-apply]')!.addEventListener('click', () => { if (current) term.run(`kubectl apply -f ${current}`); });
+    cniBox.addEventListener('change', () => {
+      state.ctx.net.enforcing = cniBox.checked;
+      term.print([{ text: cniBox.checked ? 'The network plugin now enforces NetworkPolicy.' : 'Swapped to a network plugin that ignores NetworkPolicy. Every policy is still stored.', kind: 'dim' }]);
+      draw();
+    });
+    install.addEventListener('click', () => {
+      installController(state);
+      term.print([{ text: 'Installed a toy Ingress controller in namespace ingress-panda. It brought an IngressClass named panda, not marked as the default.', kind: 'dim' }]);
+      draw();
+    });
+    root.querySelector('[data-reset]')!.addEventListener('click', () => {
+      state = m.setup();
+      term.clear();
+      term.print([{ text: 'Fresh cluster.', kind: 'dim' }]);
+      if (files.length) open(current || files[0]);
+      draw();
+    });
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the cluster view, tabs and matrix are built by the script,
+     and Astro's scoped styles never reach elements it did not render. */
+  .netsim .ns-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 900px) { .netsim .ns-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+  .netsim .ns-left, .netsim .ns-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .netsim .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .netsim .ns-switch { display: inline-flex; gap: 6px; align-items: center; font-size: 0.82rem; min-width: 0; }
+  .netsim .ns-switch[hidden], .netsim [data-install][hidden], .netsim .ns-editor[hidden], .netsim .ns-matrix[hidden] { display: none; }
+  .netsim .ns-editor { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .netsim .ns-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .netsim .ns-tab { border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 3px 9px; font: 600 0.78rem var(--mono); cursor: pointer; }
+  .netsim .ns-tab[aria-selected="true"] { background: var(--sky); color: var(--chip-ink); border-color: var(--sky); }
+  .netsim textarea { width: 100%; min-height: 220px; resize: vertical; font: 0.8rem/1.4 var(--mono); background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px; box-sizing: border-box; }
+  .netsim .ns-edit-foot { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .netsim .small { font-size: 0.78rem; }
+  .netsim .ns-view, .netsim .ns-matrix { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .netsim .ns-space { border-top: 1px dashed var(--line-2); padding-top: 6px; margin-top: 6px; font-size: 0.82rem; overflow-wrap: anywhere; }
+  .netsim .ns-space:first-child { border-top: 0; margin-top: 0; }
+  .netsim .ns-space h4 { margin: 0 0 4px; font: 700 0.8rem var(--mono); }
+  .netsim .ns-line { margin: 0; }
+  .netsim .ns-line.bad, .netsim .ns-warn { color: var(--berry); font-weight: 600; }
+  .netsim .ns-pods { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  .netsim .ns-pods li { display: inline-flex; gap: 6px; align-items: baseline; border-radius: 8px; padding: 2px 8px; font-size: 0.76rem; border: 1px solid var(--line-2); background: var(--panel); }
+  .netsim .ns-pods li.ok .ns-tag { color: var(--bamboo); }
+  .netsim .ns-pods li.unready { border-style: dashed; }
+  .netsim .ns-pods li.unready .ns-tag { color: var(--sun-text); }
+  .netsim .ns-tag { font-weight: 700; font-size: 0.7rem; }
+  .netsim .ns-svc, .netsim .ns-pol, .netsim .ns-ing { margin: 3px 0; }
+  .netsim .ns-matrix table { border-collapse: collapse; width: 100%; font-size: 0.8rem; display: table; }
+  .netsim .ns-matrix th, .netsim .ns-matrix td { border: 1px solid var(--line-2); padding: 4px 6px; text-align: left; }
+  .netsim .ns-matrix td.yes { color: var(--bamboo); font-weight: 700; }
+  .netsim .ns-matrix td.no { color: var(--berry); font-weight: 700; }
+  .netsim .ns-matrix td.inert { color: var(--sun-text); font-weight: 700; }
+  .netsim .ns-matrix td.na { color: var(--muted); }
+</style>

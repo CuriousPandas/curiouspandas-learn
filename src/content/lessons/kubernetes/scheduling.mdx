@@ -82,20 +82,24 @@ Here's what the scheduler did each time it tried the third pod:
 />
 
 <Callout kind="real">
-Real scheduling checks much more than CPU and memory: taints and tolerations, node selectors and affinity, topology spread, volume zones and more. The event message lists every reason, for example `0/3 nodes are available: 1 node(s) had untolerated taint, 2 Insufficient memory.` The habit is the same: describe the pod and read the last lines.
+Real scheduling checks much more than CPU and memory: taints and tolerations, node selectors and affinity, topology spread, volume zones and more. The event message lists every reason. In v1.36 it begins like `0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient memory.` and goes on with the scheduler's verdict on preemption. The habit is the same: describe the pod and read the last lines.
+
+The bar and the `requested` figure on each node in the sandbox's picture are its own drawing. A real `kubectl get nodes` has no CPU column, and neither does the sandbox's: the numbers are in `kubectl describe node`, under "Allocated resources", on both.
 </Callout>
 
 <DoItForReal id="kube-sched-real">
 
-There's no dedicated tilt lab for this one; the minimal platform is enough. Ask for more CPU than any laptop has:
+There's no dedicated tilt lab for this one; the minimal platform is enough. In a scratch namespace, ask for more CPU than any laptop has. Run on 2026-11-03 against Kubernetes v1.36.1:
 
 ```bash
-kubectl create deployment big --image=nginx --replicas=2
-kubectl set resources deployment big --requests=cpu=100   # 100 whole CPUs
-kubectl get pods                     # one Pending, beside two Running from the first template
-kubectl get events --field-selector reason=FailedScheduling
-kubectl describe node | grep -A6 "Allocated resources"
-kubectl delete deployment big
+kubectl create namespace sched-lab
+kubectl -n sched-lab create deployment big --image=nginx:1.27-alpine --replicas=2
+kubectl -n sched-lab rollout status deploy/big
+kubectl -n sched-lab set resources deployment big --requests=cpu=100   # 100 whole CPUs
+kubectl -n sched-lab get pods        # one Pending, beside two Running from the first template
+kubectl -n sched-lab get events --field-selector reason=FailedScheduling
+kubectl describe node | grep -A9 "Allocated resources"
+kubectl delete namespace sched-lab
 ```
 
 </DoItForReal>

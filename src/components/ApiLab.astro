@@ -1,0 +1,97 @@
+---
+import '../styles/widgets.css';
+import { VERSIONS } from '../lib/kube-net/api.ts';
+interface Props { title?: string }
+const { title = 'API lab: what this cluster serves' } = Astro.props;
+---
+<div class="widget card alab" data-alab>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="spacer"></span>
+    <div class="al-controls">
+      <label>Cluster version <select data-version>{VERSIONS.map((v) => <option value={v} selected={v === 36}>1.{v}{v === 36 ? ' (tilt)' : ''}</option>)}</select></label>
+      <label class="al-check"><input type="checkbox" data-crd /> Bamboo CRD installed</label>
+      <button class="btn small" type="button" data-reset>Start over</button>
+    </div>
+  </div>
+  <div class="al-grid">
+    <div class="al-col">
+      <div class="al-presets"><span class="muted small">Load:</span>
+        <button class="btn small" type="button" data-preset="ingress">Old Ingress</button>
+        <button class="btn small" type="button" data-preset="bamboo">Bamboo</button>
+        <button class="btn small" type="button" data-preset="endpoints">Endpoints</button>
+      </div>
+      <textarea data-manifest rows="11" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="old.yaml"></textarea>
+      <div class="al-cmd"><code>kubectl apply -f old.yaml</code><button class="btn small primary" type="button" data-apply>Apply</button></div>
+      <div class="term al-term"><div class="term-out" data-out role="log" aria-live="polite"></div></div>
+      <p class="muted small">This sandbox reads apiVersion, kind and name. A v1 Ingress is also checked the way the API server checks it: unknown fields, a backend with a service name and a port, and a pathType on every path. It does not read the spec of the other kinds.</p>
+    </div>
+    <div class="al-col">
+      <div data-mission-panel></div>
+      <section class="al-box">
+        <div class="eyebrow">Served at 1.<span data-v></span> <span class="muted">· from the deprecation guide and the Kubernetes source</span></div>
+        <table><thead><tr><th>apiVersion</th><th>kind</th><th>here</th></tr></thead><tbody data-table></tbody></table>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { API_MISSION, applyApi, OLD_INGRESS, BAMBOO, ENDPOINTS, type ApiState } from '../lib/kube-net/lab-missions.ts';
+  import { APIS, CRD, served } from '../lib/kube-net/api.ts';
+  import { mountMission, el } from '../lib/ui.ts';
+
+  const PRESETS: Record<string, string> = { ingress: OLD_INGRESS, bamboo: BAMBOO, endpoints: ENDPOINTS };
+  for (const root of document.querySelectorAll<HTMLElement>('[data-alab]')) {
+    let state: ApiState = API_MISSION.setup();
+    const ver = root.querySelector<HTMLSelectElement>('[data-version]')!;
+    const crd = root.querySelector<HTMLInputElement>('[data-crd]')!;
+    const text = root.querySelector<HTMLTextAreaElement>('[data-manifest]')!;
+    const outBox = root.querySelector<HTMLElement>('[data-out]')!;
+    const refresh = mountMission(root.querySelector<HTMLElement>('[data-mission-panel]')!, API_MISSION, () => state);
+    const table = () => {
+      root.querySelector('[data-v]')!.textContent = String(state.minor);
+      const rows = APIS.filter((a) => a.kind !== 'Deployment').map((a) => {
+        const on = served(a, state.minor);
+        const dep = on && a.deprecated && state.minor >= a.deprecated;
+        return el('tr', { class: on ? (dep ? 'dep' : 'ok') : 'gone' }, el('td', {}, el('code', {}, a.group ? `${a.group}/${a.version}` : a.version)), el('td', {}, a.kind), el('td', {}, on ? (dep ? `served, deprecated${a.removed ? `, removed in 1.${a.removed}` : ''}` : 'served') : state.minor < a.since ? `not yet (1.${a.since})` : `removed in 1.${a.removed}`));
+      });
+      rows.push(el('tr', { class: state.crd ? 'ok' : 'gone' }, el('td', {}, el('code', {}, `${CRD.group}/${CRD.version}`)), el('td', {}, CRD.kind), el('td', {}, state.crd ? 'served (CRD)' : 'no CRD')));
+      root.querySelector('[data-table]')!.replaceChildren(...rows);
+    };
+    const fill = () => { ver.value = String(state.minor); crd.checked = state.crd; text.value = state.manifest; outBox.replaceChildren(el('div', { class: 'dim' }, 'Pick a version, load or edit a manifest, then Apply.')); table(); };
+    ver.addEventListener('change', () => { state.minor = Number(ver.value); outBox.append(el('div', { class: 'dim' }, `Now talking to a 1.${state.minor} cluster.`)); table(); });
+    crd.addEventListener('change', () => { state.crd = crd.checked; outBox.append(el('div', { class: 'dim' }, crd.checked ? 'customresourcedefinition.apiextensions.k8s.io/bamboos.panda.example.com created' : 'customresourcedefinition.apiextensions.k8s.io "bamboos.panda.example.com" deleted   (and with it, the docs say, every Bamboo object)')); table(); });
+    text.addEventListener('input', () => { state.manifest = text.value; });
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-preset]')) b.addEventListener('click', () => { state.manifest = PRESETS[b.dataset.preset!]; text.value = state.manifest; });
+    root.querySelector('[data-apply]')!.addEventListener('click', () => {
+      state.manifest = text.value;
+      const v = applyApi(state);
+      outBox.append(el('div', { class: 'cmd' }, `$ kubectl apply -f old.yaml   # cluster 1.${state.minor}`), ...v.lines.map((l) => el('div', { class: l.kind }, l.text)));
+      outBox.scrollTop = outBox.scrollHeight;
+      refresh();
+    });
+    root.querySelector('[data-reset]')!.addEventListener('click', () => { state = API_MISSION.setup(); fill(); refresh(); });
+    fill(); refresh();
+  }
+</script>
+
+<style is:global>
+  .alab .al-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 900px) { .alab .al-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+  .alab .al-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .alab .al-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .alab .al-controls label { min-width: 0; font-size: 0.85rem; }
+  .alab .al-check { display: inline-flex; gap: 6px; align-items: center; }
+  .alab .al-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .alab textarea { width: 100%; box-sizing: border-box; font: 0.8rem/1.4 var(--mono); background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px; resize: vertical; }
+  .alab .al-cmd { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .alab .al-term .term-out { min-height: 110px; max-height: 240px; }
+  .alab .al-box { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; overflow-x: auto; }
+  .alab .al-box table { display: table; border-collapse: collapse; width: 100%; font-size: 0.78rem; }
+  .alab .al-box th, .alab .al-box td { border: 1px solid var(--line-2); padding: 3px 6px; text-align: left; overflow-wrap: anywhere; }
+  .alab .al-box tr.gone td { color: var(--muted); }
+  .alab .al-box tr.dep td:last-child { color: var(--sun-text); font-weight: 700; }
+  .alab .al-box tr.ok td:last-child { color: var(--bamboo); font-weight: 700; }
+  .alab .small { font-size: 0.78rem; margin: 0; }
+</style>

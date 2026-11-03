@@ -1,0 +1,128 @@
+---
+title: Pending, and no event says why
+summary: Kubernetes is a handful of programs, and each one writes down only its own part. Stop one and its part goes quiet. Learn the control plane by switching its pieces off, and learn to read the silence.
+minutes: 18
+xp: 40
+tiers: [browser, machine]
+builds_on: [kubernetes/desired-state, kubernetes/objects-and-namespaces, kubernetes/scheduling]
+sources:
+  - title: Kubernetes docs - Kubernetes Components
+    url: https://kubernetes.io/docs/concepts/overview/components/
+  - title: Kubernetes docs - Pods (static Pods)
+    url: https://kubernetes.io/docs/concepts/workloads/pods/
+  - title: Kubernetes docs - Create static Pods
+    url: https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/
+  - title: Kubernetes docs - Container Runtime Interface (CRI)
+    url: https://kubernetes.io/docs/concepts/architecture/cri/
+---
+
+In [Why won't it schedule?](/learn/kubernetes/scheduling/) a Pending pod had an answer waiting for you: `kubectl describe pod`, last lines, a FailedScheduling event. Here is a Pending pod where those last lines say:
+
+```
+Events:                      <none>
+```
+
+That was a real kind cluster (Kubernetes 1.36.1) while this lesson was written. Nothing was wrong with the pod. The program that writes FailedScheduling events was not running. **No event is evidence too**: it tells you which part of Kubernetes isn't there.
+
+## The pieces
+
+The Kubernetes docs list the control plane's components in a line each:
+
+- **kube-apiserver**: "The core component server that exposes the Kubernetes HTTP API." Every other piece, and `kubectl`, talks only to it.
+- **etcd**: "Consistent and highly-available key value store for all API server data." The API server's memory.
+- **kube-scheduler**: "Looks for Pods not yet bound to a node, and assigns each Pod to a suitable node."
+- **kube-controller-manager**: "Runs controllers to implement Kubernetes API behavior." The ReplicaSet controller that replaced your deleted pod in [Desired state and self-healing](/learn/kubernetes/desired-state/) lives here, alongside many others.
+
+And on every node, the **kubelet**, which "Ensures that Pods are running, including their containers." It doesn't run containers itself. It asks the container runtime (containerd, on kind) through the **Container Runtime Interface**, which the docs call "the main protocol for the communication between the kubelet and Container Runtime." `crictl` is a command-line client for that same interface, which is why it can list containers when the API server can't.
+
+Each component does one job and records what it did in the API. Stop one, and that job stops, and so does the record of it.
+
+## Where the control plane runs
+
+On a cluster built with kubeadm (kind is one), the control-plane components are **static pods**. The docs: "Static Pods are managed directly by the kubelet daemon on a specific node, without the API server observing them." The kubelet reads them from files in `/etc/kubernetes/manifests` and runs whatever is there. Move a file out and the kubelet stops that component. Move it back and the kubelet starts it again.
+
+Each static pod also shows up in `kubectl -n kube-system get pods` as a **mirror pod**, the kubelet's report of it. `kube-system` is the namespace (a named area of the cluster) where Kubernetes keeps its own pieces. Deleting a mirror pod changes nothing: on our cluster the kubelet posted it again within seconds, and the docs say so too: "the kubelet doesn't remove the static Pod".
+
+## Switch them off
+
+Someone did maintenance on this cluster and didn't finish. A pod is Pending. Find out why, fix it, then break the next piece yourself.
+
+<OpsSim mission="ops-control-plane" title="ops: one control plane, two workers" />
+
+<Callout kind="trap">
+`kubectl get --raw /readyz` said `ok` on the real cluster with the scheduler stopped. It is the API server's health, not the cluster's. A green health check on one component tells you nothing about the others.
+</Callout>
+
+## What each silence means
+
+| Stopped | What you see | Why |
+|---|---|---|
+| kube-scheduler | New pods Pending with **no events** | The scheduler writes FailedScheduling; nothing else assigns nodes |
+| kube-controller-manager | Deleted pods not replaced; `kubectl get deploy` still shows the old READY count | Controllers do the replacing *and* write the status you are reading |
+| kube-apiserver | On kind: `Unable to connect to the server: EOF` | Nothing is answering; kubectl can't even ask |
+| a kubelet | That node's pods keep their last reported status, except that their Ready condition turns False | The next lesson |
+
+The EOF is kind's wording: Docker's port forward accepts the connection, then closes it. On a machine where nothing listens on the API server's port at all, such as a kubeadm VM, kubectl says `The connection to the server <host>:6443 was refused - did you specify the right host or port?` instead (we reproduced that wording with kubectl 1.37 against a closed port, which also printed a few `Couldn't get current server API group list` log lines first).
+
+The controller-manager row is the dangerous one. On the real cluster, with it stopped and one of two pods deleted, `kubectl get deploy` printed `2/2`. Status in Kubernetes is written by the controllers, so when they stop, status stops being true and doesn't say so.
+
+<Quiz
+  id="kube-cp-1"
+  q="A new pod has been Pending for ten minutes and kubectl describe shows Events: <none>. What is the most likely cause?"
+  options={["The pod requests too much CPU", "The scheduler isn't running, so nothing has tried to place the pod or written why not", "The image is missing"]}
+  answer={1}
+  explain="Too much CPU would produce a FailedScheduling event, and a missing image is the kubelet's problem after scheduling. No events at all means the scheduler never looked at it."
+/>
+
+<Quiz
+  id="kube-cp-2"
+  q="With kube-controller-manager stopped, you delete one pod of a 2-replica Deployment. What does kubectl get deploy show?"
+  options={["1/2, because one pod is gone", "Still 2/2: the controller that would update the status is the one that's stopped", "An error"]}
+  answer={1}
+  explain="The API server happily serves the Deployment's last written status. Nothing has rewritten it. This is why a silent controller is worse than a crashed pod: the dashboard stays green."
+/>
+
+<Quiz
+  id="kube-cp-3"
+  q="On a kubeadm cluster, how do you stop the scheduler and start it again?"
+  options={["kubectl delete pod kube-scheduler-<node>", "Move its manifest out of /etc/kubernetes/manifests on the control-plane node, then move it back", "kubectl scale deployment kube-scheduler --replicas=0"]}
+  answer={1}
+  explain="It's a static pod: the kubelet runs it from that file. Deleting the mirror pod does nothing lasting, and there is no Deployment to scale."
+/>
+
+<Callout kind="real">
+The sandbox models four components and a kubelet per node, each as a loop that runs or doesn't. Real ones have more state: leader election when there are several copies, caches, and restart back-off. A real cluster also runs more controllers than the three the sandbox has (ReplicaSet, node lifecycle and disruption budgets). Clients authenticate too: your kubeconfig file names the API server and carries a client certificate that the API server checks before it answers. The sandbox skips that; [Who can do what in a cluster](/learn/security/cluster-access/) covers what happens after.
+</Callout>
+
+## What to remember
+
+- Every component writes down only its own work. Missing events, or stale status, point at the component that should have written them.
+- On kubeadm clusters the control plane is static pods: files in `/etc/kubernetes/manifests` that the kubelet runs.
+- `readyz` is one component's health, not the cluster's.
+
+<DoItForReal id="kube-cp-real">
+
+Read-only, on the tilt platform. These ran on tiltdev while this lesson was written:
+
+```bash
+kubectl --context kind-tiltdev -n kube-system get pods -o wide
+docker exec tiltdev-control-plane ls /etc/kubernetes/manifests
+docker exec tiltdev-control-plane crictl ps
+kubectl --context kind-tiltdev get --raw='/readyz?verbose' | tail
+```
+
+The breaking part goes on a throwaway cluster, never on tilt:
+
+```bash
+kind create cluster --name ops-lab
+docker exec ops-lab-control-plane mv /etc/kubernetes/manifests/kube-scheduler.yaml /tmp/
+kubectl --context kind-ops-lab run p --image=nginx:1.27
+kubectl --context kind-ops-lab describe pod p          # Events: <none>
+docker exec ops-lab-control-plane mv /tmp/kube-scheduler.yaml /etc/kubernetes/manifests/
+kubectl --context kind-ops-lab get pod p -o wide       # scheduled within seconds
+kind delete cluster --name ops-lab
+```
+
+Every `kubectl` command, on tilt and on the throwaway cluster, names `--context`, so nothing lands on the wrong cluster whichever context kind leaves selected (after `kind delete cluster`, none is selected at all). Check with `kubectl config current-context` before you break anything.
+
+</DoItForReal>

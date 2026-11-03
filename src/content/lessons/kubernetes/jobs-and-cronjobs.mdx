@@ -1,0 +1,103 @@
+---
+title: The nightly job that stopped running
+summary: Some work should run once and finish, or run on a schedule. Jobs and CronJobs do that, and they fail quietly. Find a schedule that stopped with no error, run it by hand, and read how a failing Job gives up.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+builds_on: [kubernetes/restarts]
+sources:
+  - title: Kubernetes docs - CronJob
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
+  - title: Kubernetes docs - Jobs
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/job/
+  - title: Kubernetes source (release-1.36) - CronJob controller, the missed-schedules warning
+    url: https://github.com/kubernetes/kubernetes/blob/release-1.36/pkg/controller/cronjob/utils.go
+---
+
+Finance notices first: the nightly report hasn't arrived for a week. The CronJob is there. Its schedule is right. There are no errors in any event, no crashed pods, nothing red. It just hasn't made a Job since last Tuesday.
+
+## A Deployment that's meant to stop
+
+A Deployment keeps pods running for ever; if one exits, it's restarted. Some work is meant to **finish**: a report, a backup, a migration. That's a **Job**. It creates a pod, waits for it to exit successfully, and records the result:
+
+- **completions**: how many successful runs it needs (1 by default).
+- **backoffLimit**: how many failures it tolerates before giving up (6 by default).
+- **restartPolicy** on the pod must be `Never` or `OnFailure`. With `Never`, each failure leaves a failed pod behind and the Job makes a new one. With `OnFailure`, the same pod's container is restarted in place.
+
+After each failure the next try waits longer. On a kind v1.36.1 cluster, a Job whose pod failed immediately made its pods at about 0, 11, 32 and 73 seconds: roughly 10, 20 and 40 seconds apart. When failures pass `backoffLimit`, the Job is marked `Failed` with the event `Job has reached the specified backoff limit`, and the failed pods stay so you can read their logs.
+
+A **CronJob** makes a Job on a **schedule**, written in cron's five fields: minute, hour, day of month, month, day of week. `0 2 * * *` is 02:00 every day. `*/1 * * * *` is every minute. Each Job it makes is named after the CronJob plus the scheduled time as a number of minutes since 1970, which is why a real one is called something like `tick-29894752`.
+
+## Two quiet ways a schedule stops
+
+1. **suspend**. A CronJob has a field `spec.suspend`. Set it to `true`, during an incident say, and the controller makes no new Jobs. That's a valid, deliberate setting, so nothing ever reports it. The only sign is the SUSPEND column.
+2. **concurrencyPolicy: Forbid**. The docs: "if it is time for a new Job run and the previous Job run hasn't finished yet, the CronJob skips the new Job run." A run that gets slower than its interval silently skips every other slot. The only trace is a Normal event, `Not starting job because prior execution is running and concurrency policy is Forbid`.
+
+You may also read that a CronJob with **too many missed runs** stops. It doesn't, and it isn't quiet. When more than 100 scheduled times have passed since the last run, the v1.36 controller records a Warning event, `too many missed start times. Set or decrease .spec.startingDeadlineSeconds or check clock skew`, and then starts the most recent run anyway, unless a `startingDeadlineSeconds` you set has already passed for it (`pkg/controller/cronjob/utils.go`). The docs' sentence just before that message says "it does not start the Job", but the line just after it says what the source does: "This behavior is applicable for catch-up scheduling and does not mean the CronJob will stop running."
+
+## Find it, restart it, run it now
+
+In this sandbox a tick is 5 seconds of cluster time, so an every-minute schedule fires every 12 ticks.
+
+<KubeSim mission="kube-cron" title="A schedule with no error" />
+
+<Callout kind="tip">
+`kubectl create job <name> --from=cronjob/<cronjob>` runs a CronJob's template once, now. It's how you test a schedule's Job without waiting for the time to come round. The CronJob then complains about it with a Warning event, `Saw a job that the controller did not create or forgot`. That's harmless.
+</Callout>
+
+<Callout kind="trap">
+Resuming doesn't make up for lost time. The docs say that when suspend goes from true to false without a starting deadline, "the missed Jobs are scheduled immediately". On a kind v1.36.1 cluster, a CronJob suspended across one scheduled minute started exactly one Job the moment it was resumed, for the most recent missed minute. If each run covers "the day so far", that's fine. If each run covers one specific day, the skipped days are simply gone.
+</Callout>
+
+<Quiz
+  id="kube-job-1"
+  q="A CronJob hasn't made a Job in days. Its events are empty and its schedule is valid. What do you check first?"
+  options={["The node's clock", "kubectl get cronjob: the SUSPEND column", "The image tag"]}
+  answer={1}
+  explain="suspend: true stops all new runs and reports nothing, because it isn't an error. Forbid with a slow run is the other quiet cause. More than 100 missed schedules only warns: the newest run still starts."
+/>
+
+<Quiz
+  id="kube-job-2"
+  q="A Job has backoffLimit: 2 and its pod fails every time with restartPolicy Never. How many pods does it create before it's marked Failed?"
+  options={["2", "3: the first try plus two retries", "6"]}
+  answer={1}
+  explain="backoffLimit counts failures tolerated. The third failure exceeds 2, and the Job stops with 'Job has reached the specified backoff limit'. The failed pods are kept for their logs."
+/>
+
+<Quiz
+  id="kube-job-3"
+  q="Which schedule does the API server reject?"
+  options={["*/15 * * * *", "CRON_TZ=Europe/London 0 2 * * *", "0 2 * * 1-5"]}
+  answer={1}
+  explain="Time zones go in spec.timeZone. Putting CRON_TZ or TZ in the schedule is refused with 'cannot use TZ or CRON_TZ in schedule, use timeZone field instead'."
+/>
+
+<Callout kind="real">
+The sandbox's clock knows only UTC, so it refuses any `timeZone` other than UTC, and it doesn't model `startingDeadlineSeconds`, parallel Jobs or indexed completions. It never reaches 100 missed runs in a session either, so the "too many missed start times" warning is quoted from the source above rather than shown live. Its pods also take two ticks, 10 seconds, to start and fail, where a real one fails within a second or two, so its gaps between retries are longer than the 11, 21 and 41 seconds a real cluster showed.
+</Callout>
+
+## What to remember
+
+- A Job runs to completion; `backoffLimit` caps the failures, with a growing wait between tries.
+- A suspended CronJob is silent. So is a Forbid policy skipping runs. Look at SUSPEND, ACTIVE and LAST SCHEDULE.
+- `create job --from=cronjob/x` runs it once, now.
+- Missed runs aren't replayed one by one: resuming starts the latest.
+
+<DoItForReal id="kube-job-real">
+
+On the tilt platform, in a scratch namespace. Run on 2026-11-03 against Kubernetes v1.36.1.
+
+```bash
+kubectl create namespace cron-lab
+kubectl -n cron-lab create cronjob tick --image=busybox:1.36 --schedule='*/1 * * * *' -- date
+kubectl -n cron-lab get cronjob,jobs          # run again after a minute: a Job appears
+kubectl -n cron-lab patch cronjob tick -p '{"spec":{"suspend":true}}'
+kubectl -n cron-lab get cronjob tick          # SUSPEND True, and no error anywhere
+kubectl -n cron-lab create cronjob tz --image=busybox:1.36 --schedule='CRON_TZ=UTC */1 * * * *' -- date
+kubectl delete namespace cron-lab
+```
+
+The last `create` is refused with `cannot use TZ or CRON_TZ in schedule, use timeZone field instead`.
+
+</DoItForReal>

@@ -1,0 +1,129 @@
+---
+title: It works by IP, not by name
+summary: A Service's short name resolves only from its own namespace, and from anywhere else the lookup fails as if the Service didn't exist. Learn how CoreDNS names Services, why the debugging tool can disagree with your app, and what happens to a cluster when DNS goes away.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+builds_on: [network/dns-deep, kubernetes/pods-and-services]
+sources:
+  - title: Kubernetes docs - DNS for Services and Pods (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/
+  - title: Kubernetes docs - Debugging DNS Resolution (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
+  - title: Kubernetes docs - Service, headless Services (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/services-networking/service/
+  - title: resolv.conf(5) manual page (search, ndots)
+    url: https://man7.org/linux/man-pages/man5/resolv.conf.5.html
+---
+
+An app in namespace `tools` calls `http://web` and gets `curl: (6) Could not resolve host: web`. The `web` Service is fine. Other apps use it all day. Someone pastes its cluster IP into the URL and it answers at once. So "it works by IP, not by name", and the fix is not to hard-code the IP.
+
+## How a pod finds a Service
+
+Every cluster runs a DNS server for its own names. On kind and most clusters it's **CoreDNS**, running as pods in `kube-system` behind a Service still called `kube-dns` "for backward compatibility", the debugging guide says. The kubelet writes each pod's `/etc/resolv.conf` to point at it. On tilt, a pod in namespace `hello` gets:
+
+```text
+search hello.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+```
+
+On tilt the search line also ended with a domain inherited from the host machine; yours may differ.
+
+Each Service gets a name of the form `my-svc.my-namespace.svc.cluster.local`, which, in the docs' words, "resolves to the cluster IP of the Service." The **search list** is what lets you write less. You met it in [DNS, the deep end](/learn/network/dns-deep/): a name with fewer dots than `ndots` is tried with each search domain first. So `web`, typed in namespace `tools`, is tried as `web.tools.svc.cluster.local`, then `web.svc.cluster.local`, then `web.cluster.local`, and there is no `web` in `tools`. The docs put it plainly: "DNS queries that don't specify a namespace are limited to the Pod's namespace."
+
+Add the namespace and the search list does the rest: `web.shop` becomes `web.shop.svc.cluster.local` on the second try. The docs give the same example: a pod in `test` "can successfully resolve either data.prod or data.prod.svc.cluster.local."
+
+A **headless** Service (`clusterIP: None`) has no cluster IP to hand out. Its name "resolves to the set of IPs of all of the Pods selected by the Service", so a client gets one address per ready pod and picks one itself. No proxy translates the port, either: the client connects straight to the pod, so it must use the port the pod listens on, not the Service's `port`.
+
+## The tool that disagrees with your app
+
+The usual way to debug this is `nslookup` from a pod. On tilt, with `busybox:1.36`, we found it doesn't do what the app does:
+
+| From a pod in another namespace | curl (the app's resolver) | busybox 1.36 nslookup |
+|---|---|---|
+| `hello` | `Could not resolve host` | NXDOMAIN for each search domain |
+| `hello.hello` | works | `server can't find hello.hello: NXDOMAIN` |
+| `hello.hello.svc.cluster.local` | works | works |
+
+busybox's nslookup applied the search list only to a name with no dot in it, and sent `hello.hello` as typed. It also printed NXDOMAIN lines for the search domains that missed, even when another one answered, and then exited with status 1. So test with the full name, and treat curl as the truth about what the app sees. The Kubernetes debugging guide uses a different image, `dnsutils`, whose nslookup we did not test.
+
+Now break it properly. You're in namespace `tools`; the `web` Service lives in `shop`.
+
+<NetSim mission="kube-net-dns" title="Names across namespaces, and a cluster without DNS" />
+
+<Callout kind="trap">
+With CoreDNS gone, every app reports the same thing: could not resolve host. Nothing in that message says "DNS server down" rather than "no such Service". Check both halves separately: `kubectl -n kube-system get pods -l k8s-app=kube-dns`, and a request to the Service's IP. If the IP works and the name doesn't, the Service is fine and DNS isn't.
+</Callout>
+
+<Callout kind="tip">
+A name ending in a dot, like `web.shop.svc.cluster.local.`, skips the search list entirely. Without the dot, even the full name has only four dots, fewer than `ndots:5`, so it is tried with every search domain first and gets an NXDOMAIN for each before the real lookup.
+</Callout>
+
+<Quiz
+  id="kube-dns-1"
+  q="A pod in namespace tools calls http://web and gets 'Could not resolve host'. The Service web exists in namespace shop. Why?"
+  options={["CoreDNS is down", "A short name is searched in the pod's own namespace first, and tools has no Service called web", "Services can't be reached across namespaces"]}
+  answer={1}
+  explain="The search list starts with tools.svc.cluster.local, so web means web.tools. Use web.shop or the full name. Cross-namespace traffic is allowed unless a NetworkPolicy says otherwise."
+/>
+
+<Quiz
+  id="kube-dns-2"
+  q="With busybox:1.36, nslookup web.shop says NXDOMAIN, but curl http://web.shop from the same pod works. Which is right about what the app sees?"
+  options={["nslookup: it asks DNS directly", "curl: it uses the resolver the app uses, which applies the search list; busybox's nslookup sends a dotted name as typed", "Neither; DNS is flaky"]}
+  answer={1}
+  explain="Measured on tilt: busybox 1.36's nslookup only searched names with no dot. Look up the full name with nslookup, and trust a request for what the app experiences."
+/>
+
+<Quiz
+  id="kube-dns-3"
+  q="What does a headless Service's name resolve to?"
+  options={["The cluster IP", "The IP of each ready pod it selects", "Nothing; headless Services have no DNS"]}
+  answer={1}
+  explain="No cluster IP is allocated, so DNS returns the pod addresses themselves, and the client connects to a pod directly, on the pod's own port."
+/>
+
+<Callout kind="real">
+The sandbox's CoreDNS answers Service and pod names and refuses outside names, because it has no internet. A real CoreDNS forwards everything else upstream (`forward . /etc/resolv.conf` in kind's Corefile) and caches answers. We didn't scale CoreDNS to zero on the shared tilt cluster; we did it on a throwaway kind cluster (below), and first measured the same state on tilt without touching its CoreDNS: a pod whose only DNS server was a Service with no pods behind it. curl said `(6) Could not resolve host` after about five seconds (when we blocked DNS with a policy and used `-m 5`, curl's own timer ran out first and it said `(28) Resolving timed out` instead; the sandbox does the same in both cases), a request by IP still answered, and busybox's nslookup printed `connection timed out` and `write to '...': Connection refused`, which is what the sandbox shows.
+</Callout>
+
+<DoItForReal id="kube-dns-real" profile="minimal">
+
+Read-only on tilt, plus throwaway pods that delete themselves, in a scratch namespace that is deleted at the end. Deleting it also cleans up a pod left behind by an interrupted command. These ran on Kubernetes 1.36.1.
+
+```bash
+kubectl -n kube-system get deploy,svc -l k8s-app=kube-dns    # coredns 2/2, kube-dns 10.96.0.10
+kubectl -n kube-system get cm coredns -o yaml                # the Corefile: kubernetes cluster.local ..., forward . /etc/resolv.conf
+kubectl create namespace dns-lab
+kubectl -n dns-lab run dnstest --rm -it --image=busybox:1.36 --restart=Never -- cat /etc/resolv.conf
+kubectl -n dns-lab run dnstest --rm -it --image=busybox:1.36 --restart=Never -- nslookup hello                         # NXDOMAIN: there is no hello in dns-lab
+kubectl -n dns-lab run dnstest --rm -it --image=busybox:1.36 --restart=Never -- nslookup hello.hello                   # also NXDOMAIN, from this nslookup
+kubectl -n dns-lab run dnstest --rm -it --image=busybox:1.36 --restart=Never -- nslookup hello.hello.svc.cluster.local # Address: hello's cluster IP
+kubectl -n dns-lab run curltest --rm -it --image=curlimages/curl:8.11.1 --restart=Never -- curl -sS -m 5 -o /dev/null -w '%{http_code}\n' http://hello.hello   # 200
+kubectl delete namespace dns-lab
+```
+
+`kubectl run --rm` prints a notice about the session being recorded, and the pod's deletion, around the output. Breaking CoreDNS is a job for a throwaway cluster, never the shared one. We ran this on a one-node kind cluster with tilt's 1.36.1 node image:
+
+```bash
+kind create cluster --name dns-lab
+kubectl create deployment web --image=ghcr.io/stefanprodan/podinfo:6.9.1 --port=9898
+kubectl expose deploy web --port=80 --target-port=9898
+kubectl run client --image=curlimages/curl:8.11.1 --restart=Never --command -- sleep 3600
+kubectl wait --for=condition=Ready pod/client
+kubectl -n kube-system scale deploy coredns --replicas=0
+kubectl exec client -- curl -sS -m 30 http://web                 # curl: (6) Could not resolve host: web
+kubectl exec client -- curl -sS -m 5 http://$(kubectl get svc web -o jsonpath='{.spec.clusterIP}')   # the page, by IP
+kubectl -n kube-system scale deploy coredns --replicas=2
+kind delete cluster --name dns-lab
+```
+
+</DoItForReal>
+
+## What to remember
+
+- A Service is `name.namespace.svc.cluster.local`. A short name is searched in the asking pod's own namespace first.
+- `name.namespace` works from anywhere, through the search list.
+- busybox's nslookup didn't search dotted names in our test. Look up full names, and use a real request to see what the app sees.
+- If the IP works and the name doesn't, look at CoreDNS before the Service.
