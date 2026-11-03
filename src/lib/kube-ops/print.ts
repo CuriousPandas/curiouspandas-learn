@@ -76,8 +76,21 @@ export function tokenize(line: string): string[] {
   return outp;
 }
 
+/**
+ * Flags real kubectl 1.37 accepts that the sandboxes don't model. Answering
+ * these with kubectl's own "error: unknown flag" would tell the learner a real
+ * flag doesn't exist, which is the one thing a sandbox must never claim. The
+ * list was checked, flag by flag, against kubectl 1.37.2's `kubectl options`
+ * and the --help of every verb the sandboxes run (2026-11-03).
+ */
+export const REAL_KUBECTL_FLAGS = new Set(['--context', '--kubeconfig', '--cluster', '--user', '--server', '-s', '--token', '--as', '--as-group', '--request-timeout', '--insecure-skip-tls-verify', '-v', '--v',
+  '-n', '--namespace', '-A', '--all-namespaces', '-l', '--selector', '--field-selector', '--all', '-o', '--output', '--show-labels', '-L', '--label-columns', '--sort-by', '--no-headers', '-w', '--watch', '--watch-only',
+  '-f', '--filename', '-k', '--kustomize', '-R', '--recursive', '--dry-run', '--server-side', '--force-conflicts', '--field-manager', '--prune', '--wait', '--timeout', '--grace-period', '--now', '--force', '--cascade',
+  '--ignore-not-found', '--overwrite', '--type', '-p', '--patch', '--replicas', '--current-replicas', '--image', '-c', '--container', '-i', '--stdin', '-t', '--tty', '-q', '--quiet', '--chunk-size', '--raw', '--subresource',
+  '--ignore-daemonsets', '--delete-emptydir-data', '--disable-eviction', '--pod-selector', '--skip-wait-for-delete-timeout', '--min-available', '--max-unavailable', '--client', '--validate', '--save-config', '--edit']);
+
 /** Flags in `--name=value` or `--name value` form, with a list of those that take a value. */
-export function parseFlags(args: string[], valued: Set<string>, known: Set<string>): { pos: string[]; flags: Map<string, string> } {
+export function parseFlags(args: string[], valued: Set<string>, known: Set<string>, real: Set<string> = REAL_KUBECTL_FLAGS): { pos: string[]; flags: Map<string, string> } {
   const pos: string[] = [];
   const flags = new Map<string, string>();
   for (let i = 0; i < args.length; i++) {
@@ -86,7 +99,11 @@ export function parseFlags(args: string[], valued: Set<string>, known: Set<strin
     if (!a.startsWith('-') || a === '-') { pos.push(a); continue; }
     const eq = a.indexOf('=');
     const name = eq > 0 ? a.slice(0, eq) : a;
-    if (!known.has(name)) throw new CmdError(`error: unknown flag: ${name}\n(the sandbox knows: ${[...known].sort().join(' ')})`);
+    if (!known.has(name)) {
+      if (name === '--context') throw new CmdError('sandbox: --context is real kubectl, and you should always pass it on a real machine. This sandbox has one cluster and does not model it: leave it out here.');
+      if (real.has(name)) throw new CmdError(`sandbox: ${name} is a real kubectl flag, but this sandbox does not model it here.\n(the sandbox knows: ${[...known].sort().join(' ')})`);
+      throw new CmdError(`error: unknown flag: ${name}\n(the sandbox knows: ${[...known].sort().join(' ')})`);
+    }
     if (eq > 0) flags.set(name, a.slice(eq + 1));
     else if (valued.has(name)) {
       if (i + 1 >= args.length) throw new CmdError(`error: flag needs an argument: ${name}`);
@@ -94,6 +111,51 @@ export function parseFlags(args: string[], valued: Set<string>, known: Set<strin
     } else flags.set(name, 'true');
   }
   return { pos, flags };
+}
+
+/**
+ * Go's time.ParseDuration, which is what kubectl uses for --timeout: a sign,
+ * then one or more number+unit pairs ("1m30s", "1.5h", "250ms"), or a bare
+ * "0". Returns seconds. The messages are Go's, as kubectl 1.37.2 printed them
+ * for `drain --timeout=30` and `--timeout=abc`; a strict `\d+(s|m)` used to
+ * refuse "1m30s" and "2h", which kubectl accepts.
+ */
+export function goDuration(s: string): number {
+  const q = JSON.stringify(s);
+  const units: Record<string, number> = { ns: 1e-9, us: 1e-6, 'µs': 1e-6, 'μs': 1e-6, ms: 1e-3, s: 1, m: 60, h: 3600 };
+  let rest = s, sign = 1;
+  if (rest[0] === '-' || rest[0] === '+') { if (rest[0] === '-') sign = -1; rest = rest.slice(1); }
+  if (rest === '0') return 0;
+  if (!rest) throw new CmdError(`time: invalid duration ${q}`);
+  let total = 0;
+  while (rest) {
+    const num = /^(\d*)(\.\d*)?/.exec(rest)!;
+    if (!num[0] || num[0] === '.') throw new CmdError(`time: invalid duration ${q}`);
+    rest = rest.slice(num[0].length);
+    const unit = /^[^\d.]*/.exec(rest)![0];
+    if (!unit) throw new CmdError(`time: missing unit in duration ${q}`);
+    if (!(unit in units)) throw new CmdError(`time: unknown unit ${JSON.stringify(unit)} in duration ${q}`);
+    rest = rest.slice(unit.length);
+    total += Number(num[0].startsWith('.') ? '0' + num[0] : num[0]) * units[unit];
+  }
+  return sign * total;
+}
+
+/**
+ * Go's Duration.String(), which is how kubectl drain prints its timeout in
+ * "global timeout reached: %v": 60s comes back as "1m0s", not "60s".
+ */
+export function goDurationString(secs: number): string {
+  if (secs === 0) return '0s';
+  const neg = secs < 0 ? '-' : '';
+  let s = Math.abs(secs);
+  const trim = (n: number) => String(Number(n.toFixed(9)));
+  if (s < 1e-6) return `${neg}${trim(s * 1e9)}ns`;
+  if (s < 1e-3) return `${neg}${trim(s * 1e6)}µs`;
+  if (s < 1) return `${neg}${trim(s * 1e3)}ms`;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  return `${neg}${h ? `${h}h` : ''}${h || m ? `${m}m` : ''}${trim(s)}s`;
 }
 
 /** A pseudo-random suffix that is stable for a given seed, so tests see the same pod names every run. */

@@ -4,7 +4,7 @@
 // becomes Ready again), and the checklist re-judges every step on every tick.
 
 import type { Mission } from '../missions.ts';
-import { Ops } from './ops.ts';
+import { Ops, skew } from './ops.ts';
 import { run, tickJobs, interrupt, type Ctx } from './kubectl.ts';
 import type { Out } from './print.ts';
 
@@ -88,7 +88,7 @@ export const NODE_MISSION: Mission<OpsState> = {
     { text: 'Read the node\'s own log for why it went quiet', hint: 'docker exec ops-worker journalctl -u kubelet', done: latch('n6', (s) => has(s, 'journal:ops-worker:false')) },
     { text: 'Start the kubelet and get ops-worker Ready', hint: 'docker exec ops-worker systemctl start kubelet', done: latch('n7', (s) => !!s.ctx.ops.node('ops-worker')?.ready && s.latched.has('n5')) },
   ],
-  debrief: 'NotReady came about 50 seconds after the kubelet stopped (the node-monitor grace period), and the pods there went on saying Running, because the kubelet that updates them was the thing that stopped. Five minutes later the default toleration ran out: hello\'s pods were replaced elsewhere, and p, a pod with no controller, was simply gone. On the real cluster the old containers were still running on the node the whole time. Nobody had told them.',
+  debrief: 'NotReady came about 50 seconds after the kubelet stopped (the node-monitor grace period). The pods there went on saying Running, because the kubelet that updates them was the thing that stopped, but the node controller did set their Ready condition to False at that moment, which is what takes a pod out of its Service\'s endpoints. Five minutes later the default toleration ran out: hello\'s pods were replaced elsewhere, and p, a pod with no controller, had nothing to replace it. It sat in Terminating until its kubelet came back (deleting the Node object, or force-deleting the pod, would also have ended it). On the real cluster the old containers were still running on the node the whole time. Nobody had told them.',
 };
 
 // ---- drain-and-disruption: the drain that never finished ------------------------
@@ -122,6 +122,15 @@ function upgradeWorld() {
   return o;
 }
 const kubeletDone = (o: Ops, name: string) => { const n = o.node(name); return !!n && n.kubelet.version === 'v1.36.1' && !!n.drainedWhenReplaced && !n.unschedulable && n.ready; };
+/**
+ * A node step passes only on a supported path: the control plane upgraded
+ * first, every skew rule holding now, and this node's kubelet never having
+ * run newer than the API server on the way. Without this, a 1.36.1 kubelet
+ * against a 1.35.0 API server, with the worker's kubeadm never upgraded,
+ * ticked the worker step.
+ */
+const supported = (s: OpsState, name: string) => s.latched.has('u3') && !s.ctx.ops.kubeletAhead.has(name) && skew(s.ctx.ops).every((c) => c.ok);
+const skewWhy = (s: OpsState, name: string) => s.ctx.ops.kubeletAhead.has(name) ? `The kubelet on ${name} ran newer than the API server, which the skew policy never supports. Upgrade the control plane first; Start over to try that order.` : '';
 
 export const UPGRADE_MISSION: Mission<OpsState> = {
   id: 'ops-upgrade', title: 'You can\'t skip a minor version', xp: 90,
@@ -134,14 +143,14 @@ export const UPGRADE_MISSION: Mission<OpsState> = {
     {
       text: 'Upgrade the control plane\'s kubelet: drain, replace, restart, uncordon',
       hint: 'kubectl drain ops-control-plane --ignore-daemonsets  then  docker cp v1.36.1/kubelet ops-control-plane:/usr/bin/kubelet  then  docker exec ops-control-plane systemctl restart kubelet  then  kubectl uncordon ops-control-plane',
-      done: latch('u5', (s) => kubeletDone(s.ctx.ops, 'ops-control-plane')),
-      why: (s) => { const n = s.ctx.ops.node('ops-control-plane'); return n && n.kubeletBinary === 'v1.36.1' && !n.drainedWhenReplaced ? 'The new kubelet went in while pods were still on the node. The docs say drain first for a minor upgrade: drain, copy it in again, restart.' : ''; },
+      done: latch('u5', (s) => kubeletDone(s.ctx.ops, 'ops-control-plane') && supported(s, 'ops-control-plane')),
+      why: (s) => { const n = s.ctx.ops.node('ops-control-plane'); return skewWhy(s, 'ops-control-plane') || (n && n.kubeletBinary === 'v1.36.1' && !n.drainedWhenReplaced ? 'The new kubelet went in while pods were still on the node. The docs say drain first for a minor upgrade: drain, copy it in again, restart.' : ''); },
     },
     {
       text: 'Upgrade ops-worker: drain, kubeadm upgrade node, kubelet, restart, uncordon',
       hint: 'kubectl drain ops-worker --ignore-daemonsets  then  docker cp v1.36.1/kubeadm ops-worker:/usr/bin/kubeadm  then  docker exec ops-worker kubeadm upgrade node  then  docker cp v1.36.1/kubelet ops-worker:/usr/bin/kubelet  then  docker exec ops-worker systemctl restart kubelet  then  kubectl uncordon ops-worker',
-      done: latch('u6', (s) => has(s, 'kubeadm-node:ops-worker') && kubeletDone(s.ctx.ops, 'ops-worker')),
-      why: (s) => { const n = s.ctx.ops.node('ops-worker'); if (n && n.kubeletBinary === 'v1.36.1' && !n.drainedWhenReplaced) return 'The new kubelet went in while web was still on ops-worker. Drain it, copy the kubelet in again, restart.'; if (n?.kubelet.version === 'v1.36.1' && !has(s, 'kubeadm-node:ops-worker')) return 'Run kubeadm upgrade node on ops-worker too: it upgrades the node\'s kubelet configuration.'; return ''; },
+      done: latch('u6', (s) => has(s, 'kubeadm-node:ops-worker') && s.ctx.ops.node('ops-worker')?.kubeadm === 'v1.36.1' && kubeletDone(s.ctx.ops, 'ops-worker') && supported(s, 'ops-worker')),
+      why: (s) => { const n = s.ctx.ops.node('ops-worker'); const sk = skewWhy(s, 'ops-worker'); if (sk) return sk; if (n && n.kubeletBinary === 'v1.36.1' && !n.drainedWhenReplaced) return 'The new kubelet went in while web was still on ops-worker. Drain it, copy the kubelet in again, restart.'; if (n?.kubelet.version === 'v1.36.1' && !has(s, 'kubeadm-node:ops-worker')) return 'Run kubeadm upgrade node on ops-worker too: it upgrades the node\'s kubelet configuration.'; return ''; },
     },
   ],
   debrief: 'kubeadm refused the leap before touching anything: one minor version at a time is a rule it enforces, not advice. The control plane went first, and the VERSION column, which is each node\'s kubelet, lagged until each node was drained and its kubelet replaced. Every step on the way kept a supported skew: kubelets never newer than the API server, never more than three minors behind.',
@@ -169,10 +178,20 @@ export const RESTORE_MISSION: Mission<OpsState> = {
     { text: 'Create a namespace called after-snap: something the snapshot does not have', hint: 'kubectl create namespace after-snap', done: latch('r2', (s) => s.latched.has('r1') && has(s, 'created-ns:after-snap')) },
     { text: 'Restore the snapshot into a new directory', hint: 'kubectl -n kube-system exec etcd-ops-control-plane -- etcdutl --data-dir /var/lib/etcd/restored snapshot restore /var/lib/etcd/snap.db', done: latch('r3', (s) => has(s, 'etcd-restored')) },
     { text: 'Point etcd\'s manifest at that directory, and wait for the API to come back', hint: "docker exec ops-control-plane sed -i 's#path: /var/lib/etcd$#path: /var/lib/etcd/restored#' /etc/kubernetes/manifests/etcd.yaml  then  kubectl get ns", done: latch('r4', (s) => has(s, 'etcd-manifest-pointed') && s.ctx.ops.api() === 'ok' && has(s, 'get:ns')) },
-    { text: 'Is after-snap gone? Look', hint: 'kubectl get ns', done: latch('r5', (s) => s.latched.has('r4') && has(s, 'get-ns:after-snap:true')) },
-    { text: 'Restart the API server (move its manifest out and back) and look again', hint: 'docker exec ops-control-plane mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/  then  wait  then  docker exec ops-control-plane mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/  then  kubectl get ns', done: latch('r6', (s) => s.latched.has('r5') && has(s, 'get-ns:after-snap:false')) },
+    // r5 and r6 accept both orders. Restored with the API server running (the
+    // lesson's wrong way round), after-snap is still listed until a restart.
+    // Restored the docs' way (API server stopped first), it is gone at the first
+    // look; that used to leave r5 unreachable, failing the learner who did it right.
+    { text: 'Is after-snap gone? Look', hint: 'kubectl get ns', done: latch('r5', (s) => s.latched.has('r4') && some(s, /^restored-view:after-snap:/)) },
+    {
+      text: 'If it is still listed, restart the API server (move its manifest out and back) and look again',
+      hint: 'docker exec ops-control-plane mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/  then  wait  then  docker exec ops-control-plane mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/  then  kubectl get ns',
+      // The restore has to be what removed it: deleting after-snap by hand does not count.
+      done: latch('r6', (s) => s.latched.has('r5') && s.ctx.ops.droppedByRestore.includes('after-snap') && has(s, 'restored-view:after-snap:false')),
+      why: (s) => s.latched.has('r5') && !s.ctx.ops.droppedByRestore.includes('after-snap') ? 'after-snap was already gone before the restore, so the restore had nothing to remove. Start over, and leave it for the restore.' : '',
+    },
   ],
-  debrief: 'etcd was serving the snapshot as soon as it restarted, but the API server still answered from what it had cached, so after-snap looked alive. The docs say to stop every API server before a restore and start them after, and now you have seen why. The snapshot itself lived on the node\'s disk: delete the cluster and it goes too, which is the backups-that-restore lesson in Kubernetes form.',
+  debrief: 'etcd was serving the snapshot as soon as it restarted on the restored directory. If you restored with the API server running, it still answered from what it had cached, so after-snap looked alive until the API server restarted. If you stopped the API server first, as the docs say, after-snap was gone at the first look: that is why the docs give that order. Either way, anything created after the restore is in etcd and stays. The snapshot itself lived on the node\'s disk: delete the cluster and it goes too, which is the backups-that-restore lesson in Kubernetes form.',
 };
 
 export const OPS_MISSIONS: Record<string, Mission<OpsState>> = Object.fromEntries(

@@ -54,9 +54,13 @@ The Kubernetes docs are specific about restoring:
 
 > If any API servers are running in your cluster, you should not attempt to restore instances of etcd.
 
-Their steps instead: stop every API server, restore every etcd member, then start the API servers again.
+Their steps instead: stop every API server, restore every etcd member, then start the API servers again. The same caution goes on:
+
+> The Kubernetes project also recommends restarting Kubernetes components (`kube-scheduler`, `kube-controller-manager`, `kubelet`) to ensure that they don't rely on some stale data.
 
 We did it the wrong way round on purpose, on a throwaway one-node kind cluster (etcd 3.6.8, Kubernetes 1.36.1): restored with the API server running. etcd came back on the snapshot within about a minute; its member ID changed, which is how we knew. And `kubectl get ns` still listed `after-snap`, a namespace created *after* the snapshot. The API server was answering from its own cache of what etcd used to hold. Only after we restarted the API server did `kubectl get ns after-snap` say `NotFound`. Nothing warned us in between.
+
+The sandbox below lets you do it either way. Restore with the API server running and you see the stale cache; stop it first, the docs' way, and `after-snap` is gone at the first look. Whatever you create after the restore is written to the restored etcd, and stays.
 
 <OpsSim mission="ops-restore" title="ops: snapshot, restore, look twice" />
 
@@ -108,7 +112,7 @@ With n members and quorum q = ⌊n/2⌋ + 1 (⌊ ⌋ means round down), the clus
 Read-only on tilt (run on tiltdev while writing this). One member, so no tolerance at all, which is fine for a laptop and worth knowing:
 
 ```bash
-kubectl -n kube-system exec etcd-tiltdev-control-plane -- etcdctl \
+kubectl --context kind-tiltdev -n kube-system exec etcd-tiltdev-control-plane -- etcdctl \
   --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key \
   member list -w table

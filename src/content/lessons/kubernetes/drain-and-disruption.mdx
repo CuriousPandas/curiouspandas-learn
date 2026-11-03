@@ -53,7 +53,7 @@ Two kinds of pod stop a drain before any eviction is tried. Both refusals are co
 - `cannot delete DaemonSet-managed Pods (use --ignore-daemonsets to ignore)`. A DaemonSet runs one pod per node and would only put it straight back, so drain wants you to say "skip them". Nearly every drain needs `--ignore-daemonsets`.
 - `cannot delete Pods that declare no controller (use --force to override)`. A pod made with plain `kubectl run` has nothing to recreate it. `--force` deletes it anyway, and it is gone for good.
 
-The tilt platform adds a third: its dry run listed every pod that uses an `emptyDir` scratch volume under `cannot delete Pods with local storage (use --delete-emptydir-data to override)`, because draining deletes that data.
+The tilt platform adds a third: its dry run listed every pod that uses an `emptyDir` scratch volume under `cannot delete Pods with local storage (use --delete-emptydir-data to override)`, because draining deletes that data. (On our tiltdev, 27 pods on the worker had one.) And if any pod on the worker was made with plain `kubectl run`, the dry run also lists it under `cannot delete Pods that declare no controller (use --force to override)`. How many there are depends on what people have left running, so read the refusals: they are the list of what a real drain would cost.
 
 Note the order: drain cordons **first**. A drain that fails leaves the node cordoned, taking no new pods, until someone runs `kubectl uncordon`. That is often what you want during maintenance, and easy to forget afterwards.
 
@@ -107,9 +107,9 @@ The sandbox's eviction loop retries every tick, which is 5 seconds, the same ret
 Read-only on tilt (run on tiltdev while writing this). A client dry run cordons nothing:
 
 ```bash
-kubectl get pdb -A
-kubectl drain tiltdev-worker --dry-run=client --ignore-daemonsets
-kubectl get nodes          # still Ready, not SchedulingDisabled
+kubectl --context kind-tiltdev get pdb -A
+kubectl --context kind-tiltdev drain tiltdev-worker --dry-run=client --ignore-daemonsets
+kubectl --context kind-tiltdev get nodes          # still Ready, not SchedulingDisabled
 ```
 
 Read what it would evict, and why this lesson says not to do it for real. Then, on a throwaway one-node cluster (kind leaves a one-node cluster's control plane schedulable), the steps we ran:

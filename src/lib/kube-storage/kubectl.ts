@@ -44,7 +44,11 @@ function target(pos: string[]): { kind: string; names: string[] } {
   return { kind: kindOf(pos[0]), names: pos.slice(1) };
 }
 
-const notFound = (kind: string, name: string) => new CmdError(`Error from server (NotFound): ${FULL[kind].replace(/\..*$/, '').replace('persistentvolumeclaim', 'persistentvolumeclaims').replace('persistentvolume', 'persistentvolumes').replace(/^(pod|service)$/, '$1s').replace(/^storageclass$/, 'storageclasses.storage.k8s.io').replace(/^statefulset$/, 'statefulsets.apps')} "${name}" not found`);
+// The resource names in NotFound errors. A chain of string replaces used to
+// build these and turned the claim's into "persistentvolumesclaims", in every
+// claim NotFound the sandbox printed. Real (tiltdev): persistentvolumeclaims "rwop" not found.
+const RESOURCE: Record<string, string> = { pvc: 'persistentvolumeclaims', pv: 'persistentvolumes', sc: 'storageclasses.storage.k8s.io', pod: 'pods', sts: 'statefulsets.apps', svc: 'services' };
+const notFound = (kind: string, name: string) => new CmdError(`Error from server (NotFound): ${RESOURCE[kind]} "${name}" not found`);
 
 export function kubectl(s: Storage, files: Files, line: string, seen: Seen = () => {}): Out[] {
   try {
@@ -72,7 +76,7 @@ export function kubectl(s: Storage, files: Files, line: string, seen: Seen = () 
       case 'set': return setImage(s, rest);
       case 'exec': return exec(s, rest, seen);
       case 'rollout': return rollout(s, rest);
-      case 'create': throw new CmdError('sandbox: kubectl has no create command for claims or StatefulSets. Write them in a file and use kubectl apply -f <file>.');
+      case 'create': throw new CmdError('sandbox: kubectl create -f <file> is real and works on a real cluster; this sandbox models kubectl apply -f <file> instead. Use that.');
       case 'edit': throw new CmdError('sandbox: kubectl edit opens an editor this sandbox does not have. Change the file in the editor panel, then kubectl apply -f <file>.');
       case undefined: return o(HELP);
       default: throw new CmdError(`sandbox: kubectl ${verb} is not part of this storage sandbox. Type help for the list.`);
@@ -145,7 +149,7 @@ function listing(s: Storage, kind: string, names: string[], prefix: boolean, wid
       return rows.length ? table([['NAME', 'PROVISIONER', 'RECLAIMPOLICY', 'VOLUMEBINDINGMODE', 'ALLOWVOLUMEEXPANSION', 'AGE'], ...rows]) : '';
     }
     case 'pod': {
-      const rows = pick(s.pods.values()).map((p) => [pre(p.name), `${p.ready ? 1 : 0}/1`, p.status, '0', age(s, p.created), ...(wide ? [p.node ? `10.244.0.${10 + (p.created % 200)}` : '<none>', p.node ?? '<none>', '<none>', '<none>'] : [])]);
+      const rows = pick(s.pods.values()).map((p) => [pre(p.name), `${p.ready ? 1 : 0}/1`, p.status, '0', age(s, p.created), ...(wide ? [p.ip ?? '<none>', p.node ?? '<none>', '<none>', '<none>'] : [])]);
       return rows.length ? table([['NAME', 'READY', 'STATUS', 'RESTARTS', 'AGE', ...(wide ? ['IP', 'NODE', 'NOMINATED NODE', 'READINESS GATES'] : [])], ...rows]) : '';
     }
     case 'sts': {
@@ -170,9 +174,14 @@ function listing(s: Storage, kind: string, names: string[], prefix: boolean, wid
 }
 
 function describe(s: Storage, args: string[], seen: Seen): Out[] {
-  const { pos } = parseFlags(args, new Set(['-n', '--namespace']), new Set(['-n', '--namespace']));
+  const { pos, flags } = parseFlags(args, new Set(['-n', '--namespace']), new Set(['-n', '--namespace']));
   const t = target(pos);
   if (!t.names.length) throw new CmdError(`sandbox: name the ${t.kind} to describe, for example kubectl describe ${t.kind} <name>`);
+  // Everything here lives in default. Another namespace has none of it, as on
+  // tiltdev: describe pvc rwop -n kube-system said NotFound. (It used to print
+  // default's claim, labelled Namespace: default.) PVs and classes have no namespace.
+  const ns = flags.get('-n') ?? flags.get('--namespace');
+  if (ns && ns !== 'default' && t.kind !== 'pv' && t.kind !== 'sc') return t.names.flatMap((n) => e(notFound(t.kind, n).message));
   return o(t.names.map((n) => { seen(`describe:${t.kind}:${n}`); return describeOne(s, t.kind, n); }).join('\n\n\n'));
 }
 
@@ -335,15 +344,20 @@ function apply(s: Storage, files: Files, args: string[]): Out[] {
   // Validate everything first: a real apply goes object by object, but a
   // sandbox refusal half-way through would leave a state no cluster would.
   const plan = docs.map((d, i) => toObject(d, file, i));
-  const lines: Out[] = [];
+  // kubectl applies every object, then prints the API's refusals together at
+  // the end (seen on 1.36.1: a refused first claim's error came after the
+  // second claim's "unchanged").
+  const lines: Out[] = [], fails: Out[] = [];
   for (const p of plan) {
     const r = p(s);
-    lines.push(...r);
+    if (Array.isArray(r)) lines.push(...r); else fails.push(...r.fail);
   }
-  return lines;
+  return [...lines, ...fails];
 }
 
-function toObject(d: YamlValue, file: string, i: number): (s: Storage) => Out[] {
+type Applied = Out[] | { fail: Out[] };
+
+function toObject(d: YamlValue, file: string, i: number): (s: Storage) => Applied {
   if (!isObj(d)) throw new CmdError(`error: error validating "${file}": document ${i + 1} is not an object`);
   const kind = d.kind, meta = d.metadata;
   if (typeof kind !== 'string') throw new CmdError(`error: error validating data: kind not set`);
@@ -358,11 +372,26 @@ function toObject(d: YamlValue, file: string, i: number): (s: Storage) => Out[] 
       const want = claimSpec(spec, name, file);
       return (s) => {
         const have = s.claims.get(name);
-        if (!have) { s.addClaim({ name, ...want }); return o(`persistentvolumeclaim/${name} created`); }
-        const same = (have.className === want.className || (want.className === null)) && have.size === want.size && have.modes.join() === want.modes.join();
+        if (!have) { s.addClaim({ name, ...want, appliedClass: want.className }); return o(`persistentvolumeclaim/${name} created`); }
         if (have.deleting) return [{ text: `Warning: Detected changes to resource ${name} which is currently being deleted.`, kind: 'err' }, ...o(`persistentvolumeclaim/${name} unchanged`)];
-        if (same) return o(`persistentvolumeclaim/${name} unchanged`);
-        return e(immutable(name));
+        // kubectl's three-way merge. A class the manifest leaves out is left
+        // alone only if the last apply left it out too (the default filled it
+        // in); if the last apply set it, apply sends its removal, and the API
+        // refuses. This used to say "unchanged" for that removal, which is the
+        // exact mistake the volumes mission teaches. Seen on tiltdev 1.36.1:
+        // removing storageClassName from an applied claim was refused, both
+        // for "hostpath" and for an explicit "standard".
+        const removed = want.className === null && have.appliedClass !== undefined && have.appliedClass !== null;
+        const nextClass = want.className === null ? (removed ? null : have.className) : want.className;
+        if (nextClass !== have.className || have.size !== want.size || have.modes.join() !== want.modes.join()) {
+          if (have.phase === 'Bound' && nextClass === have.className && have.modes.join() === want.modes.join()) return { fail: e('sandbox: resizing a bound claim is real (it needs a StorageClass with allowVolumeExpansion, which kind\'s standard does not set), and not modelled here.') };
+          const onlyClass = have.size === want.size && have.modes.join() === want.modes.join();
+          return { fail: immutableOut(name, onlyClass ? { from: have.className, to: nextClass, modes: have.modes.length } : undefined) };
+        }
+        // Same spec. A changed last-applied annotation still counts as a change:
+        // adding "storageClassName: standard" to a defaulted claim printed "configured".
+        if (have.appliedClass !== undefined && have.appliedClass !== want.className) { have.appliedClass = want.className; return o(`persistentvolumeclaim/${name} configured`); }
+        return o(`persistentvolumeclaim/${name} unchanged`);
       };
     }
     case 'Pod': {
@@ -373,7 +402,7 @@ function toObject(d: YamlValue, file: string, i: number): (s: Storage) => Out[] 
         const have = s.pods.get(name);
         if (!have) { s.addPod({ name, image: c.image, claims }); return o(`pod/${name} created`); }
         const sameShape = JSON.stringify(have.claims) === JSON.stringify(claims);
-        if (!sameShape) return e(`The Pod "${name}" is invalid: spec: Forbidden: pod updates may not change fields other than \`spec.containers[*].image\`,\`spec.initContainers[*].image\`,\`spec.activeDeadlineSeconds\`,\`spec.tolerations\` (only additions to existing tolerations),\`spec.terminationGracePeriodSeconds\` (allow it to be set to 1 if it was previously negative)`);
+        if (!sameShape) return { fail: [...e(`The Pod "${name}" is invalid: spec: Forbidden: pod updates may not change fields other than \`spec.containers[*].image\`,\`spec.initContainers[*].image\`,\`spec.activeDeadlineSeconds\`,\`spec.tolerations\` (only additions to existing tolerations),\`spec.terminationGracePeriodSeconds\` (allow it to be set to 1 if it was previously negative)`), note('(sandbox: the real message goes on to print a diff of the pod spec; the sandbox leaves it out)')] };
         // Real apply printed "configured" for an unchanged Pod on 1.36.1, every time.
         if (have.image !== c.image) { have.image = c.image; if (have.node) { have.status = 'ContainerCreating'; have.ready = false; have.startAt = s.tick + 1; } }
         return o(`pod/${name} configured`);
@@ -437,6 +466,21 @@ function toObject(d: YamlValue, file: string, i: number): (s: Storage) => Out[] 
 
 const immutable = (name: string) => `The PersistentVolumeClaim "${name}" is invalid: spec: Forbidden: spec is immutable after creation except resources.requests and volumeAttributesClassName for bound claims`;
 
+/**
+ * The refusal as the API server words it: the message, then a diff of the
+ * spec (old against new), then a blank line. Copied byte for byte from
+ * tiltdev 1.36.1 for a class change and a class removal; the hunk starts at
+ * line 9 + the number of access modes (10 with one mode, 11 with two, both
+ * seen). Any other change gets the message and a label in place of the diff.
+ */
+function immutableOut(name: string, cls?: { from: string | null; to: string | null; modes: number }): Out[] {
+  if (!cls) return [...e(immutable(name)), note('(sandbox: the real message goes on to print a diff of the spec; the sandbox leaves it out for this change)')];
+  const v = (c: string | null) => (c === null ? 'null' : JSON.stringify(c));
+  const at = 9 + cls.modes;
+  return e([immutable(name), `@@ -${at},7 +${at},7 @@`, '   }', '  },', '  "VolumeName": "",', `- "StorageClassName": ${v(cls.from)},`, `+ "StorageClassName": ${v(cls.to)},`,
+    '  "VolumeMode": "Filesystem",', '  "DataSource": null,', '  "DataSourceRef": null,', ''].join('\n'));
+}
+
 // ---- delete, scale, patch, set image, rollout --------------------------------
 
 function del(s: Storage, files: Files, args: string[], seen: Seen): Out[] {
@@ -485,7 +529,7 @@ function del(s: Storage, files: Files, args: string[], seen: Seen): Out[] {
     } else throw new CmdError(`sandbox: cannot delete ${kind} here`);
     lines.push(...o(label.replace('statefulset.apps', 'statefulset.apps').replace(/^storageclass\.storage\.k8s\.io/, 'storageclass.storage.k8s.io')));
   }
-  if (waits && flags.get('--wait') !== 'false') lines.push(note('(Real kubectl stops here and waits: the claim is still mounted by a running pod, so the pvc-protection finalizer holds it in Terminating until that pod is gone. The sandbox gives you the prompt back.)'));
+  if (waits && flags.get('--wait') !== 'false') lines.push(note('(Real kubectl stops here and waits: a pod that has been placed on a node still uses the claim (running or not), so the pvc-protection finalizer holds it in Terminating until that pod is gone. The sandbox gives you the prompt back.)'));
   return lines;
 }
 
@@ -527,7 +571,15 @@ function patch(s: Storage, args: string[]): Out[] {
   if (t.kind === 'pvc') {
     const c = s.claims.get(name);
     if (!c) throw notFound('pvc', name);
-    throw new CmdError(immutable(name));
+    const keys = Object.keys(spec);
+    const to = spec.storageClassName;
+    if (keys.length === 1 && keys[0] === 'storageClassName' && (typeof to === 'string' || to === null)) {
+      if (to === c.className) return o(`persistentvolumeclaim/${name} patched (no change)`);
+      return immutableOut(name, { from: c.className, to, modes: c.modes.length });
+    }
+    // Resizing is the one spec change the API allows (bound claims, expandable class): not modelled.
+    if (keys.includes('resources')) throw new CmdError('sandbox: patching a claim\'s resources (resizing) is real, and not modelled here.');
+    return immutableOut(name);
   }
   if (t.kind === 'sts') {
     const set = s.sets.get(name);
@@ -573,7 +625,11 @@ function rollout(s: Storage, args: string[]): Out[] {
   const notReady = set.replicas - pods.filter((p) => p.ready && p.status === 'Running').length;
   const stale = pods.filter((p) => p.revision !== set.revision).length;
   if (notReady === 0 && stale === 0) return o(`partitioned roll out complete: ${set.replicas} new pods have been updated...`);
-  return [...o(stale ? `Waiting for partitioned roll out to finish: ${set.replicas - stale} out of ${set.replicas} new pods have been updated...` : `Waiting for ${notReady} pods to be ready...`),
+  // kubectl's StatefulSetStatusViewer tests ReadyReplicas first: while any pod
+  // is not ready it says "Waiting for N pods to be ready...", even mid-rollout.
+  // The partitioned message only appears once all are ready. Seen on tiltdev
+  // 1.36.1 with web-2 in ErrImagePull: "Waiting for 1 pods to be ready...".
+  return [...o(notReady ? `Waiting for ${notReady} pods to be ready...` : `Waiting for partitioned roll out to finish: ${set.replicas - stale} out of ${set.replicas} new pods have been updated...`),
     note('(The real command keeps watching until the rollout finishes or its --timeout passes. Here it reports once; run it again to see progress.)')];
 }
 

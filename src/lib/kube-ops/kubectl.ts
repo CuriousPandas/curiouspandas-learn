@@ -5,7 +5,7 @@
 // lessons were written; tests/kube-ops.test.ts pins them and names the command.
 
 import { Ops, SECONDS_PER_TICK, COMPONENTS, ver, type Node, type Pod, type Component } from './ops.ts';
-import { table, human, eventsBlock, tokenize, parseFlags, CmdError, type Out } from './print.ts';
+import { table, human, eventsBlock, tokenize, parseFlags, goDuration, goDurationString, CmdError, type Out } from './print.ts';
 
 export type Seen = (what: string) => void;
 /** A long-running command (drain) prints over time; the widget feeds its lines to the terminal each tick. */
@@ -16,7 +16,12 @@ const e = (text: string): Out[] => text.split('\n').map((t) => ({ text: t, kind:
 const note = (text: string): Out => ({ text, kind: 'dim' });
 
 // `kubectl get ns` when no API server answers. Copied with the kube-apiserver
-// manifest moved out of /etc/kubernetes/manifests on a kind node.
+// manifest moved out of /etc/kubernetes/manifests on a kind node. EOF is
+// kind's wording: Docker's port forward accepts the connection, then closes
+// it. Where nothing at all listens on the port (a kubeadm VM), kubectl says
+// `The connection to the server <host>:6443 was refused - did you specify the
+// right host or port?` instead; the control-plane lesson's table says so.
+// This sandbox is a kind cluster, so it prints kind's.
 export const API_DOWN = 'Unable to connect to the server: EOF';
 
 export type Ctx = { ops: Ops; jobs: Job[]; seen: Seen };
@@ -33,6 +38,9 @@ export function run(ctx: Ctx, line: string): Out[] {
   } catch (x) {
     if (x instanceof CmdError) return e(x.message);
     return e(`a bug in the sandbox, not in your command: ${(x as Error).message}`);
+  } finally {
+    // A restarted kubelet takes its new version at once; the skew record must see it then.
+    ctx.ops.noteSkew();
   }
 }
 
@@ -181,7 +189,9 @@ function raw(ctx: Ctx, path: string): Out[] {
   ctx.seen(`raw:${p}`);
   // The API server's own health. With the scheduler or the controller-manager
   // stopped it still said ok: readyz is about the API server, not the cluster.
-  if (path.includes('verbose')) return o(['[+]ping ok', '[+]log ok', '[+]etcd ok', '[+]etcd-readiness ok', '[+]informer-sync ok', '[+]poststarthook/start-apiserver-admission-initializer ok', '[+]shutdown ok', `${p.slice(1)} check passed`].join('\n'));
+  // The real verbose list has dozens of poststarthook lines; the sandbox keeps a few and says so on screen.
+  if (path.includes('verbose')) return [...o(['[+]ping ok', '[+]log ok', '[+]etcd ok', '[+]etcd-readiness ok', '[+]informer-sync ok', '[+]poststarthook/start-apiserver-admission-initializer ok', '[+]shutdown ok', `${p.slice(1)} check passed`].join('\n')),
+    note('(sandbox: list trimmed; a real API server prints dozens more [+]poststarthook/... lines before the last one)')];
   return o('ok');
 }
 
@@ -210,7 +220,7 @@ function get(ctx: Ctx, k: string, names: string[], ns: string, all: boolean, fmt
       if (p.status === 'Terminating' && p.deleting === Infinity) ctx.seen('saw-evicted');
     }
     const rows = list.map((p) => [...(all ? [p.ns] : []), p.name, `${p.ready || (p.status === 'Terminating' && p.deleting === Infinity) ? 1 : 0}/1`, p.status, '0', age(o_, p.created),
-      ...(wide ? [p.node && p.status !== 'Pending' ? (p.owner.kind === 'Node' || p.owner.name.startsWith('kindnet') || p.owner.name.startsWith('kube-proxy') ? `172.18.0.${o_.nodes.findIndex((n) => n.name === p.node) + 2}` : `10.244.${o_.nodes.findIndex((n) => n.name === p.node)}.${(p.created % 200) + 5}`) : '<none>', p.node ?? '<none>', '<none>', '<none>'] : [])]);
+      ...(wide ? [p.node && p.status !== 'Pending' ? o_.podIP(p) : '<none>', p.node ?? '<none>', '<none>', '<none>'] : [])]);
     return o(table([[...(all ? ['NAMESPACE'] : []), 'NAME', 'READY', 'STATUS', 'RESTARTS', 'AGE', ...(wide ? ['IP', 'NODE', 'NOMINATED NODE', 'READINESS GATES'] : [])], ...rows]));
   }
   if (k === 'deploy') {
@@ -226,6 +236,8 @@ function get(ctx: Ctx, k: string, names: string[], ns: string, all: boolean, fmt
   }
   if (k === 'ns') {
     const list = (o_.cache?.namespaces ?? [...o_.namespaces.keys()]).slice().sort();
+    // For the restore mission: what the API showed while etcd served a restored snapshot.
+    if (o_.restoredFor()) ctx.seen(`restored-view:after-snap:${list.includes('after-snap')}`);
     if (names.length) {
       const outp: Out[] = [];
       const found = names.filter((n) => list.includes(n));
@@ -267,7 +279,10 @@ function describe(ctx: Ctx, k: string, name: string, ns: string): string {
         ['PIDPressure', 'False', beat, fmtTime(o_, 0), 'KubeletHasSufficientPID', 'kubelet has sufficient PID available'], ['Ready', 'True', beat, fmtTime(o_, 0), 'KubeletReady', 'kubelet is posting ready status']]
       : ['MemoryPressure', 'DiskPressure', 'PIDPressure', 'Ready'].map((c) => [c, 'Unknown', beat, since, 'NodeStatusUnknown', 'Kubelet stopped posting node status.']);
     const taints = n.taints.length ? n.taints.map((t) => `${t.key}:${t.effect}`) : ['<none>'];
-    const pods = [...o_.pods.values()].filter((p) => p.node === n.name && p.deleting === undefined);
+    // Real describe selects by phase (status.phase!=Succeeded,!=Failed, kubectl
+    // pkg/describe), and an evicted pod stuck in Terminating is still Running
+    // by phase. So it is listed, which is exactly what makes it worth reading.
+    const pods = [...o_.pods.values()].filter((p) => p.node === n.name);
     return [
       `Name:               ${n.name}`, `Roles:              ${roles(n)}`,
       `Taints:             ${taints[0]}`, ...taints.slice(1).map((t) => `                    ${t}`),
@@ -287,6 +302,7 @@ function describe(ctx: Ctx, k: string, name: string, ns: string): string {
       `Name:             ${p.name}`, `Namespace:        ${p.ns}`, `Node:             ${p.node ?? '<none>'}`, `Status:           ${p.status === 'ContainerCreating' ? 'Pending' : p.status}`,
       ...(p.owner.kind !== 'none' ? [`Controlled By:    ${p.owner.kind}/${p.owner.name}`] : []),
       `Image:            ${p.image}`,
+      ...podConditions(o_, p),
       ...(p.owner.kind === 'DaemonSet' || p.owner.kind === 'Node' ? [] : ['Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s', '                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s']),
       eventsBlock(p.events, o_.seconds, SECONDS_PER_TICK),
     ].join('\n');
@@ -298,6 +314,21 @@ function describe(ctx: Ctx, k: string, name: string, ns: string): string {
       'Status:', `    Allowed disruptions:  ${b.status.allowed}`, `    Current:              ${b.status.current}`, `    Desired:              ${b.status.desired}`, `    Total:                ${b.status.total}`, 'Events:                   <none>'].join('\n');
   }
   throw new CmdError(`sandbox: describe ${k} is not modelled here.`);
+}
+
+/**
+ * The Conditions block of `kubectl describe pod`, in the shape kubectl 1.37.2
+ * printed it for a running pod on tiltdev (1.36.1), trailing spaces included.
+ * Ready can be False while the READY column still says 1/1: the node
+ * controller's MarkPodsNotReady sets only the Ready condition when a node goes
+ * NotReady, and READY counts container statuses, which only a kubelet writes.
+ * Left out on purpose: a pod still starting, whose conditions were not captured.
+ */
+function podConditions(o_: Ops, p: Pod): string[] {
+  const row = (t: string, v: boolean) => `  ${t.padEnd(28)}${v ? 'True' : 'False'} `;
+  if (!p.node) return ['Conditions:', '  Type           Status', '  PodScheduled   False '];
+  if (p.status === 'ContainerCreating') return [];
+  return ['Conditions:', `  ${'Type'.padEnd(28)}Status`, row('PodReadyToStartContainers', true), row('Initialized', true), row('Ready', o_.podReady(p)), row('ContainersReady', p.ready), row('PodScheduled', true)];
 }
 
 function create(ctx: Ctx, pos: string[], flags: Map<string, string>, ns: string): Out[] {
@@ -330,7 +361,7 @@ function create(ctx: Ctx, pos: string[], flags: Map<string, string>, ns: string)
     if (o_.namespaces.has(name)) throw new CmdError(`Error from server (AlreadyExists): namespaces "${name}" already exists`);
     o_.namespaces.set(name, o_.tick);
     o_.etcdRevision += 5;
-    if (o_.cache) o_.cache.namespaces.push(name);
+    if (o_.cache && !o_.cache.namespaces.includes(name)) o_.cache.namespaces.push(name);
     ctx.seen(`created-ns:${name}`);
     return o(`namespace/${name} created`);
   }
@@ -391,8 +422,23 @@ function patchPdb(ctx: Ctx, pos: string[], flags: Map<string, string>, ns: strin
 
 // ---- drain -------------------------------------------------------------------
 
+/** --timeout, parsed as kubectl parses it: before anything else happens, so a bad value cordons nothing. */
+function drainTimeout(raw: string): number {
+  let secs: number;
+  try { secs = goDuration(raw); } catch (x) {
+    throw new CmdError(`error: invalid argument "${raw}" for "--timeout" flag: ${(x as Error).message}\nSee 'kubectl drain --help' for usage.`);
+  }
+  // kubectl accepted -5s. What drain then does was not tried, so the sandbox says so.
+  if (secs < 0) throw new CmdError('sandbox: kubectl accepts a negative --timeout, but what drain does with one was not tested for this sandbox. Use a positive one, or 0 for no limit.');
+  return secs;
+}
+
 function drain(ctx: Ctx, pos: string[], flags: Map<string, string>): Out[] {
   const o_ = ctx.ops;
+  const timeout = flags.get('--timeout');
+  let secs = Infinity;
+  // kubectl drain's help: "zero means infinite".
+  if (timeout !== undefined) secs = drainTimeout(timeout) || Infinity;
   api(ctx);
   if (flags.has('--disable-eviction')) throw new CmdError('sandbox: --disable-eviction deletes pods without asking the eviction API, which skips every PodDisruptionBudget. Real, and not modelled here on purpose.');
   if (flags.has('--grace-period') || flags.has('--now')) throw new CmdError('sandbox: grace-period overrides are not modelled here.');
@@ -430,16 +476,10 @@ function drain(ctx: Ctx, pos: string[], flags: Map<string, string>): Out[] {
     ctx.seen('dry-run-drained');
     return lines;
   }
-  const timeout = flags.get('--timeout');
-  let secs = Infinity;
-  if (timeout !== undefined) {
-    const m = /^(\d+)(s|m)$/.exec(timeout);
-    if (!m) throw new CmdError(`invalid argument "${timeout}" for "--timeout" flag: time: invalid duration "${timeout}"`);
-    secs = Number(m[1]) * (m[2] === 'm' ? 60 : 1);
-  }
   if (!targets.length) { lines.push(...o(`node/${n.name} drained`)); ctx.seen(`drained:${n.name}`); return lines; }
   const job: Job = { kind: 'drain', node: n.name, deadline: o_.tick + Math.ceil(secs / SECONDS_PER_TICK), next: o_.tick, selector: sel, onLine: () => {}, done: false };
-  (job as Job & { timeoutLabel?: string; pending: string[] }).timeoutLabel = timeout;
+  // Printed with Go's %v, as kubectl does: --timeout=60s reads "1m0s" in the error.
+  (job as Job & { timeoutLabel?: string; pending: string[] }).timeoutLabel = Number.isFinite(secs) ? goDurationString(secs) : '';
   (job as Job & { pending: string[] }).pending = targets.map((p) => `${p.ns}/${p.name}`);
   ctx.jobs.push(job);
   lines.push(...drainAttempt(ctx, job));
@@ -530,7 +570,15 @@ function execEtcd(ctx: Ctx, args: string[], ns: string): Out[] {
   if (cmd[0] !== 'etcdctl') throw new CmdError(`sandbox: the etcd image has etcdctl and etcdutl (and no shell). "${cmd[0]}" is not modelled.`);
   const rest = cmd.slice(1).filter((a) => !ETCD_FLAGS.includes(a));
   const tls = cmd.slice(1).filter((a) => ETCD_FLAGS.includes(a)).length;
-  if (rest[0] === 'snapshot' && rest[1] !== 'save') return [...o(ETCDCTL_SNAPSHOT_HELP), ...e(`Error: unknown flag: ${rest.find((a) => a.startsWith('--')) ?? rest[1] ?? ''}`), ...e('command terminated with exit code 1')];
+  if (rest[0] === 'snapshot' && rest[1] !== 'save') {
+    // etcdctl 3.6.8 on tiltdev: `snapshot status <file>` and `snapshot restore
+    // <file>` print the snapshot help and exit 0 (the file is a positional
+    // argument, so nothing is "unknown"). Only a flag the snapshot command lacks,
+    // like --data-dir, adds the error and exit code 1.
+    const flag = rest.slice(1).find((a) => a.startsWith('-'));
+    if (!flag) return o(ETCDCTL_SNAPSHOT_HELP);
+    return [...o(ETCDCTL_SNAPSHOT_HELP), ...e(`Error: unknown flag: ${flag.replace(/=.*$/, '')}`), ...e('command terminated with exit code 1')];
+  }
   if (tls < 4) throw new CmdError('{"level":"warn","msg":"retrying of unary invoker failed","error":"rpc error: code = DeadlineExceeded desc = context deadline exceeded"}\nError: context deadline exceeded\ncommand terminated with exit code 1\n(sandbox: etcd only answers clients with the certificates; pass all four flags: ' + ETCD_FLAGS.join(' ') + ')');
   const wout = rest.includes('-w') ? rest[rest.indexOf('-w') + 1] : rest.find((a) => a.startsWith('--write-out='))?.slice(12);
   const words = rest.filter((a, i) => a !== '-w' && rest[i - 1] !== '-w' && !a.startsWith('--write-out'));
@@ -548,7 +596,7 @@ function execEtcd(ctx: Ctx, args: string[], ns: string): Out[] {
     if (!path) throw new CmdError('Error: snapshot save expects one argument\ncommand terminated with exit code 1');
     if (!path.startsWith('/var/lib/etcd/')) throw new CmdError(`sandbox: write the snapshot under /var/lib/etcd/, the one directory the etcd pod shares with the node (a path elsewhere in the container is lost with it).`);
     o_.snapshots = o_.snapshots.filter((s) => s.path !== path);
-    o_.snapshots.push({ path, node: node.name, revision: o_.etcdRevision, namespaces: [...o_.namespaces.keys()], pods: [...o_.pods.keys()] });
+    o_.snapshots.push({ path, node: node.name, revision: o_.etcdRevision, namespaces: [...o_.namespaces.keys()], pods: [...o_.pods.keys()], nsCreated: [...o_.namespaces] });
     ctx.seen('etcd-snapshot');
     // etcdctl snapshot save, etcd 3.6.8 (its JSON log lines shortened to their messages)
     return o([`{"level":"info","msg":"created temporary db file","path":"${path}.part"}`, '{"level":"info","logger":"client","msg":"opened snapshot stream; downloading"}', '{"level":"info","msg":"fetching snapshot","endpoint":"https://127.0.0.1:2379"}',
@@ -704,9 +752,15 @@ function systemctl(ctx: Ctx, n: Node, args: string[]): Out[] {
     j('Stopped kubelet.service - kubelet: The Kubernetes Node Agent.');
     j('kubelet.service: Consumed 5.536s CPU time, 41.6M memory peak.');
   };
+  // The sandbox's kubelet, on its first sync, removes the pods the API evicted
+  // while it was down (ops.ts). That is the documented behaviour; our real
+  // restarted kubelet failed (inotify), so it was never watched, and the
+  // screen says so where it happens.
+  const cleanup = (): Out[] => [...o_.pods.values()].some((p) => p.node === n.name && p.deleting === Infinity)
+    ? [note('(sandbox: when this kubelet syncs, it stops the evicted pods it still runs and they leave the API. That is the documented behaviour; we could not watch it for real, because our restarted kubelet failed.)')] : [];
   if (verb === 'stop') { stop(); ctx.seen(`kubelet-stopped:${n.name}`); return []; }
-  if (verb === 'start') { if (!n.kubelet.running) start(); ctx.seen(`kubelet-started:${n.name}`); return []; }
-  if (verb === 'restart') { stop(); start(); ctx.seen(`kubelet-started:${n.name}`); return []; }
+  if (verb === 'start') { const was = n.kubelet.running; if (!was) start(); ctx.seen(`kubelet-started:${n.name}`); return was ? [] : cleanup(); }
+  if (verb === 'restart') { stop(); start(); ctx.seen(`kubelet-started:${n.name}`); return cleanup(); }
   if (verb === 'status' || verb === 'is-active') {
     if (verb === 'is-active') return o(n.kubelet.running ? 'active' : 'inactive');
     // systemctl status kubelet on a kind node (first lines)
@@ -787,12 +841,19 @@ function kubeadm(ctx: Ctx, n: Node, args: string[]): Out[] {
   }
   if (sub === 'node') {
     if (ver(cluster).minor < kv.minor) throw new CmdError('sandbox: upgrade the control plane first (kubeadm upgrade apply on ops-control-plane). The docs\' order is control plane, then the other nodes.');
+    // The docs' worker steps put the control plane's kubeadm on the node before
+    // running it. What a different kubeadm prints here was never captured, so
+    // the sandbox refuses in its own words rather than letting it "succeed"
+    // (it used to, with v1.35.0 on the worker, and the mission then passed).
+    if (n.kubeadm !== cluster) throw new CmdError(`sandbox: the kubeadm on ${n.name} is ${n.kubeadm} and the control plane is ${cluster}. The docs upgrade kubeadm on the node first: docker cp ${cluster}/kubeadm ${n.name}:/usr/bin/kubeadm. (What a mismatched kubeadm does here was not tested for this sandbox.)`);
     ctx.seen(`kubeadm-node:${n.name}`);
     // kubeadm upgrade node, as it printed on a kind control-plane node (1.36.1).
     // A worker was not available to run it on (no room for a second kind node
-    // on that machine), so a worker's exact lines were not captured.
-    return o(['[upgrade] Backing up kubelet config file to /etc/kubernetes/tmp/kubeadm-kubelet-config-2026-11-03-06-51-14/config.yaml', '[patches] Applied patch of type "application/strategic-merge-patch+json" to target "kubeletconfiguration"',
-      '[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"', '[upgrade/kubelet-config] The kubelet configuration for this node was successfully upgraded!'].join('\n'));
+    // on that machine), so a worker's exact lines were not captured, and the
+    // screen says so: a code comment alone is not a label.
+    const label = n.controlPlane ? [] : [note('(sandbox: these lines were captured on a control-plane node; no worker run was captured. kubeadm\'s source says a worker also prints "[upgrade/preflight] Skipping prepull. Not a control plane node." and "[upgrade/control-plane] Skipping phase. Not a control plane node.")')];
+    return [...o(['[upgrade] Backing up kubelet config file to /etc/kubernetes/tmp/kubeadm-kubelet-config-2026-11-03-06-51-14/config.yaml', '[patches] Applied patch of type "application/strategic-merge-patch+json" to target "kubeletconfiguration"',
+      '[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"', '[upgrade/kubelet-config] The kubelet configuration for this node was successfully upgraded!'].join('\n')), ...label];
   }
   throw new CmdError('sandbox: kubeadm upgrade plan, apply and node are modelled here.');
 }

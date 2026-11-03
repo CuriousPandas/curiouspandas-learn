@@ -47,11 +47,15 @@ export const VOLUMES_MISSION: Mission<StorageState> = {
     {
       text: 'Point the claim at a class that exists, and get indexer Running',
       hint: 'Edit indexer.yaml: delete the storageClassName line (or write standard).  then  kubectl delete pvc indexer-data  then  kubectl apply -f indexer.yaml',
-      done: latch('v4', (s) => { const c = s.s.claims.get('indexer-data'); const sc = c?.className ? s.s.classes.get(c.className) : undefined; return !!c && c.phase === 'Bound' && !!sc && !sc.byLearner && running(s, 'indexer'); }),
+      // A class you made yourself and named in the manifest (say "keep", with
+      // Retain) is a real fix and passes. Only a class called hostpath is
+      // refused: that makes the old manifest bind without fixing it.
+      done: latch('v4', (s) => { const c = s.s.claims.get('indexer-data'); const sc = c?.className ? s.s.classes.get(c.className) : undefined; return !!c && c.phase === 'Bound' && !!sc && !(sc.byLearner && sc.name === 'hostpath') && running(s, 'indexer'); }),
       why: (s) => {
         const c = s.s.claims.get('indexer-data');
         const sc = c?.className ? s.s.classes.get(c.className) : undefined;
-        if (sc?.byLearner) return `You made a class called ${sc.name}. The claim binds, but the manifest still names a class that only exists because you invented it here; the next cluster will not have it. Fix the manifest instead: delete the claim and the class, edit indexer.yaml, apply again.`;
+        if (sc?.byLearner && sc.name === 'hostpath') return `You made a class called hostpath. The claim binds, but the manifest still names Docker Desktop's class, which exists here only because you invented it; the next cluster will not have it. Fix the manifest instead: delete the claim and the class, edit indexer.yaml, apply again.`;
+        if (c?.className === 'hostpath' && !c.deleting && ran(s, /^kubectl\s+apply\b/) && !/storageClassName:\s*hostpath/.test(s.files.get('indexer.yaml') ?? '')) return 'The claim still names hostpath: apply could not change it in place (read the error). Delete the claim first, then apply the edited file.';
         if (ran(s, /patch\s+(pvc|persistentvolumeclaim)/)) return 'A claim\'s storageClassName cannot be changed after it is created (read the error). Delete the claim, fix the file, and apply it again.';
         return '';
       },
@@ -69,7 +73,7 @@ export const VOLUMES_MISSION: Mission<StorageState> = {
       },
     },
   ],
-  debrief: 'The claim was never broken: it named a class that does not exist here, and Kubernetes waited, exactly as documented, for ever. scratch looked the same in kubectl get pvc and was fine: WaitForFirstConsumer holds a claim until a pod uses it. Describe tells the two apart. And Delete, the reclaim policy a StorageClass gets when none is set, means deleting a claim deletes the data; Retain kept it as a Released volume that nothing will reuse until an administrator decides.',
+  debrief: 'The claim was never broken: it named a class that does not exist here, and Kubernetes would have waited with no time limit for that class, or a matching volume, to appear. scratch looked the same in kubectl get pvc and was fine: WaitForFirstConsumer holds a claim until a pod uses it. Describe tells the two apart. And Delete, the reclaim policy a StorageClass gets when none is set, means deleting a claim deletes the data; Retain kept it as a Released volume that nothing will reuse until an administrator decides.',
 };
 
 // ---- statefulsets: scaled down, and the disks stayed --------------------------

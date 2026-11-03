@@ -85,7 +85,7 @@ With `whenScaled: Delete`, scaling down removes the claims of the ordinals that 
 />
 
 <Callout kind="real">
-The sandbox's StatefulSet has one container and one volume template, `OrderedReady` and `RollingUpdate` only, and no `partition`, `maxUnavailable` or `minReadySeconds`. Real StatefulSets need a headless Service for their pods' DNS names; the sandbox accepts the Service and gives it no behaviour, because it has no network. Pods here stop in a few seconds. The real `busybox` pods took over 20 seconds each: a shell running as a container's first process ignores the polite stop signal, so Kubernetes waits out the grace period (30 seconds by default) before it kills it.
+The sandbox's StatefulSet has one container and one volume template, `OrderedReady` and `RollingUpdate` only, and no `partition`, `maxUnavailable` or `minReadySeconds`. Real StatefulSets need a headless Service for their pods' DNS names; the sandbox accepts the Service and gives it no behaviour, because it has no network. Pods here stop in a few seconds. The real `busybox` pods took about 30 seconds each (scaling 3 to 1 took 67 seconds for two pods on tiltdev): a shell running as a container's first process ignores the polite stop signal, so Kubernetes waits out the grace period (30 seconds by default) before it kills it.
 </Callout>
 
 ## What to remember
@@ -143,17 +143,17 @@ spec:
 ```
 
 ```bash
-kubectl create namespace sts-lab
-kubectl -n sts-lab apply -f sts.yaml
-kubectl -n sts-lab get pods,pvc            # run it a few times: web-0, then web-1, then web-2
-kubectl -n sts-lab exec web-2 -- sh -c "echo written-before-scale-down > /data/note.txt"
-kubectl -n sts-lab scale sts web --replicas=1
-kubectl -n sts-lab get pvc                 # three claims remain
-kubectl -n sts-lab scale sts web --replicas=3
-kubectl -n sts-lab rollout status sts/web
-kubectl -n sts-lab exec web-2 -- cat /data/note.txt
-kubectl delete namespace sts-lab
-kubectl get sts -A                         # real ones: ours listed Prometheus, Loki and Tempo among others
+kubectl --context kind-tiltdev create namespace sts-lab
+kubectl --context kind-tiltdev -n sts-lab apply -f sts.yaml
+kubectl --context kind-tiltdev -n sts-lab get pods,pvc            # run it a few times: web-0, then web-1, then web-2
+kubectl --context kind-tiltdev -n sts-lab exec web-2 -- sh -c "echo written-before-scale-down > /data/note.txt"
+kubectl --context kind-tiltdev -n sts-lab scale sts web --replicas=1
+kubectl --context kind-tiltdev -n sts-lab get pvc                 # three claims remain
+kubectl --context kind-tiltdev -n sts-lab scale sts web --replicas=3
+kubectl --context kind-tiltdev -n sts-lab rollout status sts/web
+kubectl --context kind-tiltdev -n sts-lab exec web-2 -- cat /data/note.txt
+kubectl --context kind-tiltdev delete namespace sts-lab
+kubectl --context kind-tiltdev get sts -A                         # real ones: ours listed Prometheus, Loki and Tempo among others
 ```
 
 </DoItForReal>
