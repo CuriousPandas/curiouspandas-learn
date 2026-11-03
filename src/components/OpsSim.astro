@@ -1,0 +1,154 @@
+---
+import '../styles/widgets.css';
+interface Props { mission: string; title?: string; skew?: boolean }
+const { mission, title = 'Cluster operations sandbox', skew = false } = Astro.props;
+---
+<div class="widget card opsim" data-ops-sim data-mission={mission} data-skew={skew ? '1' : ''}>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info" data-clock>t = 0s</span>
+    <span class="spacer"></span>
+    <div class="controls">
+      <button class="btn small" type="button" data-play>Pause</button>
+      <button class="btn small" type="button" data-step>Step</button>
+      <label>Speed <select data-speed><option value="1000">1×</option><option value="400" selected>2.5×</option><option value="150">fast</option></select></label>
+      <button class="btn small" type="button" data-reset>Start over</button>
+    </div>
+  </div>
+  <div class="op-grid">
+    <div class="op-left">
+      <div data-term></div>
+      <p class="muted op-tip">Each tick is 5 seconds of cluster time. A running drain prints here as it goes; typing anything stops it, like Ctrl+C.</p>
+    </div>
+    <div class="op-right">
+      <div data-mission-panel></div>
+      <div class="op-view">
+        <div class="op-etcd" data-etcd></div>
+        <div class="op-skew" data-skew-panel hidden><div class="eyebrow">Version skew policy</div><ul data-skew-list></ul></div>
+        <div class="op-nodes" data-nodes></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { SECONDS_PER_TICK, COMPONENTS, skew } from '../lib/kube-ops/ops.ts';
+  import { OPS_MISSIONS, opsRun, opsTick, type OpsState } from '../lib/kube-ops/missions.ts';
+  import { mountTerminal, mountMission, el } from '../lib/ui.ts';
+
+  const short: Record<string, string> = { etcd: 'etcd', 'kube-apiserver': 'apiserver', 'kube-controller-manager': 'controller-mgr', 'kube-scheduler': 'scheduler' };
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-ops-sim]')) {
+    const mission = OPS_MISSIONS[root.dataset.mission ?? ''];
+    if (!mission) { root.querySelector('[data-term]')!.textContent = `Unknown mission ${root.dataset.mission}`; continue; }
+    let st: OpsState = mission.setup();
+    const clock = root.querySelector<HTMLElement>('[data-clock]')!;
+    const nodesBox = root.querySelector<HTMLElement>('[data-nodes]')!;
+    const etcdBox = root.querySelector<HTMLElement>('[data-etcd]')!;
+    const skewPanel = root.querySelector<HTMLElement>('[data-skew-panel]')!;
+    const skewList = root.querySelector<HTMLElement>('[data-skew-list]')!;
+    skewPanel.hidden = root.dataset.skew !== '1';
+
+    // One element per node, kept across ticks: replacing them every tick
+    // dropped clicks in WebKit and threw away focus.
+    type View = { root: HTMLElement; head: HTMLElement; status: HTMLElement; comps: HTMLElement; pods: HTMLElement };
+    const views = new Map<string, View>();
+    const view = (name: string): View => {
+      let v = views.get(name);
+      if (!v) {
+        const head = el('strong', {}, name), status = el('span', { class: 'op-status' }), comps = el('div', { class: 'op-comps' }), pods = el('div', { class: 'op-pods' });
+        v = { root: el('div', { class: 'op-node' }, el('div', { class: 'op-node-head' }, head, status), comps, pods), head, status, comps, pods };
+        views.set(name, v);
+      }
+      return v;
+    };
+
+    let refresh = () => {};
+    const draw = () => {
+      const o = st.ctx.ops;
+      clock.textContent = `t = ${o.tick * SECONDS_PER_TICK}s`;
+      const up = o.etcdUp().length, all = o.etcdMembers().length;
+      etcdBox.textContent = `etcd: ${up} of ${all} member${all === 1 ? '' : 's'} up · quorum needs ${o.quorum()} · API ${o.api() === 'ok' ? 'answering' : o.api() === 'down' ? 'not listening' : 'cannot commit'}`;
+      etcdBox.className = `op-etcd ${o.api() === 'ok' ? 'ok' : 'bad'}`;
+      const want = o.nodes.map((n) => {
+        const v = view(n.name);
+        v.status.textContent = `${n.ready ? 'Ready' : 'NotReady'}${n.unschedulable ? ', cordoned' : ''} · kubelet ${n.kubelet.running ? n.kubelet.version : 'stopped'}`;
+        v.root.className = `op-node ${n.ready ? '' : 'down'} ${n.unschedulable ? 'cordoned' : ''}`;
+        v.comps.replaceChildren(...(n.controlPlane ? COMPONENTS.map((c) => el('span', { class: `op-comp ${n.containers.has(c) ? 'on' : 'off'}` }, `${short[c]} ${n.containers.has(c) ? (c === 'etcd' ? '' : n.componentVersion) : 'stopped'}`.trim())) : []));
+        const pods = [...o.pods.values()].filter((p) => p.node === n.name && p.owner.kind !== 'Node' && p.owner.kind !== 'DaemonSet');
+        v.pods.replaceChildren(...(pods.length ? pods.map((p) => el('span', { class: `op-pod ${p.status === 'Terminating' ? 'term' : p.ready ? 'ok' : 'start'}`, title: `${p.ns}/${p.name} ${p.status}` }, p.name.split('-')[0])) : [el('span', { class: 'muted' }, 'no workload pods')]));
+        return v.root;
+      });
+      const pending = [...o.pods.values()].filter((p) => !p.node && p.deleting === undefined);
+      const keep = new Set<Node>(want);
+      for (const c of [...nodesBox.childNodes]) if (!keep.has(c) && !(c as HTMLElement).classList?.contains('op-pending')) c.remove();
+      want.forEach((n, i) => { if (nodesBox.childNodes[i] !== n) nodesBox.insertBefore(n, nodesBox.childNodes[i] ?? null); });
+      let pend = nodesBox.querySelector<HTMLElement>('.op-pending');
+      if (!pend) { pend = el('div', { class: 'op-pending' }); nodesBox.append(pend); }
+      pend.textContent = pending.length ? `Waiting for a node: ${pending.map((p) => p.name).join(', ')}` : 'Nothing waiting for a node';
+      if (!skewPanel.hidden) skewList.replaceChildren(...skew(o).map((c) => el('li', { class: c.ok ? 'ok' : 'bad' }, el('span', { 'aria-hidden': 'true' }, c.ok ? '✓' : '✗'), el('span', {}, `${c.rule} (${c.detail})`))));
+      refresh();
+    };
+
+    const term = mountTerminal(root.querySelector<HTMLElement>('[data-term]')!, {
+      prompt: '$',
+      greeting: [`Mission: ${mission.title}. Time runs on its own.`, 'Type help for every command this sandbox understands.'],
+      onCommand: (line) => { const out = opsRun(st, line); draw(); return out; },
+    });
+    refresh = mountMission(root.querySelector<HTMLElement>('[data-mission-panel]')!, mission, () => st, (cmd) => term.type(cmd));
+
+    let playing = true, visible = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const speed = root.querySelector<HTMLSelectElement>('[data-speed]')!;
+    const playBtn = root.querySelector<HTMLButtonElement>('[data-play]')!;
+    const tick = () => {
+      try { const lines = opsTick(st); if (lines.length) term.print(lines); }
+      catch (e) { term.print([{ text: `a bug in the sandbox: ${(e as Error).message}`, kind: 'err' }]); }
+      draw();
+    };
+    const schedule = () => {
+      clearInterval(timer);
+      // Only tick while visible: a hidden tab should not burn the learner's battery.
+      if (playing) timer = setInterval(() => { if (!document.hidden && visible) tick(); }, Number(speed.value));
+    };
+    new IntersectionObserver((e) => { visible = e[0].isIntersecting; }).observe(root);
+    playBtn.addEventListener('click', () => { playing = !playing; playBtn.textContent = playing ? 'Pause' : 'Play'; schedule(); });
+    root.querySelector('[data-step]')!.addEventListener('click', tick);
+    speed.addEventListener('change', schedule);
+    root.querySelector('[data-reset]')!.addEventListener('click', () => { st = mission.setup(); views.clear(); nodesBox.replaceChildren(); term.clear(); term.print([{ text: 'Fresh cluster.', kind: 'dim' }]); draw(); });
+    schedule();
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the node cards are created by the script, and scoped
+     styles never reach elements Astro did not render. */
+  .opsim .op-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 900px) { .opsim .op-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+  .opsim .op-left, .opsim .op-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .opsim .op-tip { margin: 0; font-size: 0.8rem; }
+  .opsim .op-view { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .opsim .op-etcd { font: 600 0.8rem var(--sans); border-left: 4px solid var(--bamboo); padding: 2px 8px; }
+  .opsim .op-etcd.bad { border-color: var(--berry); }
+  .opsim .op-skew ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: 0.8rem; }
+  .opsim .op-skew li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 6px; }
+  .opsim .op-skew li.ok span:first-child { color: var(--bamboo); font-weight: 800; }
+  .opsim .op-skew li.bad span:first-child { color: var(--berry); font-weight: 800; }
+  .opsim .op-nodes { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .opsim .op-node { border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 10px; background: var(--panel); min-width: 0; }
+  .opsim .op-node.down { border-color: var(--berry); }
+  .opsim .op-node.cordoned { border-style: dashed; }
+  .opsim .op-node-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-size: 0.82rem; }
+  .opsim .op-node-head strong { font-family: var(--mono); }
+  .opsim .op-status { color: var(--muted); }
+  .opsim .op-comps, .opsim .op-pods { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .opsim .op-comp { font: 600 0.72rem var(--mono); padding: 2px 6px; border-radius: 6px; }
+  .opsim .op-comp.on { background: var(--bamboo); color: var(--bamboo-ink); }
+  .opsim .op-comp.off { outline: 2px dashed var(--berry); color: var(--ink); }
+  .opsim .op-pod { font: 600 0.72rem var(--mono); padding: 2px 6px; border-radius: 6px; color: var(--chip-ink); }
+  .opsim .op-pod.ok { background: var(--bamboo); color: var(--bamboo-ink); }
+  .opsim .op-pod.start { background: var(--sky); }
+  .opsim .op-pod.term { background: var(--muted); }
+  .opsim .op-pending { font-size: 0.8rem; color: var(--sun-text); }
+</style>

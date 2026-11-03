@@ -1,0 +1,135 @@
+---
+title: Two of three, never two of four
+summary: etcd keeps the whole cluster's state, and it only works while a majority of its members agree. Count what a fourth member buys, stop members until the API goes silent, then take a snapshot, restore it, and catch the API server still showing what the snapshot doesn't have.
+minutes: 20
+xp: 45
+tiers: [browser, machine]
+builds_on: [kubernetes/control-plane, resilience/backups-that-restore]
+sources:
+  - title: etcd docs (v3.6) - Frequently Asked Questions
+    url: https://etcd.io/docs/v3.6/faq/
+  - title: Kubernetes docs - Operating etcd clusters for Kubernetes
+    url: https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/
+  - title: Kubernetes docs - Options for Highly Available Topology
+    url: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/ha-topology/
+---
+
+Someone adds a fourth etcd member to a three-member cluster, "for safety". The cluster now survives exactly as many failures as before: one. And it now has one more machine that can fail.
+
+## Why a majority
+
+Everything in Kubernetes, every Deployment, Secret and node, is stored in **etcd** ([Pending, and no event says why](/learn/kubernetes/control-plane/) met it as the API server's memory). In a highly available cluster, etcd runs as several **members** on different machines, each holding a full copy. To change anything, a majority of them must agree first. The etcd FAQ:
+
+> An etcd cluster needs a majority of nodes, a quorum, to agree on updates to the cluster state. For a cluster with n members, quorum is (n/2)+1.
+
+Read `n/2` as whole-number division (drop any half). That majority is the **quorum**, and the members a cluster can lose while keeping it is its **failure tolerance**:
+
+| Members | Quorum | Can lose |
+|---|---|---|
+| 1 | 1 | 0 |
+| 2 | 2 | 0 |
+| 3 | 2 | 1 |
+| 4 | 3 | 1 |
+| 5 | 3 | 2 |
+| 6 | 4 | 2 |
+| 7 | 4 | 3 |
+
+Each even size tolerates no more failures than the odd size just below it. The FAQ, again: "An odd-size cluster tolerates the same number of failures as an even-size cluster but with fewer nodes." Two of three is a majority; two of four is not. The Kubernetes docs turn that into advice: "You should run etcd as a cluster with an odd number of members," and "A five-member cluster is recommended in production."
+
+Why a majority, and not just "whoever is left"? If a network splits four members into two pairs, each pair might keep accepting writes and the cluster would end up with two different truths. With a majority rule at most one side can ever have one. The FAQ: "This model totally avoids any possibility of split brain inconsistency. The downside is permanent quorum loss is catastrophic."
+
+## Stop members
+
+<OpsSim mission="ops-quorum" title="ops: three control planes, stacked etcd" />
+
+<Callout kind="real">
+We could not run this part on a real cluster. kind can build three control-plane nodes, but on our machine, with two other kind clusters running, it ran out of inotify instances (see [NotReady, and the pods left five minutes later](/learn/kubernetes/node-troubleshooting/)) and failed. So the sandbox's quorum arithmetic follows the etcd FAQ, and when quorum is lost it prints a sandbox message instead of pretending to know kubectl's exact words. With one member stopped on a real one-node cluster, kubectl printed `Error from server (Timeout): the server was unable to return a response in the time allotted, but may still be processing the request (get namespaces)`, then TLS timeouts, for the minute we watched.
+</Callout>
+
+## Backups: a snapshot, and where it lives
+
+`etcdctl snapshot save` writes the whole of etcd to one file. On kind, as on kubeadm clusters generally, etcd is a static pod and its data directory is a folder on the node. A snapshot saved to that folder is on the node's disk, so when the node goes, so does the backup. That is the point of [Backups that actually restore](/learn/resilience/backups-that-restore/) in Kubernetes form: copy the file somewhere that won't die with the cluster, then prove you can restore it.
+
+The Kubernetes docs are specific about restoring:
+
+> If any API servers are running in your cluster, you should not attempt to restore instances of etcd.
+
+Their steps instead: stop every API server, restore every etcd member, then start the API servers again.
+
+We did it the wrong way round on purpose, on a throwaway one-node kind cluster (etcd 3.6.8, Kubernetes 1.36.1): restored with the API server running. etcd came back on the snapshot within about a minute; its member ID changed, which is how we knew. And `kubectl get ns` still listed `after-snap`, a namespace created *after* the snapshot. The API server was answering from its own cache of what etcd used to hold. Only after we restarted the API server did `kubectl get ns after-snap` say `NotFound`. Nothing warned us in between.
+
+<OpsSim mission="ops-restore" title="ops: snapshot, restore, look twice" />
+
+<Callout kind="trap">
+Restore with `etcdutl`, not `etcdctl`. The Kubernetes docs still show `etcdctl snapshot restore` under a "Deprecated" tab, noting it is "slated for removal from etcd v3.6". In the etcd 3.6.8 that kind ships, it is gone: `etcdctl snapshot` has only `save`, and `etcdctl snapshot restore ... --data-dir ...` printed its help and `Error: unknown flag: --data-dir`.
+</Callout>
+
+<Quiz
+  id="kube-etcd-1"
+  q="How many member failures can a 4-member etcd cluster survive?"
+  options={["Two: half of them", "One, the same as a 3-member cluster: four members need three to agree", "Three"]}
+  answer={1}
+  explain="Quorum is (n/2)+1 = 3 for four members, so losing two leaves two, short of quorum. Three members need two, so they also survive one loss, with one less machine to fail."
+/>
+
+<Quiz
+  id="kube-etcd-2"
+  q="You restore an etcd snapshot while the API server keeps running, and kubectl still shows a namespace you created after the snapshot. Why?"
+  options={["The restore failed", "The API server is answering from its cache of the old etcd state; the docs say to stop API servers before restoring and start them after", "Namespaces aren't stored in etcd"]}
+  answer={1}
+  explain="etcd was serving the snapshot, but the running API server hadn't re-read it. After a restart it reported the namespace NotFound. That is exactly the order the docs give: stop the API servers, restore, start them."
+/>
+
+<Quiz
+  id="kube-etcd-3"
+  q="A kind cluster's etcd snapshot is saved to /var/lib/etcd/snap.db on the node. You run kind delete cluster. Where is your backup?"
+  options={["Safe in /var/lib/etcd", "Gone: the folder was on the node's disk, and the node was deleted", "In the kind config"]}
+  answer={1}
+  explain="A backup that lives on the thing it backs up dies with it. Copy it off the node, for example docker cp ops-lab-control-plane:/var/lib/etcd/snap.db ., before you need it."
+/>
+
+<Callout kind="real">
+The sandbox's etcd is a member count, a quorum rule, and a list of what each snapshot held: namespaces, here, because those are what the mission checks. Real etcd stores every object as keys with revisions, and elects a leader; a restore of several members needs each restored with the cluster's member list (the etcd recovery docs cover it). After the restore, the real member's peer address became `http://localhost:2380`, because a plain restore doesn't know the old one; the sandbox prints that too. Real restores also took about a minute before the API answered again, where the sandbox takes a tick.
+</Callout>
+
+<GoDeeper title="The quorum formula, and why odd sizes win">
+With n members and quorum q = ⌊n/2⌋ + 1 (⌊ ⌋ means round down), the cluster tolerates f = n − q failures. For odd n = 2k + 1: q = k + 1 and f = k. For the next even size, n = 2k + 2: q = k + 2 and f = k. So going from 2k+1 to 2k+2 members raises the quorum by one and the tolerance by nothing, while adding one more machine that can fail. The FAQ also warns about the moment you add a member to a struggling cluster: in a 3-member cluster with one member down, adding a fourth raises quorum to 3 while only 2 are up, so if the new member fails to join, "there's no way to recover quorum".
+</GoDeeper>
+
+## What to remember
+
+- etcd needs a majority, (n/2)+1. Odd sizes: three survive one loss, five survive two. A fourth member buys nothing.
+- Lose quorum and etcd can't save anything, so neither can the API server.
+- Snapshot with `etcdctl snapshot save`, restore with `etcdutl`, and keep the file off the node.
+- Stop the API servers before a restore and start them after, or they keep serving what the snapshot erased.
+
+<DoItForReal id="kube-etcd-real">
+
+Read-only on tilt (run on tiltdev while writing this). One member, so no tolerance at all, which is fine for a laptop and worth knowing:
+
+```bash
+kubectl -n kube-system exec etcd-tiltdev-control-plane -- etcdctl \
+  --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key \
+  member list -w table
+```
+
+The snapshot and restore, on a throwaway one-node cluster, as we ran them:
+
+```bash
+kind create cluster --name ops-lab
+E="--endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"
+kubectl --context kind-ops-lab -n kube-system exec etcd-ops-lab-control-plane -- etcdctl $E snapshot save /var/lib/etcd/snap.db
+kubectl --context kind-ops-lab create namespace after-snap
+kubectl --context kind-ops-lab -n kube-system exec etcd-ops-lab-control-plane -- etcdutl --data-dir /var/lib/etcd/restored snapshot restore /var/lib/etcd/snap.db
+docker exec ops-lab-control-plane sed -i 's#path: /var/lib/etcd$#path: /var/lib/etcd/restored#' /etc/kubernetes/manifests/etcd.yaml
+kubectl --context kind-ops-lab get ns                # after a minute: after-snap is still listed
+docker exec ops-lab-control-plane mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
+docker exec ops-lab-control-plane mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/
+kubectl --context kind-ops-lab get ns after-snap     # NotFound, once the API server is back
+kind delete cluster --name ops-lab                   # and the snapshot goes with it
+```
+
+The kubeadm cluster's own config still names the old directory: on a real cluster, the docs say to update `etcd.local.dataDir` in the `kubeadm-config` ConfigMap too, or "the next kubeadm upgrade writes an etcd manifest for that directory."
+
+</DoItForReal>
