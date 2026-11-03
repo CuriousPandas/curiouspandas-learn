@@ -97,9 +97,15 @@ for (const path of pages('dist')) {
   // phone width, so keep the picture too.
   await page.screenshot({ path: shot.replace(/\.png$/, '.phone.png'), fullPage: true });
   // Name the culprits, or "scrolls sideways" is a hunt every time.
+  // Also text that spills out of a box that itself fits: an unbroken token in a
+  // quiz question overflowed by 34px while every box measured inside 375px, and
+  // this list came back empty.
   const wide = overflow > 1 ? await page.evaluate(() => [...document.querySelectorAll('main *')]
-    .filter((e) => e.getBoundingClientRect().right > window.innerWidth + 1 && !e.closest('[style*="overflow"], pre, .graph, .term-out, table'))
-    .slice(0, 4).map((e) => `${e.tagName.toLowerCase()}.${[...e.classList].join('.')} right=${Math.round(e.getBoundingClientRect().right)}`)) : [];
+    .filter((e) => !e.closest('[style*="overflow"], pre, .graph, .term-out, table') && (e.getBoundingClientRect().right > window.innerWidth + 1
+      || (e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX === 'visible' && e.getBoundingClientRect().left + e.scrollWidth > window.innerWidth + 1)))
+    // Innermost only: every ancestor of the culprit overflows too, and filled the list.
+    .filter((e, _, all) => !all.some((o) => o !== e && e.contains(o)))
+    .slice(0, 4).map((e) => `${e.tagName.toLowerCase()}.${[...e.classList].join('.')} right=${Math.round(e.getBoundingClientRect().left + Math.max(e.scrollWidth, e.getBoundingClientRect().width))}`)) : [];
   report.push({ path, h1, chars: text.length, errors, failed, overflow, wide, shot });
   // Accessibility, in both colour schemes: the site shipped 73 serious axe
   // violations (gold text at 2.6:1, links nested in links) that no other check
