@@ -159,7 +159,9 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
     steps: [
       { text: 'Find the pod that is stuck', hint: 'kubectl get pods -o wide', done: (s) => ran(s.history, /get (po|pods?)\b/) },
       { text: 'Ask it why - describe the Pending pod and read its Events', hint: 'kubectl describe pod <the Pending one>', done: (s) => s.seen.has('describe:pending') },
-      { text: 'See how full the nodes are', hint: 'kubectl get nodes', done: (s) => ran(s.history, /get (no|nodes?)\b/) },
+      // describe, not get: real `kubectl get nodes` has no CPU column. The
+      // sandbox once added one of its own and sent learners there to look.
+      { text: 'See how full the nodes are: read their "Allocated resources"', hint: 'kubectl describe nodes', done: (s) => ran(s.history, /describe (no|nodes?)\b/) },
       { text: 'Fix it so all 3 replicas run (do not scale down)', hint: 'kubectl set resources deployment big --requests=cpu=500m', done: (s) => { const st = readyOf(s.cluster, 'big'); return !!st && st.desired >= 3 && st.ready >= 3 && st.current === st.desired; } },
     ],
     debrief: 'The scheduler places pods by what they *request*, not what they use. Three pods asking for 1.5 CPUs each cannot fit on two 2-CPU nodes, however idle those CPUs are. And if your fix still did not fit beside the old pods, you saw the rollout wait: new pods need room before old ones may leave.',
@@ -181,7 +183,9 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
     setup: kubeSetup(['kubectl create quota pandas --hard=pods=3', 'kubectl create deployment quota-demo --image=panda/hello:1.0 --replicas=6'], 8),
     steps: [
       { text: 'The deployment wants 6. Count what exists', hint: 'kubectl get deploy  then  kubectl get pods', done: (s) => ran(s.history, /get (deploy|deployments?)\b/) },
-      { text: 'Find where the refusal is written down', hint: 'kubectl get events  or  kubectl describe deploy quota-demo', done: (s) => ran(s.history, /get (ev|events?)\b/) || s.seen.has('describe:deploy:quota-demo') },
+      // The refusal's text is an event on the ReplicaSet; describe deploy shows
+      // only its ReplicaFailure condition, with no message. Either counts.
+      { text: 'Find where the refusal is written down', hint: 'kubectl get events  or  kubectl describe rs', done: (s) => ran(s.history, /get (ev|events?)\b/) || ran(s.history, /describe (rs|replicasets?)\b/) || s.seen.has('describe:deploy:quota-demo') },
       { text: 'Raise the quota to 6 - do not delete it', hint: `kubectl patch quota/pandas -p '{"spec":{"hard":{"pods":"6"}}}'`, done: (s) => (s.cluster.quotaIn('default')?.pods ?? 0) >= 6 },
       { text: 'Wait for the ReplicaSet to retry - it backs off, so this takes a moment', hint: 'kubectl get pods', done: (s) => !!s.cluster.quotaIn('default') && (readyOf(s.cluster, 'quota-demo')?.ready ?? 0) >= 6 },
     ],

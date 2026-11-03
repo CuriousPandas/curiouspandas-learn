@@ -174,7 +174,16 @@ export const KUBE_A_MISSIONS: Record<string, Mission<KubeState>> = {
       },
       {
         text: 'api crashes for want of DATABASE_URL. Put it in a Secret and give api the Secret', hint: 'kubectl create secret generic db --from-literal=DATABASE_URL=postgres://db:5432/shop  then  kubectl set env deployment/api --from=secret/db',
-        done: (s) => { const d = s.cluster.getDeployment('default', 'api'); return !!d && d.template.envRefs.some((r) => r.kind === 'secret' && r.key === 'DATABASE_URL') && !('DATABASE_URL' in d.template.env) && settled(s.cluster, 'default', 'api'); },
+        // Either route to the Secret counts: one key by reference (set env
+        // --from), or the whole Secret with envFrom. Requiring the first once
+        // left a correct envFrom patch unticked with api Running.
+        done: (s) => {
+          const d = s.cluster.getDeployment('default', 'api');
+          if (!d || 'DATABASE_URL' in d.template.env || !settled(s.cluster, 'default', 'api')) return false;
+          const byKey = d.template.envRefs.some((r) => r.kind === 'secret' && r.name === 'DATABASE_URL');
+          const whole = d.template.envFrom.some((e) => e.kind === 'secret' && 'DATABASE_URL' in (s.cluster.secrets.get(key('default', e.name))?.data ?? {}));
+          return byKey || whole;
+        },
         why: (s) => 'DATABASE_URL' in (s.cluster.getDeployment('default', 'api')?.template.env ?? {}) ? 'That put the password in the Deployment itself, in plain text. Use --from=secret/<name>.' : '',
       },
       { text: 'Read the Secret back as YAML. Is the value hidden?', hint: 'kubectl get secret db -o yaml', done: (s) => saw(s, (x) => x.verb === 'get' && kinds(x).includes('secrets') && (x.output === 'yaml' || x.output === 'json' || !!x.output?.startsWith('jsonpath')) && /default\/db\b/.test(x.text ?? '')) },
@@ -200,7 +209,7 @@ export const KUBE_A_MISSIONS: Record<string, Mission<KubeState>> = {
         done: (s) => { const v = cmGreeting(s.cluster, 'greeting'); const ps = podsOfDeploy(s.cluster, 'default', 'files'); return v !== 'v1' && settled(s.cluster, 'default', 'files') && ps.length > 0 && ps.every((p) => p.files['/etc/sub/GREETING'] === v); },
       },
     ],
-    debrief: 'A ConfigMap mounted as a folder is refreshed by the kubelet on its next sync, which took about a minute on a real kind cluster. A subPath mount is a copy of one file made when the container started, and the docs say it "will not receive ConfigMap updates". Neither change is announced: the app has to re-read the file, and you have to know which kind of mount you have.',
+    debrief: 'A ConfigMap mounted as a folder is refreshed by the kubelet on its next sync of the pod, which took between 56 and 78 seconds over five changes on kind v1.36.1 clusters. A subPath mount is fixed to the file as it was when the container started, and the docs say it "will not receive ConfigMap updates". Neither change is announced: the app has to re-read the file, and you have to know which kind of mount you have.',
   },
   'kube-sidecars': {
     id: 'kube-sidecars', title: 'The Job that never finished', xp: 80,
@@ -242,7 +251,7 @@ export const KUBE_A_MISSIONS: Record<string, Mission<KubeState>> = {
         why: (s) => s.cluster.psaLevel('default', 'enforce') !== 'restricted' ? 'Removing the label lets api in by removing the rule.' : '',
       },
     ],
-    debrief: 'Two different gates. runAsNonRoot is checked by the kubelet when the container starts, against the user the image declares, so the pod existed and sat in CreateContainerConfigError with no logs. Pod Security is checked by the API server when a pod is created, so api\'s pods were never made and the refusal is an event on its ReplicaSet. And web is still running only because nothing has restarted it: the next pod web makes will be refused too.',
+    debrief: 'Two different gates. runAsNonRoot is checked by the kubelet when the container starts, against the user the image declares, so the pod existed and sat in CreateContainerConfigError with no logs. Pod Security is checked by the API server when a pod is created, so api\'s pods were never made and the refusal is an event on its ReplicaSet. And web is still running only because nothing has replaced its pod. A crash restarts the container inside the same pod, which admission never sees; the next new pod web makes, after a rollout, a drain or a deletion, will be refused too.',
   },
   'kube-cron': {
     id: 'kube-cron', title: 'The nightly job that stopped running', xp: 80,
@@ -289,7 +298,7 @@ export const KUBE_A_MISSIONS: Record<string, Mission<KubeState>> = {
         },
       },
     ],
-    debrief: 'kind taints its control-plane node NoSchedule, and a DaemonSet obeys taints like any other pod, so DESIRED quietly counted two nodes, not three. Nothing reported an error; on the tilt platform that once meant the API server\'s logs were simply missing from Loki. NoSchedule only stops new pods: the new web pods were kept off worker-2, while the collector already running there stayed, unless its own rollout replaced it after the taint, in which case the replacement was kept off too. NoExecute is the effect that evicts running pods.',
+    debrief: 'kind, on a cluster with worker nodes, taints its control-plane node NoSchedule, and a DaemonSet obeys taints like any other pod, so DESIRED quietly counted two nodes, not three. Nothing reported an error; on the tilt platform that once meant the API server\'s logs were simply missing from Loki. NoSchedule only stops new pods: the new web pods were kept off worker-2, while the collector already running there stayed, unless its own rollout replaced it after the taint, in which case the replacement was kept off too. NoExecute is the effect that evicts running pods.',
   },
   'kube-placement': {
     id: 'kube-placement', title: 'Pending: didn\'t match Pod\'s node affinity', xp: 80,

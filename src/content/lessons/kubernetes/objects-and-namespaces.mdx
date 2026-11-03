@@ -29,14 +29,14 @@ Nothing is broken. That sentence is true, and it's the most misread line in Kube
 
 kubectl doesn't look at your machines. It sends a request to the **API server**, the one front door of the cluster, and prints the answer. The API server keeps every object you create in a database called **etcd**. A Deployment, a pod, a ConfigMap: each is a stored record, and the controllers you met in the first lesson read and write those records.
 
-Every record has the same shape:
+Most records, and every one that describes a workload, have the same shape. The docs say "almost every" object has a spec and a status, because some don't: a ConfigMap or a Secret ([a later lesson](/learn/kubernetes/config-and-secrets/)) holds `data` instead, and an event is just a record of something that happened.
 
 - **apiVersion** and **kind**: what sort of object it is, for example `apps/v1` and `Deployment`.
 - **metadata**: its name, its namespace, its **labels**, and a **uid** the API server gives it.
 - **spec**: what you asked for.
 - **status**: what the controllers last saw. The docs put it this way: "The status describes the current state of the object, supplied and updated by the Kubernetes system and its components."
 
-So `spec` is the promise and `status` is the progress report. You write the first; you only ever read the second.
+So `spec` is the promise and `status` is the progress report. In everyday use you write the first and read the second. Controllers write status, through a separate part of the API (its **status subresource**); a person can too, with `kubectl patch --subresource=status`, but the controller will overwrite whatever you put there on its next pass.
 
 ## Namespaces and labels
 
@@ -95,7 +95,7 @@ The sandbox has one cluster and one context, called `kind-sandbox`. A real lapto
 ## What to remember
 
 - "No resources found" means none in the namespace you asked, on the cluster your context points at. Ask `-A` before you panic.
-- Every object is apiVersion, kind, metadata, spec and status. You write spec; status is read-only news.
+- Workload objects are apiVersion, kind, metadata, spec and status (ConfigMaps and Secrets hold `data` instead). You write spec; controllers write status.
 - Namespaces scope names. Labels select things. Neither is a security boundary on its own.
 - `-o yaml` shows what's really stored, including the defaults you never typed.
 

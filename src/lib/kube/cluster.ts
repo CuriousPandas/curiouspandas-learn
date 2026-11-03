@@ -38,8 +38,15 @@ export const VOLUME_SYNC_TICKS = 12;
 // SIGTERM is killed (137) that long after it was asked to stop.
 export const GRACE_TICKS = 6;
 
-export type Deployment = { ns: string; name: string; replicas: number; template: Template; revision: number; history: Template[]; created: number; labels: Record<string, string> };
-export type ReplicaSet = { ns: string; name: string; owner: string; hash: string; template: Template; replicas: number; revision: number; backoffUntil: number; failures: number; created: number };
+/** A Deployment condition as the controller stores it. Ticks, not timestamps. */
+export type DCond = { type: 'Available' | 'Progressing' | 'ReplicaFailure'; status: 'True' | 'False'; reason: string; message: string; lastUpdate: number; lastTransition: number };
+/** What the controller last wrote to .status, kept so the next sync can tell whether anything progressed. */
+export type DStatus = { replicas: number; updated: number; ready: number; available: number };
+export type Deployment = {
+  ns: string; name: string; replicas: number; template: Template; revision: number; history: Template[]; created: number; labels: Record<string, string>;
+  progressDeadlineSeconds: number; conditions: DCond[]; status?: DStatus;
+};
+export type ReplicaSet = { ns: string; name: string; owner: string; hash: string; template: Template; replicas: number; revision: number; backoffUntil: number; failures: number; created: number; failMsg?: string };
 export type Termination = { exitCode: number; reason: 'OOMKilled' | 'Error' | 'Completed'; at: number };
 export type PodStatus = 'Pending' | 'ContainerCreating' | 'Initializing' | 'Running' | 'CrashLoopBackOff' | 'ErrImagePull' | 'ImagePullBackOff'
   | 'CreateContainerConfigError' | 'Succeeded' | 'Failed' | 'Terminating';
@@ -63,7 +70,7 @@ export type Secret = { ns: string; name: string; data: Record<string, string>; c
 export type Quota = { ns: string; name: string; pods: number; created: number };
 export type Job = {
   ns: string; name: string; uid: string; template: Template; completions: number; parallelism: number; backoffLimit: number; suspend: boolean;
-  created: number; condition?: 'Complete' | 'Failed'; finishedAt?: number; backoffUntil: number; owner?: string; manual?: boolean; seenByOwner?: boolean;
+  created: number; condition?: 'Complete' | 'Failed'; finishedAt?: number; backoffUntil: number; owner?: string; manual?: boolean; seenByOwner?: boolean; reportedUnexpected?: boolean;
 };
 export type CronJob = {
   ns: string; name: string; schedule: string; suspend: boolean; concurrencyPolicy: 'Allow' | 'Forbid' | 'Replace'; template: Template; backoffLimit: number;
@@ -146,7 +153,24 @@ export class Cluster {
     if (!u) { u = this.uid(); this.uids.set(o, u); }
     return u;
   }
-  version(o: object & { created?: number }) { return (o.created ?? 0) * 7 + 3; }
+  private rvClock = 1000;
+  private rvSeen = new WeakMap<object, { json: string; rv: number }>();
+  /**
+   * resourceVersion: one counter for the whole cluster, bumped for an object
+   * whenever what is stored for it has changed since it was last read. Derived
+   * once from the creation tick, it stayed "1003" through kubectl scale, while
+   * the lesson says it changes on every write. Lazy, so two writes between
+   * looks show as one step; real numbers are opaque and only ever go up.
+   */
+  version(o: object) {
+    // Logs and the kubelet's own timers are not stored in the API, so they must not count as writes.
+    const json = JSON.stringify(o, (k, v) => (k === 'logs' || k === 'previousLogs' || k === 'nextAction' ? undefined : v));
+    const seen = this.rvSeen.get(o);
+    if (seen && seen.json === json) return seen.rv;
+    const rv = ++this.rvClock;
+    this.rvSeen.set(o, { json, rv });
+    return rv;
+  }
 
   uid() {
     const h = () => Math.floor(this.rand() * 16).toString(16);
@@ -222,7 +246,7 @@ export class Cluster {
     this.writable(ns, 'deployments.apps', name);
     if (this.deployments.has(key(ns, name))) throw new Error(`Error from server (AlreadyExists): deployments.apps "${name}" already exists`);
     const template = defaultTemplate(image, { labels: { app: name }, ...patch });
-    this.deployments.set(key(ns, name), { ns, name, replicas, template, revision: 0, history: [], created: this.tick, labels: { app: name } });
+    this.deployments.set(key(ns, name), { ns, name, replicas, template, revision: 0, history: [], created: this.tick, labels: { app: name }, progressDeadlineSeconds: 600, conditions: [] });
   }
 
   updateTemplate(name: string, change: (t: Template) => void, ns = 'default') {
@@ -277,15 +301,36 @@ export class Cluster {
     const sets = [...this.replicasets.values()].filter((r) => r.ns === ns && r.owner === name);
     const cur = sets.find((r) => r.hash === templateHash(d.template));
     const pods = sets.flatMap((r) => this.live(r.name, ns));
+    const available = pods.filter((p) => p.ready).length;
+    // describe's "N unavailable" is the ReplicaSets' *desired* total minus
+    // what is available, not the pods that exist (kind v1.36.1: 4 desired,
+    // 5 total, 3 available printed "2 unavailable").
+    const specTotal = sets.reduce((n, r) => n + r.replicas, 0);
     return {
       desired: d.replicas,
       current: pods.length,
       ready: pods.filter((p) => p.ready).length,
       upToDate: cur ? this.live(cur.name, ns).length : 0,
-      available: pods.filter((p) => p.ready).length,
+      available,
+      unavailable: Math.max(0, specTotal - available),
       replicaFailure: sets.some((r) => r.failures > 0 && this.live(r.name, ns).length < r.replicas),
     };
   }
+
+  /**
+   * maxSurge and maxUnavailable for the default 25%: surge rounds up,
+   * unavailable rounds down, and if both come to 0 unavailable becomes 1
+   * (ResolveFenceposts in pkg/controller/deployment/util, release-1.36).
+   */
+  fenceposts(replicas: number) {
+    const surge = Math.ceil(replicas * 0.25);
+    let unavailable = Math.floor(replicas * 0.25);
+    if (surge === 0 && unavailable === 0) unavailable = 1;
+    return { surge, unavailable: replicas === 0 ? 0 : Math.min(unavailable, replicas) };
+  }
+
+  /** A ReplicaSet's available pods as its status reports them: never more than it is asked to keep. */
+  private availableOf(rs: ReplicaSet) { return Math.min(rs.replicas, this.live(rs.name, rs.ns).filter((p) => p.ready).length); }
 
   jobStatus(j: Job) {
     const pods = this.podsOf(j.ns, j.name, 'Job');
@@ -356,39 +401,114 @@ export class Cluster {
     }
   }
 
+  /**
+   * The rolling update as pkg/controller/deployment/rolling.go (release-1.36)
+   * does it, with the default 25% surge and unavailability: scale the new
+   * ReplicaSet up while the total stays within replicas + maxSurge, then scale
+   * old ones down, first their unavailable pods and then only as far as
+   * replicas - maxUnavailable stay available. On kind v1.36.1 a broken image
+   * at 4 replicas left old 3 / new 2, and at 10 replicas old 8 / new 5; at 3
+   * replicas (surge 1, unavailable 0) no old pod goes until a new one is
+   * Ready. That is why a typo in an image tag is a stuck rollout, not an
+   * outage. Not modelled: Recreate, proportional scaling of a rollout already
+   * in flight, and pruning old ReplicaSets past revisionHistoryLimit.
+   */
   private deploymentController() {
     for (const d of this.deployments.values()) {
       const hash = templateHash(d.template);
       const name = `${d.name}-${hash}`;
+      const sets = () => [...this.replicasets.values()].filter((r) => r.ns === d.ns && r.owner === d.name);
+      const spec = () => sets().reduce((n, r) => n + r.replicas, 0);
+      const scale = (rs: ReplicaSet, to: number) => {
+        if (to === rs.replicas) return false;
+        this.event('Normal', 'ScalingReplicaSet', `deployment/${d.name}`, `Scaled ${to > rs.replicas ? 'up' : 'down'} replica set ${rs.name} from ${rs.replicas} to ${to}`, { ns: d.ns });
+        rs.replicas = to;
+        return true;
+      };
+      const { surge, unavailable } = this.fenceposts(d.replicas);
+      const minAvailable = d.replicas - unavailable;
       let cur = this.replicasets.get(key(d.ns, name));
       if (!cur) {
         d.revision++;
         cur = { ns: d.ns, name, owner: d.name, hash, template: d.template, replicas: 0, revision: d.revision, backoffUntil: 0, failures: 0, created: this.tick };
         this.replicasets.set(key(d.ns, name), cur);
+        this.setCond(d, { type: 'Progressing', status: 'True', reason: 'NewReplicaSetCreated', message: `Created new replica set "${name}"` });
+      } else if (cur.revision < d.revision) {
+        // rollout undo back to an old template reuses its ReplicaSet and gives it the next revision.
+        cur.revision = ++d.revision;
       }
-      const old = [...this.replicasets.values()].filter((r) => r.ns === d.ns && r.owner === d.name && r !== cur);
-      if (cur.replicas === 0 && d.replicas > 0) {
-        const to = old.some((r) => r.replicas > 0) ? 1 : d.replicas;
-        this.event('Normal', 'ScalingReplicaSet', `deployment/${d.name}`, `Scaled up replica set ${name} from 0 to ${to}`, { ns: d.ns });
-      }
-      const newReady = this.live(cur.name, d.ns).filter((p) => p.ready).length;
-      if (!old.some((r) => r.replicas > 0)) { cur.replicas = d.replicas; continue; }
-      // RollingUpdate with maxSurge 1 / maxUnavailable 0, which is what the
-      // 25% defaults round to at the 3 replicas the missions use (unavailable
-      // rounds down, surge up). At 4+ replicas a real cluster may drop up to
-      // 25% of old pods before any new one is Ready. Here old pods leave only
-      // as new ones become Ready, so a broken image stalls the rollout with the
-      // old version still serving - the reason a typo in an image tag is a
-      // stuck rollout and not an outage.
-      cur.replicas = Math.min(d.replicas, newReady + 1);
-      let keep = Math.max(0, d.replicas - newReady);
-      for (const r of old.sort((a, b) => b.revision - a.revision)) {
-        const want = Math.min(r.replicas, keep);
-        if (want !== r.replicas) this.event('Normal', 'ScalingReplicaSet', `deployment/${d.name}`, `Scaled down replica set ${r.name} from ${r.replicas} to ${want}`, { ns: d.ns });
-        r.replicas = want;
-        keep -= want;
+      const olds = () => sets().filter((r) => r !== cur && r.replicas > 0).sort((a, b) => a.created - b.created);
+      const scaleUp = () => {
+        if (cur.replicas > d.replicas) return scale(cur, d.replicas);
+        if (!olds().length) return scale(cur, d.replicas);
+        const room = d.replicas + surge - spec();
+        return room > 0 && scale(cur, cur.replicas + Math.min(room, d.replicas - cur.replicas));
+      };
+      const scaleDown = () => {
+        if (!olds().length) return false;
+        const maxScaledDown = spec() - minAvailable - (cur.replicas - this.availableOf(cur));
+        if (maxScaledDown <= 0) return false;
+        let done = 0, changed = false;
+        for (const r of olds()) {
+          if (done >= maxScaledDown) break;
+          const bad = r.replicas - this.availableOf(r);
+          if (bad <= 0) continue;
+          const n = Math.min(maxScaledDown - done, bad);
+          changed = scale(r, r.replicas - n) || changed;
+          done += n;
+        }
+        let left = sets().reduce((n, r) => n + this.availableOf(r), 0) - minAvailable;
+        for (const r of olds()) {
+          if (left <= 0) break;
+          const n = Math.min(r.replicas, left);
+          changed = scale(r, r.replicas - n) || changed;
+          left -= n;
+        }
+        return changed;
+      };
+      // The real controller re-syncs as soon as a ReplicaSet changes, so the
+      // first steps of a rollout land within a second; a few passes per tick
+      // stand in for that.
+      for (let pass = 0; pass < 4; pass++) if (!scaleUp() && !scaleDown()) break;
+      this.syncRolloutStatus(d, cur, minAvailable);
+    }
+  }
+
+  /** The SetDeploymentCondition rule: same status and reason changes nothing; otherwise the condition moves to the end. */
+  private setCond(d: Deployment, c: Omit<DCond, 'lastUpdate' | 'lastTransition'>) {
+    const was = d.conditions.find((x) => x.type === c.type);
+    if (was && was.status === c.status && was.reason === c.reason) return;
+    const lastTransition = was && was.status === c.status ? was.lastTransition : this.tick;
+    d.conditions = [...d.conditions.filter((x) => x.type !== c.type), { ...c, lastUpdate: this.tick, lastTransition }];
+  }
+
+  /** Available, Progressing and ReplicaFailure, in the order and with the wording of release-1.36's progress.go and sync.go. */
+  private syncRolloutStatus(d: Deployment, cur: ReplicaSet, minAvailable: number) {
+    const st = this.deploymentStatus(d.name, d.ns);
+    const now: DStatus = { replicas: st.current, updated: st.upToDate, ready: st.ready, available: st.available };
+    const before = d.status ?? { replicas: 0, updated: 0, ready: 0, available: 0 };
+    this.setCond(d, st.available >= minAvailable
+      ? { type: 'Available', status: 'True', reason: 'MinimumReplicasAvailable', message: 'Deployment has minimum availability.' }
+      : { type: 'Available', status: 'False', reason: 'MinimumReplicasUnavailable', message: 'Deployment does not have minimum availability.' });
+    const pc = d.conditions.find((x) => x.type === 'Progressing');
+    const alreadyComplete = now.replicas === now.updated && pc?.reason === 'NewReplicaSetAvailable';
+    if (!alreadyComplete) {
+      const complete = now.updated === d.replicas && now.replicas === d.replicas && now.available === d.replicas;
+      const progressed = now.updated > before.updated || now.replicas - now.updated < before.replicas - before.updated || now.ready > before.ready || now.available > before.available;
+      if (complete) this.setCond(d, { type: 'Progressing', status: 'True', reason: 'NewReplicaSetAvailable', message: `ReplicaSet "${cur.name}" has successfully progressed.` });
+      else if (progressed) {
+        // Progress refreshes lastUpdateTime even with the same reason: that is
+        // the clock progressDeadlineSeconds is measured from.
+        const keep = pc?.status === 'True' ? pc.lastTransition : this.tick;
+        d.conditions = [...d.conditions.filter((x) => x.type !== 'Progressing'), { type: 'Progressing', status: 'True', reason: 'ReplicaSetUpdated', message: `ReplicaSet "${cur.name}" is progressing.`, lastUpdate: this.tick, lastTransition: keep }];
+      } else if (pc && (pc.reason === 'ProgressDeadlineExceeded' || (this.tick - pc.lastUpdate) * SECONDS_PER_TICK > d.progressDeadlineSeconds)) {
+        this.setCond(d, { type: 'Progressing', status: 'False', reason: 'ProgressDeadlineExceeded', message: `ReplicaSet "${cur.name}" has timed out progressing.` });
       }
     }
+    const failing = [...this.replicasets.values()].find((r) => r.ns === d.ns && r.owner === d.name && r.failures > 0 && this.live(r.name, r.ns).length < r.replicas);
+    if (failing) this.setCond(d, { type: 'ReplicaFailure', status: 'True', reason: 'FailedCreate', message: failing.failMsg ?? '' });
+    else d.conditions = d.conditions.filter((x) => x.type !== 'ReplicaFailure');
+    d.status = now;
   }
 
   private replicaSetController() {
@@ -405,6 +525,7 @@ export class Cluster {
         const refused = this.admit(rs.ns, name, rs.template);
         if (refused) {
           this.event('Warning', 'FailedCreate', `replicaset/${rs.name}`, `Error creating: ${refused}`, { ns: rs.ns });
+          rs.failMsg = refused;
           // The ReplicaSet backs off after repeated refusals, so a fixed quota
           // is not obeyed instantly - lab 10 measured minutes. Kept short here.
           rs.backoffUntil = this.tick + QUOTA_BACKOFF[Math.min(rs.failures, QUOTA_BACKOFF.length - 1)];
@@ -478,15 +599,21 @@ export class Cluster {
     for (const cj of this.cronjobs.values()) {
       const owned = [...this.jobs.values()].filter((j) => j.ns === cj.ns && j.owner === cj.name);
       for (const j of owned) {
-        if (j.condition && !j.seenByOwner) {
+        if (j.condition && !j.seenByOwner && !j.manual) {
           j.seenByOwner = true;
           this.event('Normal', 'SawCompletedJob', `cronjob/${cj.name}`, `Saw completed job: ${j.name}, condition: ${j.condition}`, { ns: cj.ns });
         }
       }
       // A job made by hand with --from=cronjob/x points at the CronJob, which
-      // complains that it never made it. Harmless, and real.
+      // complains that it never made it. Harmless, and real. The controller
+      // only complains about unfinished Jobs, once per sync: on kind v1.36.1
+      // a quick manual Job got the warning once. Firing it every other tick
+      // once ran the count to x20 for a Job long since complete.
       for (const j of this.jobs.values()) {
-        if (j.ns === cj.ns && j.manual && j.owner === cj.name && this.tick % 2 === 0) this.event('Warning', 'UnexpectedJob', `cronjob/${cj.name}`, `Saw a job that the controller did not create or forgot: ${j.name}`, { ns: cj.ns });
+        if (j.ns === cj.ns && j.manual && j.owner === cj.name && !j.condition && !j.reportedUnexpected) {
+          j.reportedUnexpected = true;
+          this.event('Warning', 'UnexpectedJob', `cronjob/${cj.name}`, `Saw a job that the controller did not create or forgot: ${j.name}`, { ns: cj.ns });
+        }
       }
       this.trimHistory(cj, owned);
       for (let m = cj.lastMinute + 1; m <= now; m++) if (cronMatches(cj.schedule, m)) this.fire(cj, m);
@@ -763,8 +890,9 @@ export class Cluster {
 
   /**
    * Copy ConfigMap and Secret contents into the pod's mounted files. A subPath
-   * mount is copied once, at start, and never again: the docs say such a
-   * mount "will not receive ConfigMap updates", and kind agreed.
+   * mount is a bind mount of the file as it was when the container started,
+   * so it is filled once here and never again: the docs say such a mount
+   * "will not receive ConfigMap updates", and kind agreed.
    */
   private syncFiles(p: Pod, first: boolean) {
     const ctrs: { mounts: Ctr['mounts'] }[] = [p.template, ...p.template.initContainers, ...p.template.sidecars];
@@ -807,7 +935,7 @@ export class Cluster {
     return null;
   }
 
-  private runInit(p: Pod) {
+  private runInit(p: Pod): void {
     const idx = p.initDone;
     const spec = p.template.initContainers[idx];
     const st = p.inits[idx];
@@ -837,8 +965,15 @@ export class Cluster {
       p.initBackoff = false;
       p.nextAction = this.tick + 1;
       // A native sidecar (an init container with restartPolicy: Always) does
-      // not block the next one: it starts, and the sequence moves on.
-      if (spec.restartPolicy === 'Always') { st.ready = true; st.logs.push(...img.log.slice(0, 1)); p.initDone++; }
+      // not block the next one: it starts, and the sequence moves on at once.
+      // Waiting a tick here once printed Init:1/1 and then PodInitializing,
+      // which kubectl never shows for a started sidecar: on kind v1.36.1 the
+      // pod went from 0/2 Init:0/1 straight to 2/2 Running.
+      if (spec.restartPolicy === 'Always') {
+        st.ready = true; st.logs.push(...img.log.slice(0, 1)); p.initDone++;
+        if (p.initDone < p.template.initContainers.length) return this.runInit(p);
+        return this.startMain(p);
+      }
       return;
     }
     const age = this.tick - (st.startedAt ?? this.tick);
@@ -919,6 +1054,9 @@ export class Cluster {
     p.nextAction = this.tick + 1;
     p.previousLogs = p.logs;
     p.logs = [];
+    // With no readiness probe a container is Ready as soon as it runs. The
+    // batch images have none; the long-running ones keep their start delay.
+    if (IMAGES[p.template.image]?.behaviour === 'batch') p.ready = true;
     this.kevent(p, 'Normal', 'Started', 'Container started', name);
   }
 
@@ -1057,10 +1195,22 @@ export class Cluster {
   /** The pod phase describe prints as Status. */
   podPhase(p: Pod) {
     if (p.status === 'Terminating') return 'Terminating';
+    // While native sidecars are being stopped the pod is still Running: on
+    // kind v1.36.1 the phase stayed Running for the shipper's 30 s grace
+    // period, though get pods already read 1/2 Completed.
+    if ((p.status === 'Succeeded' || p.status === 'Failed') && p.terminalAt !== undefined && this.tick < p.terminalAt) return 'Running';
     if (p.status === 'Succeeded') return 'Succeeded';
     if (p.status === 'Failed') return 'Failed';
     if (p.status === 'Running' || p.status === 'CrashLoopBackOff') return 'Running';
     return 'Pending';
+  }
+
+  /** The main container's waiting reason, as its containerStatus carries it. A pod with no node has no container status at all. */
+  mainWaitReason(p: Pod) {
+    const t = p.template;
+    if (p.status === 'Initializing' || p.initDone < t.initContainers.length) return 'PodInitializing';
+    if (p.status === 'ContainerCreating') return t.initContainers.length ? 'PodInitializing' : 'ContainerCreating';
+    return p.status;
   }
 
   totalRestarts(p: Pod) { return p.restarts + p.inits.reduce((n, s) => n + s.restarts, 0); }

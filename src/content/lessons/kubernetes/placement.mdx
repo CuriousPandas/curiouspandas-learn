@@ -12,7 +12,7 @@ sources:
     url: https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
 ---
 
-The new search service needs a fast disk, so its Deployment says `nodeSelector: {disktype: ssd}`. It's been Pending for an hour. The pod's events say:
+The new search service needs a fast disk, so its Deployment says `nodeSelector: {disktype: ssd}`. It's been Pending for an hour. The pod's event starts like this (the line goes on with the scheduler's verdict on preemption, `no new claims to deallocate, preemption: ...`):
 
 ```text
 0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 node(s) didn't match Pod's node affinity/selector.
@@ -32,7 +32,7 @@ The long names end in `IgnoredDuringExecution`, which the docs explain: "if the 
 
 ## Where a pod must not go: near its siblings
 
-**Pod anti-affinity** places pods by the labels of *other pods*: "don't put me on a node that already runs a pod labelled `app=web`". The **topologyKey** says what counts as "the same place": `kubernetes.io/hostname` means the same node, `topology.kubernetes.io/zone` means the same zone. Required anti-affinity on hostname gives you one replica per node, at most. Ask for more replicas than nodes and the extras wait:
+**Pod anti-affinity** places pods by the labels of *other pods*: "don't put me on a node that already runs a pod labelled `app=web`". The **topologyKey** says what counts as "the same place": `kubernetes.io/hostname` means the same node, `topology.kubernetes.io/zone` means the same zone. Required anti-affinity on hostname gives you one replica per node, at most. Ask for more replicas than nodes and the extras wait, with an event that starts:
 
 ```text
 0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 node(s) didn't match pod anti-affinity rules.
@@ -104,6 +104,6 @@ kubectl -n place-lab get pods -o wide          # both on tiltdev-worker
 kubectl delete namespace place-lab
 ```
 
-The event said `0/2 nodes are available: 1 node(s) didn't match pod anti-affinity rules, 1 node(s) had untolerated taint(s).` The second patch is a JSON patch because a normal patch would merge the preferred rule in beside the required one rather than replacing it.
+The event started `0/2 nodes are available: 1 node(s) didn't match pod anti-affinity rules, 1 node(s) had untolerated taint(s).` The second patch is a JSON patch because a normal patch would merge the preferred rule in beside the required one rather than replacing it.
 
 </DoItForReal>

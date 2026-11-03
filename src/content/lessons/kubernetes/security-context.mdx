@@ -18,11 +18,13 @@ sources:
 
 A security review asks for one change: don't run containers as root. You add `runAsNonRoot: true` to the Deployment. The new pod never starts. `kubectl logs` says the container "is waiting to start: CreateContainerConfigError". There is nothing else to read, because the program never ran.
 
-The pod's events have the reason, word for word from a real kind v1.36.1 cluster running the stock `nginx` image:
+The pod's events have the reason, word for word from a real kind v1.36.1 cluster running the stock `nginx` image, as a pod called `nginx` in a namespace called `sec-lab`:
 
 ```text
-Error: container has runAsNonRoot and image will run as root (pod: "nginx_sec(06f4...)", container: nginx)
+Error: container has runAsNonRoot and image will run as root (pod: "nginx_sec-lab(06f4...)", container: nginx)
 ```
+
+The part in brackets is the pod's name, an underscore, its namespace, and its uid.
 
 ## What a securityContext is
 
@@ -35,13 +37,15 @@ A **securityContext** is a block of settings in a pod or container spec that con
 - `readOnlyRootFilesystem: true`: the container's own files can't be changed. Anything the app writes needs a mounted volume.
 - `seccompProfile`: a filter on which system calls the process may make. `RuntimeDefault` uses the container runtime's standard filter.
 
-Settings on the pod apply to every container; settings on a container override them.
+Not every setting exists at both levels. `runAsUser`, `runAsNonRoot` and `seccompProfile` can be set on the pod, as a default for every container, and a container's own value overrides it. `allowPrivilegeEscalation`, `capabilities` and `readOnlyRootFilesystem` exist only on a container (`kubectl explain pod.spec.securityContext` doesn't list them), so they must be set on each one. A few, such as `fsGroup`, exist only on the pod.
 
 ## Why it refused
 
 `runAsNonRoot` doesn't make anything non-root. It asks the kubelet to check. The image's own metadata says which user it runs as, and many, the official `nginx` image included, say root. So the check fails before the program starts, and the pod sits in **CreateContainerConfigError** for ever. The fix is to say which non-root user to run as (`runAsUser: 1000`), or to use an image built to run as one.
 
 Setting `runAsUser: 0` alongside `runAsNonRoot: true` gets a different message from the same check: `container's runAsUser breaks non-root policy`.
+
+One more you'll meet: an image whose Dockerfile names its user rather than giving a number, like `USER curl_user` in the `curlimages/curl` image. The kubelet can't tell from a name whether that user is root, so it refuses that too. On kind v1.36.1, with `runAsNonRoot: true` and no `runAsUser`: `Error: container has runAsNonRoot and image has non-numeric user (curl_user), cannot verify user is non-root`. The fix is the same: give a numeric `runAsUser`.
 
 ## Two gates
 
@@ -60,7 +64,7 @@ A namespace labelled only `pod-security.kubernetes.io/audit=restricted` or `warn
 </Callout>
 
 <Callout kind="trap">
-Switching enforcement on doesn't touch pods that are already running. The API server lists them as warnings when you add the label (`Warning: existing pods in namespace ... violate the new PodSecurity enforce level`) and leaves them be. The next time one of them is replaced, by a crash, a node drain or a rollout, its replacement is refused. A namespace can look compliant for weeks and fail on the first restart.
+Switching enforcement on doesn't touch pods that are already running. The API server lists them as warnings when you add the label (`Warning: existing pods in namespace ... violate the new PodSecurity enforce level`) and leaves them be. The next time one of them is replaced by a new pod, after a rollout, a node drain or a deletion, the new pod is refused. A crash doesn't count: the kubelet restarts the container inside the same pod, and admission only ever sees pods being created or updated. On kind v1.36.1, a crash-looping pod in a namespace just labelled `enforce=restricted` kept restarting, same pod, same uid. A namespace can look compliant for weeks and fail on the first rollout.
 </Callout>
 
 <Quiz
@@ -93,7 +97,7 @@ The sandbox's images declare their user the way a Dockerfile's `USER` line does:
 
 ## Sometimes root is the job
 
-Not every pod can be restricted. The tilt platform runs a DaemonSet called `istio-ambient-node-prep` with `privileged: true` and `hostPID: true`, which baseline forbids. Its comment says why: "kind nodes start with /run private. istio-cni needs it rshared to enter pod netns; without this ambient capture silently no-ops." It changes how the node itself mounts a folder, which no ordinary container may do. The honest pattern is to keep such things in a namespace of their own, labelled `privileged`, with a comment saying why, and keep application namespaces restricted.
+Not every pod can be restricted. The tilt platform runs a DaemonSet called `istio-ambient-node-prep` with `privileged: true` and `hostPID: true`, which baseline forbids. Its comment says why: "kind nodes start with /run private. istio-cni needs it rshared to enter pod netns; without this ambient capture silently no-ops." It changes how the node itself mounts a folder, which no ordinary container may do. The honest pattern is to keep such things in a namespace of their own, labelled `privileged`, with a comment saying why, and keep application namespaces restricted. The tilt platform doesn't do all of that yet: when this was written, its `istio-system` namespace, which holds this DaemonSet beside `istiod` and the rest of the mesh, carried no `pod-security.kubernetes.io` labels at all.
 
 ## What to remember
 

@@ -14,7 +14,7 @@ sources:
     url: https://github.com/istio/istio/issues/11659
 ---
 
-The nightly report takes ten seconds to write. Its Job has been running for forty minutes. The report container's logs say `report written`. The Job still says `0/1`, and the pod says `1/2 NotReady`.
+The nightly report takes ten seconds to write. It runs as a **Job**: an object that starts a pod, waits for it to finish, and records the result as complete or failed ([a later lesson](/learn/kubernetes/jobs-and-cronjobs/) covers them in full). This Job has been running for forty minutes. The report container's logs say `report written`. The Job still says `0/1`, and the pod says `1/2 NotReady`.
 
 This happened to enough people that it has a famous issue. In February 2019 someone wrote to the Istio project: "when the primary pod completes, the "Job" never completes because istio-proxy is still running". Istio had added a second container to every pod, and that container had no reason to stop.
 
@@ -22,7 +22,7 @@ This happened to enough people that it has a famous issue. In February 2019 some
 
 So far every pod here had one container. A pod can have more, sharing the pod's network and any volumes it mounts. There are three kinds, and the difference is all about *when they run* and *what waits for what*:
 
-- **Regular containers** (`spec.containers`) are the app. They start together and the pod is finished when **all** of them have stopped.
+- **Regular containers** (`spec.containers`) are the app. The kubelet starts them one after another, in the order they're listed, without waiting for each to be ready, so in practice they come up together. The pod is finished when **all** of them have stopped.
 - **Init containers** (`spec.initContainers`) run first, one at a time, and each must finish. The docs: "Init containers always run to completion. Each init container must complete successfully before the next one starts." Typical jobs: wait for a database, run a migration, download a file.
 - **Sidecars** are helpers that run beside the app for its whole life: a log shipper, a proxy. Kubernetes now has a proper kind of sidecar, stable since v1.33 according to the docs: an init container with `restartPolicy: Always`. It starts before the app and is stopped *after* the app has finished.
 
@@ -41,7 +41,7 @@ With more than one container, `kubectl logs <pod>` picks one and tells you so: `
 </Callout>
 
 <Callout kind="trap">
-You can't fix a Job in place. Its pod template is fixed once the Job exists: `kubectl apply` of the changed file is refused with `spec.template: Invalid value: ...: field is immutable` (on a real cluster, a very long line). Delete the Job and create it again.
+You can't fix a Job's containers in place. Its pod template is fixed once the Job exists: `kubectl apply` of the changed file is refused with `spec.template: Invalid value: ...: field is immutable` (on a real cluster, a very long line). Delete the Job and create it again. (One narrow exception, from the v1.36 source: a Job that is suspended and has never started may still change scheduling fields such as its node selector and tolerations, but not its containers.)
 </Callout>
 
 ## Reading the status column
@@ -51,10 +51,10 @@ You can't fix a Job in place. Its pod template is fixed once the Job exists: `ku
 | `Init:0/1` | The first of one init container is running and hasn't finished |
 | `Init:Error`, then `Init:CrashLoopBackOff` | An init container exited with an error; the kubelet restarts it, waiting longer each time |
 | `PodInitializing` | Init containers are done; the app container is being started |
-| `NotReady` | The pod is running but a container in it isn't ready, for example the app finished and a regular sidecar didn't |
+| `NotReady` | One regular container has finished and another is still running, so the pod isn't Ready: the app finished and a regular sidecar didn't |
 | `Completed` | Every regular container exited with 0 |
 
-The READY column counts regular containers and native sidecars: `1/2` on the stuck report pod means the shipper is up and the report container, which has finished, is not.
+A pod whose container is running but failing its readiness check doesn't say `NotReady`: it says `Running`, with `0/1` in READY. The READY column counts regular containers and native sidecars: `1/2` on the stuck report pod means the shipper is up and the report container, which has finished, is not.
 
 <Quiz
   id="kube-init-1"
@@ -81,7 +81,7 @@ The READY column counts regular containers and native sidecars: `1/2` on the stu
 />
 
 <Callout kind="real">
-Three simplifications. The sandbox's `wait-for-db` image waits until a Ready pod labelled `app=db` exists in its namespace; a real one would loop on a DNS lookup or a TCP connection to a Service, which this sandbox doesn't model. Real containers in a pod also share an `emptyDir` volume when you give them one: a scratch folder that lives exactly as long as the pod, the usual way an init container hands a file to the app. The sandbox lets you mount one but keeps no files in it. And on a real cluster the native sidecar Job took about 43 seconds, not 10: the busybox log shipper ignored the stop signal, so the kubelet waited out its 30-second grace period and killed it (exit code 137) before the pod counted as finished. The sandbox's log shipper does the same.
+Three simplifications. The sandbox's `wait-for-db` image waits until a Ready pod labelled `app=db` exists in its namespace; a real one would loop on a DNS lookup or a TCP connection to a Service, which this sandbox doesn't model. Real containers in a pod also share an `emptyDir` volume when you give them one: a scratch folder that lives exactly as long as the pod, the usual way an init container hands a file to the app. The sandbox lets you mount one but keeps no files in it. And on a real cluster the native sidecar Job took about 42 seconds, not 10: the busybox log shipper ignored the stop signal, so the kubelet waited out its 30-second grace period and killed it (exit code 137) before the pod counted as finished. The sandbox's log shipper does the same, and shows the same sequence a real cluster did on kind v1.36.1: `0/2 Init:0/1`, then `2/2 Running`, then `1/2 Completed` with the pod still in phase Running for the grace period, then `0/2 Completed`. Its timings are coarser, because the sandbox moves in 5-second ticks.
 </Callout>
 
 ## What to remember

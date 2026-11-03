@@ -12,6 +12,8 @@ sources:
     url: https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/
   - title: TemplateMechanics/tilt - the Alloy DaemonSet and its toleration
     url: https://github.com/TemplateMechanics/tilt/blob/main/helm/loki/base/helm-release-alloy.yaml
+  - title: kubernetes-sigs/kind - kubeadminit, removing the control-plane taint on a one-node cluster
+    url: https://github.com/kubernetes-sigs/kind/blob/main/pkg/cluster/internal/create/actions/kubeadminit/init.go
 ---
 
 The tilt platform ships every pod's logs to Loki with a collector called Alloy, which runs as a **DaemonSet**: one copy per node, reading that node's log files. For a while, logs from the API server and etcd were simply missing. The comment that now sits in the platform's config tells the story:
@@ -32,7 +34,7 @@ A **taint** is a mark on a node that pushes pods away: a key, an optional value,
 - **PreferNoSchedule**: the scheduler tries to avoid the node, but may still use it.
 - **NoExecute**: pods that don't tolerate it are evicted, even ones already running.
 
-Clusters built with kubeadm, kind included, put `node-role.kubernetes.io/control-plane:NoSchedule` on the control-plane node, so ordinary workloads stay off the machine that runs the API server. That's what kept Alloy off it. You add a taint with `kubectl taint node <name> key=value:Effect` and remove it with the same line plus a trailing `-`.
+Clusters built with kubeadm, kind included, put `node-role.kubernetes.io/control-plane:NoSchedule` on the control-plane node, so ordinary workloads stay off the machine that runs the API server. (A single-node kind cluster is the exception: kind removes that taint when the control plane is the only node, which leaves ordinary pods somewhere to run. The tilt platform has a worker, so its control plane keeps the taint.) That's what kept Alloy off it. You add a taint with `kubectl taint node <name> key=value:Effect` and remove it with the same line plus a trailing `-`.
 
 ## Bring the collector back
 

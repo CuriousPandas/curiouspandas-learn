@@ -91,7 +91,7 @@ export function listOf(items: unknown[]) { return { apiVersion: 'v1', items, kin
 
 // ---- objects as the API server would return them -----------------------
 
-const rv = (c: Cluster, o: object) => String(1000 + (c.version(o)));
+const rv = (c: Cluster, o: object) => String(c.version(o));
 
 function meta(c: Cluster, o: object & { name: string; created: number }, ns: string | null, extra: Record<string, unknown> = {}) {
   return { creationTimestamp: ts(o.created), ...extra, name: o.name, ...(ns ? { namespace: ns } : {}), resourceVersion: rv(c, o), uid: c.uidOf(o) };
@@ -162,7 +162,7 @@ export function podObj(c: Cluster, p: Pod) {
     { effect: 'NoExecute', key: 'node.kubernetes.io/unreachable', operator: 'Exists', tolerationSeconds: 300 }];
   const state = (s: string, ready: boolean, restarts: number, name: string, image: string) => ({
     image, name, ready, restartCount: restarts,
-    state: s === 'Running' ? { running: { startedAt: ts(p.startedAt ?? p.created) } } : s === 'Terminated' ? { terminated: { exitCode: p.last?.exitCode ?? 0, reason: p.last?.reason ?? 'Completed' } } : { waiting: { reason: c.podStatus(p) } },
+    state: s === 'Running' ? { running: { startedAt: ts(p.startedAt ?? p.created) } } : s === 'Terminated' ? { terminated: { exitCode: p.last?.exitCode ?? 0, reason: p.last?.reason ?? 'Completed' } } : { waiting: { reason: c.mainWaitReason(p) } },
   });
   const mainState = p.status === 'Running' && !p.mainFinished ? 'Running' : p.mainFinished || p.status === 'Succeeded' || p.status === 'Failed' ? 'Terminated' : 'Waiting';
   return {
@@ -174,7 +174,9 @@ export function podObj(c: Cluster, p: Pod) {
     },
     spec: podSpecObj(t, { enableServiceLinks: true, ...(p.node ? { nodeName: p.node } : {}), preemptionPolicy: 'PreemptLowerPriority', priority: 0, serviceAccount: 'default', serviceAccountName: 'default', tolerations }),
     status: {
-      containerStatuses: [state(mainState, p.ready, p.restarts, t.name, t.image), ...p.sides.map((s, i) => state(s.status, s.ready, s.restarts, s.name, t.sidecars[i].image))],
+      // A pod the scheduler has not placed has no container statuses yet (kind
+      // v1.36.1: status held only the PodScheduled condition, phase and qosClass).
+      ...(p.node ? { containerStatuses: [state(mainState, p.ready, p.restarts, t.name, t.image), ...p.sides.map((s, i) => state(s.status, s.ready, s.restarts, s.name, t.sidecars[i].image))] } : {}),
       ...(p.ip ? { podIP: p.ip } : {}),
       phase: c.podPhase(p) === 'Terminating' ? 'Running' : c.podPhase(p),
       qosClass: 'Burstable',
@@ -188,14 +190,16 @@ export function deploymentObj(c: Cluster, d: Deployment) {
     apiVersion: 'apps/v1', kind: 'Deployment',
     metadata: { annotations: { 'deployment.kubernetes.io/revision': String(d.revision) }, ...meta(c, d, d.ns, { generation: d.history.length + 1 }), labels: d.labels },
     spec: {
-      progressDeadlineSeconds: 600, replicas: d.replicas, revisionHistoryLimit: 10, selector: { matchLabels: { app: d.labels.app ?? d.name } },
+      progressDeadlineSeconds: d.progressDeadlineSeconds, replicas: d.replicas, revisionHistoryLimit: 10, selector: { matchLabels: { app: d.labels.app ?? d.name } },
       strategy: { rollingUpdate: { maxSurge: '25%', maxUnavailable: '25%' }, type: 'RollingUpdate' },
       template: { metadata: tplMeta(d.template), spec: podSpecObj(d.template) },
     },
     status: {
       ...(s.available ? { availableReplicas: s.available } : {}),
-      conditions: [{ lastTransitionTime: ts(d.created), lastUpdateTime: ts(c.tick), message: s.available >= s.desired ? 'Deployment has minimum availability.' : 'Deployment does not have minimum availability.', reason: s.available >= s.desired ? 'MinimumReplicasAvailable' : 'MinimumReplicasUnavailable', status: s.available >= s.desired ? 'True' : 'False', type: 'Available' }],
-      observedGeneration: d.history.length + 1, ...(s.ready ? { readyReplicas: s.ready } : {}), replicas: s.current, ...(s.upToDate ? { updatedReplicas: s.upToDate } : {}),
+      // Stored conditions, in the order the controller last moved them (kind
+      // v1.36.1 printed Available, then Progressing, for a settled Deployment).
+      conditions: d.conditions.map((x) => ({ lastTransitionTime: ts(x.lastTransition), lastUpdateTime: ts(x.lastUpdate), message: x.message, reason: x.reason, status: x.status, type: x.type })),
+      observedGeneration: d.history.length + 1, ...(s.ready ? { readyReplicas: s.ready } : {}), replicas: s.current, ...(s.unavailable ? { unavailableReplicas: s.unavailable } : {}), ...(s.upToDate ? { updatedReplicas: s.upToDate } : {}),
     },
   };
 }
