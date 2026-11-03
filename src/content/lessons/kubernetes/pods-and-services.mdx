@@ -1,0 +1,154 @@
+---
+title: EXTERNAL-IP pending, forever
+summary: A LoadBalancer Service on a cluster with nothing to provide load balancers waits for an address forever, and nothing calls that an error. Learn how pods get addresses, what each Service type adds, and why a Service with endpoints can still refuse every connection.
+minutes: 18
+xp: 45
+tiers: [browser, machine]
+builds_on: [tools/kubernetes, network/ip-and-subnets, network/load-balancers]
+sources:
+  - title: Kubernetes docs - Services, Load Balancing, and Networking (the network model, v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/services-networking/
+  - title: Kubernetes docs - Service (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/services-networking/service/
+  - title: kind docs - LoadBalancer
+    url: https://kind.sigs.k8s.io/docs/user/loadbalancer/
+  - title: TemplateMechanics/tilt - kind/cluster.yaml (the NodePort mapping and why)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/kind/cluster.yaml
+  - title: podinfo - the demo app tilt runs, and its readiness switch
+    url: https://github.com/stefanprodan/podinfo
+---
+
+You create a Service of `type: LoadBalancer`. `kubectl get svc` shows it straight away, with a cluster IP and a port, and in the EXTERNAL-IP column the word `<pending>`. A minute later it still says `<pending>`. On a laptop cluster it will say that until you delete it. `kubectl describe svc` lists `Events: <none>`. Nothing failed, so nothing reports a failure.
+
+This lesson is about where traffic goes inside a cluster: how pods get addresses, what a Service adds on top, and the two quiet ways a Service lets you down.
+
+## Every pod gets an address
+
+The Kubernetes docs set out the network model in a few rules. "Each pod in a cluster gets its own unique cluster-wide IP address." And "All pods can communicate with all other pods, whether they are on the same node or on different nodes", "directly, without the use of proxies or address translation (NAT)."
+
+Kubernetes itself doesn't build that network. In the docs' words, "the pod network itself is managed by a pod network implementation", and on Linux these "are often called CNI plugins", after the **Container Networking Interface** they plug into. On a kind cluster the plugin is kindnet. Each node gets a slice of the pod address range, such as `10.244.1.0/24`, and the plugin gives every new pod on that node an address from it. You met that notation in [IP addresses and subnets](/learn/network/ip-and-subnets/).
+
+Pod addresses don't last. A replacement pod gets a new name and a new IP, which is why the [Service that selects nobody](/learn/tools/kubernetes/) lesson needed Services in the first place.
+
+## What each Service type adds
+
+A **Service** gives a changing set of pods one stable address. It finds its pods by label selector, lists their addresses in EndpointSlices, and each node's service proxy (kube-proxy, on kind) rewrites traffic for the Service's address to one of those pods. Each type builds on the one before:
+
+- **ClusterIP**, the default, "makes the Service only reachable from within the cluster." It gets a virtual IP, like `10.96.98.211`, that no pod owns.
+- **NodePort** "Exposes the Service on each Node's IP at a static port". The port comes from a range that defaults to 30000-32767, and "To make the node port available, Kubernetes sets up a cluster IP address" as well.
+- **LoadBalancer** "Exposes the Service externally using an external load balancer." It gets a node port too. Then, the docs continue, "Kubernetes does not directly offer a load balancing component; you must provide one, or you can integrate your Kubernetes cluster with a cloud provider."
+- **Headless** isn't a type of its own. It's a ClusterIP Service with `clusterIP: None`: no virtual IP, and no proxying. DNS answers with the pods' own addresses instead. The [cluster DNS](/learn/kubernetes/cluster-dns/) lesson uses one.
+
+Two port numbers matter. `port` is what clients connect to on the Service. `targetPort` is where the traffic goes on the pod. If you leave `targetPort` out, the docs say, "the targetPort is set to the same value as the port field."
+
+<Diagram
+  id="kube-svc-types"
+  title="Three ways in, one set of pods"
+  desc="A client pod reaches the ClusterIP 10.96.98.211 on port 80. A machine outside the cluster reaches any node's IP on node port 30292. A load balancer, if something provides one, forwards to the node port. All three lead to the same pod endpoints on targetPort 8080."
+  nodes={[
+    { id: 'client', label: 'client pod', sub: 'inside the cluster', x: 0, y: 0 },
+    { id: 'outside', label: 'from outside', sub: 'a laptop, or an LB', x: 0, y: 1, kind: 'warn' },
+    { id: 'vip', label: 'ClusterIP', sub: '10.96.98.211:80', x: 1, y: 0, kind: 'info' },
+    { id: 'np', label: 'node port', sub: '172.18.0.3:30292', x: 1, y: 1, kind: 'info' },
+    { id: 'pods', label: 'endpoints', sub: 'ready pods, port 8080', x: 2, y: 0, kind: 'ok' },
+  ]}
+  edges={[
+    { from: 'client', to: 'vip' }, { from: 'outside', to: 'np' },
+    { from: 'vip', to: 'pods' }, { from: 'np', to: 'pods' },
+  ]}
+  steps={[
+    { caption: 'Inside the cluster, clients use the ClusterIP. Every Service type has one, except a headless Service.', show: ['client', 'vip', 'pods', 'client->vip', 'vip->pods'], focus: ['vip'] },
+    { caption: 'NodePort adds a port on every node, so a machine that can reach a node can reach the Service.', show: ['outside', 'np', 'outside->np', 'np->pods'], focus: ['np'] },
+    { caption: 'LoadBalancer adds one more piece: a load balancer that forwards to those node ports. Kubernetes doesn\'t ship one. If nothing provides it, EXTERNAL-IP stays <pending>.', show: [], focus: ['outside'] },
+  ]}
+/>
+
+## Pending, and refused
+
+On kind, nothing implements LoadBalancer unless you install it. The kind docs have a whole guide to "get service of type LoadBalancer working in a kind cluster using Cloud Provider KIND". tilt doesn't install it. Its `kind/cluster.yaml` publishes a fixed node port to your machine instead, and the comment there says why: "There is no load balancer on kind, so without this mapping the gateway is healthy and unreachable."
+
+The second fault is quieter. A Service can select the right pods, have endpoints, and still have every connection refused, because `targetPort` names a port the pods never opened. The EndpointSlice faithfully lists the pod IPs with the wrong port. `kubectl get svc` looks perfect.
+
+Here, the `web` Service in namespace `shop` has been waiting for a load balancer for ten minutes, and it has a second fault. Find both, then do a blue/green switch with nothing but a selector.
+
+<NetSim mission="kube-net-services" title="A Service that waits, and one that refuses" />
+
+<Callout kind="tip">
+Blue/green with plain Kubernetes is one Service and two Deployments. The Service's selector says which one gets traffic. Change the selector and new requests go to the other set of pods; change it back to roll back. [Release strategies](/learn/delivery/release-strategies/) shows the automated version.
+</Callout>
+
+<Callout kind="trap">
+A Service with endpoints isn't proof that anything listens. EndpointSlices are built from labels and readiness, and nobody checks that `targetPort` is a port the container opened. The only test is a request. Make it from inside the cluster first, so the load balancer and node ports are out of the picture.
+</Callout>
+
+## Ready, not just running
+
+Endpoints carry readiness, too. Each endpoint has a `ready` condition, which follows the pod's Ready condition, and a failing readiness probe turns that false. A pod whose readiness probe fails is still Running and isn't restarted; it just stops getting new traffic. In the sandbox, the panda images copy podinfo's switch: `curl -X POST http://POD-IP:8080/readyz/disable` from the client pod makes that pod fail its probe.
+
+One detail surprised us on a real cluster. `kubectl get endpointslices` still listed the unready pod's address. Readiness is a condition on each endpoint, so you see it with `-o yaml` (`ready: false`), while `kubectl describe svc` lists only the ready addresses.
+
+<Quiz
+  id="kube-svc-1"
+  q="A type: LoadBalancer Service on a kind cluster has shown EXTERNAL-IP <pending> for an hour, and describe shows no events. What is wrong?"
+  options={["The Service has no endpoints", "Nothing in the cluster provides load balancers, so nobody ever assigns an address; the node port it was given still works", "kube-proxy has crashed"]}
+  answer={1}
+  explain="Kubernetes doesn't ship a load balancer. On a cloud, the provider's controller fills in the address; on kind, nothing does unless you install something like Cloud Provider KIND. Every LoadBalancer Service also gets a node port, which works regardless."
+/>
+
+<Quiz
+  id="kube-svc-2"
+  q="kubectl get endpointslices shows two pod IPs for your Service, yet curl from another pod gets 'Failed to connect ... Could not connect to server'. What do you check first?"
+  options={["DNS", "The Service's targetPort against the port the container actually listens on", "The node's CPU"]}
+  answer={1}
+  explain="The name resolved and the Service had endpoints, so the connection got as far as a pod and was refused there. The usual cause is a targetPort that doesn't match the container's port."
+/>
+
+<Quiz
+  id="kube-svc-3"
+  q="How does a Service of type NodePort relate to ClusterIP?"
+  options={["It replaces the cluster IP with a node port", "It has a cluster IP as well, and adds the same port on every node", "It works only on the node where the pod runs"]}
+  answer={1}
+  explain="The docs: to make the node port available, Kubernetes sets up a cluster IP address too. Each node proxies the node port into the Service, wherever the pods are."
+/>
+
+<Callout kind="real">
+The sandbox applies changes instantly and uses kindnet and kube-proxy's behaviour, measured on Kubernetes 1.36.1. Real clusters take a moment to update EndpointSlices, and some plugins replace kube-proxy with their own service proxy. The sandbox also lets your machine reach a node's IP directly; whether a real one can depends on how Docker runs on it, which is why tilt publishes fixed node ports to localhost instead. In a namespace that is in Istio's ambient mesh, such as tilt's `hello`, a refused connection looks different: the local ztunnel accepts it first, so curl reports `(56) Recv failure: Connection reset by peer` instead of `(7) ... Could not connect to server`.
+</Callout>
+
+<DoItForReal id="kube-svc-real" profile="minimal">
+
+These ran on tilt with Kubernetes 1.36.1. The LoadBalancer, the wrong port and the readiness switch were checked in a scratch namespace, with the same podinfo image `hello` runs.
+
+```bash
+kubectl -n hello get svc hello -o wide            # port 80, selector app.kubernetes.io/name=hello
+kubectl -n hello get deploy hello -o jsonpath='{.spec.template.spec.containers[0].ports}'; echo   # the "http" port is 9898
+kubectl -n istio-system get svc                   # localhost-gateway-nodeport: 80:30080, 443:30443
+kubectl -n hello get pods -o wide                 # pod IPs from 10.244.x.0/24
+kubectl -n hello expose deploy hello --name=hello-lb --type=LoadBalancer --port=80 --target-port=9898
+kubectl -n hello get svc hello-lb                 # EXTERNAL-IP <pending>, and a node port
+kubectl -n hello describe svc hello-lb | tail -3  # Events: <none>
+kubectl -n hello get svc hello-lb                 # a minute later: still <pending>
+kubectl -n hello delete svc hello-lb
+```
+
+`hello` is in the ambient mesh, so a refused connection there shows as `(56) ... Connection reset by peer`. To see the `(7)` from the sandbox, use a namespace outside the mesh:
+
+```bash
+kubectl create namespace svc-lab
+kubectl -n svc-lab create deployment web --image=ghcr.io/stefanprodan/podinfo:6.9.1 --port=9898
+kubectl -n svc-lab expose deploy web --port=80 --target-port=8080       # the wrong port
+kubectl -n svc-lab run client --image=curlimages/curl:8.11.1 --restart=Never --command -- sleep 3600
+kubectl -n svc-lab wait --for=condition=Ready pod/client
+kubectl -n svc-lab exec client -- curl -sS -m 5 http://web               # curl: (7) ... Could not connect to server
+kubectl -n svc-lab get endpointslices                                    # PORTS 8080: endpoints, wrong port
+kubectl delete namespace svc-lab
+```
+
+</DoItForReal>
+
+## What to remember
+
+- Every pod gets its own IP from its node's slice of the pod range; the CNI plugin does that, not Kubernetes itself.
+- ClusterIP is reachable only inside the cluster. NodePort adds a port on every node. LoadBalancer adds a load balancer that something else must provide, and waits silently if nothing does.
+- A Service with endpoints can still refuse every connection: check `targetPort` against the container's port.
+- A selector decides which pods get traffic. Switching it is a blue/green deploy.

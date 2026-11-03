@@ -1,0 +1,167 @@
+---
+title: Default deny, and now nothing resolves
+summary: A default-deny policy blocks DNS along with everything else, so every request fails with "could not resolve host" before it reaches the thing you meant to block. Write NetworkPolicies that allow exactly what an app needs, and see what Istio's ambient mesh changes about them.
+minutes: 20
+xp: 50
+tiers: [browser, machine]
+builds_on: [security/cluster-access, kubernetes/pods-and-services, tools/istio]
+sources:
+  - title: Kubernetes docs - Network Policies (v1.37, CC BY 4.0)
+    url: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+  - title: Istio docs - Ambient and Kubernetes NetworkPolicy
+    url: https://istio.io/latest/docs/ambient/usage/networkpolicy/
+  - title: TemplateMechanics/tilt - examples/hello-world/namespace.yaml (hello is in the ambient mesh)
+    url: https://github.com/TemplateMechanics/tilt/blob/main/examples/hello-world/namespace.yaml
+---
+
+The plan was simple: deny everything in namespace `shop`, then allow what the app needs. The deny went in, and every request in the namespace began to fail with `curl: (6) Could not resolve host: api`. Not "connection refused", not a timeout to the database. The apps couldn't even look up a name, because asking DNS is a network connection too, and it had just been denied.
+
+## How NetworkPolicy decides
+
+The [cluster access](/learn/security/cluster-access/) lesson explained what a NetworkPolicy is, and its first trap: a policy nothing enforces. Here are the rules for writing one, from the Kubernetes docs.
+
+- **No policy, no limits.** "By default, a pod is non-isolated for ingress; all inbound connections are allowed." The same goes for egress (outbound).
+- **Selected means isolated.** A pod is isolated for ingress once any policy that selects it has `Ingress` in its `policyTypes`. Then "the only allowed connections into the pod are those from the pod's node and those allowed by the ingress list of some NetworkPolicy that applies to the pod". Egress works the same way.
+- **Policies only add.** "Network policies do not conflict; they are additive." There is no deny rule. A default deny is a policy that selects pods and allows nothing.
+- **Both ends must agree.** "For a connection from a source pod to a destination pod to be allowed, both the egress policy on the source pod and the ingress policy on the destination pod need to allow the connection."
+
+Policies match pods, not Services. A request to a Service's IP is translated to a pod's IP and port before the policy is checked, so a rule for the api Service on port 80 names the pods' port, 8080.
+
+And if `policyTypes` is left out, the docs say, "Ingress will always be set and Egress will be set if the NetworkPolicy has any egress rules". A policy written to restrict egress can isolate ingress too.
+
+## One list item, or two
+
+The single most common mistake is a dash. These look almost the same:
+
+```yaml
+  egress:
+  - to:
+    - namespaceSelector:          # one item, two selectors:
+        matchLabels:              # pods labelled k8s-app=kube-dns
+          kubernetes.io/metadata.name: kube-system
+      podSelector:                # AND in namespace kube-system
+        matchLabels:
+          k8s-app: kube-dns
+```
+
+```yaml
+  egress:
+  - to:
+    - namespaceSelector:          # two items: any pod in kube-system,
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    - podSelector:                # OR any kube-dns pod in this namespace
+        matchLabels:
+          k8s-app: kube-dns
+```
+
+The docs show the same pair and add: "When in doubt, use kubectl describe to see how Kubernetes has interpreted the policy." `describe` prints one `From:` (or `To:`) line per list item, so two items show as two lines.
+
+## Deny, then allow just enough
+
+In namespace `shop`, the `web` pods call `api`, and a `client` pod stands in for anything else in the namespace. The editor holds three files: a default deny, a DNS allowance, and a half-written policy for web to api. The table under the mission re-checks who may reach whom after every command.
+
+<NetSim mission="kube-net-policy" title="Default deny in namespace shop" />
+
+<Callout kind="trap">
+Allowing DNS fixes the error message, not the app. After `allow-dns.yaml`, names resolve and every request still times out, because the egress to api and the ingress into api are both still denied. The symptom changed from "could not resolve" to "timed out", and that change is easy to mistake for progress made elsewhere.
+</Callout>
+
+<Callout kind="tip">
+A blocked connection is dropped, not refused, so it shows as a timeout. Without `-m 5`, curl on tilt waited 2 minutes 20 seconds before giving up. Use a short timeout when testing policies, and read a timeout as "something dropped it", not "nothing listens". One catch, measured on tilt: when DNS itself is blocked, the resolver takes about five seconds to give up, so `-m 5` runs out first and curl says `(28) Resolving timed out` instead of `(6) Could not resolve host`. Both mean the name never resolved.
+</Callout>
+
+## What the ambient mesh changes
+
+tilt's `hello` namespace is in Istio's ambient mesh (`istio.io/dataplane-mode: ambient`, from [the Istio lesson](/learn/tools/istio/)). Traffic between mesh pods doesn't arrive on the app's port. The Istio docs: "ambient's secure L4 overlay will tunnel traffic between your pods over port 15008", and "NetworkPolicy is enforced on the host, outside the pod", so a policy that allows only the app's port "will have to add an exception to that NetworkPolicy for port 15008".
+
+We tested that on tilt, in a scratch namespace we enrolled in the mesh. With a policy allowing ingress on port 9898 only, a request from a mesh pod timed out. Adding port 15008 let it through.
+
+Health checks are the other half of the Istio page. In ambient mode, kubelet probes reach the pod from the fixed address 169.254.7.127, and the page warns: "Depending on your CNI, kubelet probes and link-local addresses may be ignored by this policy, or be blocked by it." On tilt, whose network plugin is kindnet, a default deny did not fail the probes, in the mesh or out of it: the pods stayed Ready for minutes, and new pods became Ready under it. On another plugin they may fail, and then the pods go 0/1 with no policy error anywhere. Istio's fix is to allow `169.254.7.127/32` with an `ipBlock`.
+
+<Callout kind="real">
+Two things the sandbox simplifies. It applies a policy instantly; the docs warn that "it may take some time for a network plugin" to enforce a new one. And it treats every connection as new. The docs say that whether a new policy cuts a connection already open "is implementation defined". On tilt, in the mesh, requests kept succeeding for about thirty seconds after a default deny went in, then timed out, with one more success a minute later; three minutes on, thirty requests in a row all timed out. Our guess, not proven, is that ztunnel was reusing connections it had opened before the policy. Out of the mesh, the first request after the policy timed out, and so did the next thirty.
+</Callout>
+
+<Quiz
+  id="kube-np-1"
+  q="You apply a default-deny policy for Ingress and Egress, and every request in the namespace fails with 'Could not resolve host'. What happened?"
+  options={["CoreDNS crashed", "Egress to CoreDNS is a connection like any other, and the policy now denies it", "NetworkPolicy deletes Services"]}
+  answer={1}
+  explain="DNS queries leave the pod as UDP (and sometimes TCP) to port 53 on the CoreDNS pods. A default deny for egress blocks them until you allow that traffic to kube-dns in kube-system."
+/>
+
+<Quiz
+  id="kube-np-2"
+  q="web's egress policy allows traffic to api on 8080. Requests from web to api still time out. What else is needed?"
+  options={["Nothing, it should work", "An ingress rule on api's side that lets web in: both ends of a connection must allow it", "A restart of the web pods"]}
+  answer={1}
+  explain="The docs: both the egress policy on the source and the ingress policy on the destination need to allow the connection. If api is isolated for ingress, web must be in one of its ingress rules."
+/>
+
+<Quiz
+  id="kube-np-3"
+  q="A policy's from list has two items, a namespaceSelector and then a podSelector. What does it allow?"
+  options={["Pods matching the podSelector, inside namespaces matching the namespaceSelector", "Any pod in a matching namespace, or a matching pod in the policy's own namespace", "Nothing; the items cancel out"]}
+  answer={1}
+  explain="Items in a from or to list are OR'd. To require both, put the two selectors in one item (no dash before podSelector). kubectl describe shows one From line per item."
+/>
+
+<Quiz
+  id="kube-np-4"
+  q="Pods in an ambient-mesh namespace have a policy allowing ingress on their app port only. Requests from other mesh pods time out. Why?"
+  options={["The mesh is down", "Mesh traffic arrives through ztunnel on HBONE port 15008, so the policy must allow 15008 too", "Policies don't work in a mesh"]}
+  answer={1}
+  explain="The Istio docs, and our run on tilt: ambient tunnels traffic between pods over port 15008, and NetworkPolicy is checked on the node, where the packet's port is 15008."
+/>
+
+<DoItForReal id="kube-np-real" profile="minimal">
+
+We ran these on tilt (Kubernetes 1.36.1, kindnet, Istio 1.28.3 ambient), in a scratch namespace rather than `hello`, which other lessons use. Use a namespace of your own and you can't break anything shared:
+
+```bash
+kubectl create namespace np-lab
+kubectl -n np-lab create deployment web --image=ghcr.io/stefanprodan/podinfo:6.9.1 --port=9898
+kubectl -n np-lab expose deploy web --port=80 --target-port=9898
+kubectl -n np-lab run client --image=curlimages/curl:8.11.1 --restart=Never --command -- sleep 3600
+kubectl -n np-lab wait --for=condition=Ready pod/client
+kubectl -n np-lab exec client -- curl -sS -m 5 -o /dev/null -w '%{http_code}\n' http://web    # 200
+
+# Deny all egress: DNS goes first.
+kubectl -n np-lab apply -f - <<'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny-egress}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+EOF
+kubectl -n np-lab exec client -- curl -sS -m 5 http://web          # curl: (28) Resolving timed out after 5003 milliseconds
+kubectl -n np-lab exec client -- curl -sS -m 20 http://web         # curl: (6) Could not resolve host: web, about 5 s later
+kubectl -n np-lab delete netpol default-deny-egress
+
+# Deny all ingress, then join the mesh, and watch the probes.
+kubectl -n np-lab apply -f - <<'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny-ingress}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+EOF
+kubectl -n np-lab exec client -- curl -sS -m 5 http://web          # curl: (28) Connection timed out
+kubectl label ns np-lab istio.io/dataplane-mode=ambient
+kubectl -n np-lab rollout restart deploy/web
+kubectl -n np-lab get pods -w                                        # on tilt: web still 1/1
+kubectl delete namespace np-lab
+```
+
+</DoItForReal>
+
+## What to remember
+
+- A pod no policy selects is open. Select it and it is closed, except for what some policy allows, plus traffic from its own node.
+- Default deny for egress blocks DNS. Allow UDP and TCP 53 to kube-dns first.
+- Both ends must allow a connection. Write the egress and the ingress.
+- One list item with two selectors means both; two items mean either. Check with `kubectl describe`.
+- In Istio's ambient mesh, allow port 15008, and check what your plugin does to probes from 169.254.7.127.
