@@ -1,0 +1,144 @@
+---
+title: You can't skip a minor version
+summary: Kubernetes upgrades go one minor version at a time, control plane first, then each node, drained. kubeadm enforces the first rule itself. Try the leap, watch it refuse, then do the upgrade in the right order.
+minutes: 20
+xp: 45
+tiers: [browser, machine]
+builds_on: [kubernetes/control-plane, kubernetes/drain-and-disruption, tools/kind]
+sources:
+  - title: Kubernetes docs - Upgrading kubeadm clusters
+    url: https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/
+  - title: Kubernetes - Version Skew Policy
+    url: https://kubernetes.io/releases/version-skew-policy/
+  - title: Kubernetes docs - Changing the Kubernetes package repository
+    url: https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/change-package-repository/
+  - title: Kubernetes docs - Installing kubeadm
+    url: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+---
+
+A cluster on Kubernetes 1.35 needs to reach 1.37. Doing it in one jump sounds efficient. Here is what kubeadm 1.37.2 said when we asked, on a kind node running 1.35.0:
+
+```
+error: [upgrade/init config] FATAL: this version of kubeadm only supports deploying clusters with the control plane version >= 1.36.0. Current version: v1.35.0
+```
+
+It refused before touching anything. The rule it enforces is written in the kubeadm upgrade guide, for the 1.36 to 1.37 upgrade it covers:
+
+> Skipping MINOR versions when upgrading is unsupported.
+
+## Versions, and how far apart they may be
+
+A Kubernetes version like `v1.36.1` is major `1`, **minor** `36`, **patch** `1`. A patch release fixes bugs; a minor release can add, change and remove features. Upgrades move through every minor, in order, and the reason is the **version skew policy**: the rules for how far apart the parts of one cluster may be. During an upgrade the parts *are* different versions, so each step has to stay inside these rules. The ones that matter here:
+
+- "the newest and oldest kube-apiserver instances must be within one minor version."
+- "kubelet must not be newer than kube-apiserver." It may be "up to three minor versions older".
+- kube-controller-manager and kube-scheduler "must not be newer than the kube-apiserver instances they communicate with", "but may be up to one minor version older (to allow live upgrades)."
+- "kubectl is supported within one minor version (older or newer) of kube-apiserver." That is the warning you met in [kind and the Kubernetes version nobody chose](/learn/tools/kind/). Our kubectl 1.37 printed it against the 1.35 cluster: `version difference between client (1.37) and server (1.35) exceeds the supported minor version skew of +/-1`.
+
+Those rules fix the order. The API server has to go first, because nothing may be newer than it. The kubelets go last, because they may lag behind it.
+
+## The order
+
+The kubeadm guide's workflow, in its own words:
+
+1. "Upgrade a primary control plane node."
+2. "Upgrade additional control plane nodes."
+3. "Upgrade worker nodes."
+
+On each node the kubelet is replaced separately, and for that the guide is firm: "If you are performing a minor version upgrade for any kubelet, you must first drain the node (or nodes) that you are upgrading." You know how to drain from [The drain that never finished](/learn/kubernetes/drain-and-disruption/).
+
+## Upgrade a cluster
+
+This sandbox starts at 1.35.0, with the kubeadm and kubelet binaries for 1.36.1 and 1.37.2 in your current directory (`ls`). Copying a binary into a kind node with `docker cp` is exactly what we did on the real one.
+
+<OpsSim mission="ops-upgrade" title="ops: 1.35.0, going to 1.36.1" skew />
+
+<Callout kind="tip">
+`kubectl get nodes` shows each node's **kubelet** version in its VERSION column. On the real node, after `kubeadm upgrade apply v1.36.1` had moved the API server to 1.36.1, that column still said `v1.35.0`, and it was right to: the kubelet hadn't been touched yet. `kubectl version` shows the API server's.
+</Callout>
+
+## What we ran for real, and what kind can't show
+
+On a throwaway kind cluster built at 1.35.0, we copied in kubeadm 1.37.2 and got the refusal above, from both `kubeadm upgrade plan` and `kubeadm upgrade apply`. We copied in kubeadm 1.36.1, ran `kubeadm upgrade apply v1.36.1 -y`, and it finished in 210 seconds with `[upgrade] SUCCESS! A control plane node of your cluster was upgraded to "v1.36.1".` Then we drained the node, copied in the 1.36.1 kubelet, restarted it, and uncordoned: the VERSION column read `v1.36.1`.
+
+That was a single-node cluster, so there were no other nodes to upgrade, and it is not how anyone should upgrade kind. kind's own way to change versions is a new cluster from a new node image. What kind can't show you:
+
+- **Several control-plane nodes.** Upgrading them one by one, with `kubeadm upgrade node` on each after the first, needs a highly available control plane. We couldn't run one on our machine.
+- **The package manager.** On real machines kubeadm and the kubelet come from packages, and the docs explain that the official repositories have "a dedicated package repository for each Kubernetes minor version". So step one of a minor upgrade is pointing the machine at the next minor's repository; until you do, the new version simply isn't offered. kind nodes have no such repository; `docker cp` stands in for it.
+- **Preparing the machine.** Installing kubeadm has prerequisites a kind node already meets: the docs' install guide covers a container runtime, open ports (6443 for the API server, among others), and swap: "The default behavior of a kubelet is to fail to start if swap memory is detected on a node."
+
+<Callout kind="trap">
+`kubeadm upgrade plan` asks dl.k8s.io for the newest patch in your minor series and suggests that, not the version you have. On tiltdev (1.36.1) it printed `remote version is much newer: v1.37.2; falling back to: stable-1.36` and offered `v1.36.6`, then added `Before you can perform this upgrade, you have to update kubeadm to v1.36.6.` Even its own suggestions stay inside one minor.
+</Callout>
+
+<Quiz
+  id="kube-upgrade-1"
+  q="A cluster runs 1.35. What is the supported path to 1.37?"
+  options={["kubeadm upgrade apply v1.37.x directly", "1.35 to 1.36 (control plane, then nodes), then 1.36 to 1.37 the same way", "Upgrade the kubelets to 1.37 first, then the control plane"]}
+  answer={1}
+  explain="Skipping minor versions is unsupported, and kubeadm enforces it: kubeadm 1.37 refused to touch a 1.35 control plane. Each minor goes control plane first, then nodes."
+/>
+
+<Quiz
+  id="kube-upgrade-2"
+  q="Why do the kubelets go last?"
+  options={["They're the least important", "The skew policy says a kubelet must never be newer than the API server, but may be older; upgrading the control plane first keeps every step supported", "kubeadm can't reach them earlier"]}
+  answer={1}
+  explain="Old kubelets talking to a newer API server are within policy. A kubelet newer than its API server is not."
+/>
+
+<Quiz
+  id="kube-upgrade-3"
+  q="kubectl get nodes still shows v1.35.0 on the control-plane node after kubeadm upgrade apply v1.36.1 succeeded. What does that mean?"
+  options={["The upgrade failed", "The VERSION column is the kubelet's version, and the kubelet hasn't been upgraded yet", "kubectl is caching"]}
+  answer={1}
+  explain="kubeadm upgrade apply upgrades the control-plane components. The kubelet is a separate binary, upgraded after draining the node."
+/>
+
+<Callout kind="real">
+The sandbox models one control-plane node and one worker, kubeadm's version checks, and the skew rules above. Its `kubeadm upgrade apply` prints the real run's main lines in a moment rather than three and a half minutes; `kubeadm upgrade node` prints the lines it printed on our control-plane node, since we had no worker to run it on. It doesn't model images, CoreDNS, certificate renewal, the `-y` prompt (it asks you to add `-y`) or downgrades. The skew panel checks the policy's rules; the policy says what is supported, not what a component does when you break it, and neither does the sandbox.
+</Callout>
+
+<GoDeeper title="The skew policy's own upgrade order">
+The policy has a section called "Supported component upgrade order", which it introduces this way: "The supported version skew between components has implications on the order in which components must be upgraded." It then walks a 1.36 cluster to 1.37 one component at a time, kube-apiserver first, then kube-controller-manager, kube-scheduler and cloud-controller-manager, then the kubelets and kube-proxy, and each step names the condition that must already hold. Its note on the API server gives the reason behind the rule kubeadm enforced: "Project policies for API deprecation and API change guidelines require kube-apiserver to not skip minor versions when upgrading, even in single-instance clusters." It also recommends being on "the most recent patch version of your current minor version" before you start, which is why `kubeadm upgrade plan` suggests a newer patch. Read it once with the rules above beside it, and the order stops being something to memorise.
+</GoDeeper>
+
+## What to remember
+
+- One minor at a time. kubeadm refuses the leap.
+- Control plane first, then other control planes, then workers.
+- Drain a node before replacing its kubelet for a minor upgrade, and uncordon it after.
+- VERSION in `kubectl get nodes` is the kubelet. `kubectl version` is the API server.
+
+<DoItForReal id="kube-upgrade-real">
+
+Read-only on tilt (run on tiltdev while writing this; `kubeadm upgrade plan` only reads, and needs internet access to dl.k8s.io):
+
+```bash
+kubectl version
+kubectl get nodes -o wide                                  # the VERSION column
+docker exec tiltdev-control-plane kubeadm version -o short
+docker exec tiltdev-control-plane kubeadm upgrade plan
+```
+
+Then the real upgrade on a throwaway cluster, as we ran it. It downloads about 150 MB of binaries from dl.k8s.io and pulls new control-plane images:
+
+```bash
+kind create cluster --name ops-lab --image kindest/node:v1.35.0
+for v in v1.37.2 v1.36.1; do mkdir -p $v; curl -sSLo $v/kubeadm https://dl.k8s.io/release/$v/bin/linux/amd64/kubeadm; chmod +x $v/kubeadm; done
+curl -sSLo v1.36.1/kubelet https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubelet; chmod +x v1.36.1/kubelet
+docker cp v1.37.2/kubeadm ops-lab-control-plane:/usr/bin/kubeadm
+docker exec ops-lab-control-plane kubeadm upgrade plan            # refused: >= 1.36.0
+docker cp v1.36.1/kubeadm ops-lab-control-plane:/usr/bin/kubeadm
+docker exec ops-lab-control-plane kubeadm upgrade apply v1.36.1 -y
+kubectl --context kind-ops-lab get nodes                          # still v1.35.0: the kubelet
+kubectl --context kind-ops-lab drain ops-lab-control-plane --ignore-daemonsets
+docker exec ops-lab-control-plane systemctl stop kubelet
+docker cp v1.36.1/kubelet ops-lab-control-plane:/usr/bin/kubelet
+docker exec ops-lab-control-plane systemctl start kubelet
+kubectl --context kind-ops-lab uncordon ops-lab-control-plane
+kubectl --context kind-ops-lab get nodes                          # v1.36.1
+kind delete cluster --name ops-lab
+```
+
+</DoItForReal>

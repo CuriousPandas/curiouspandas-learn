@@ -1,0 +1,157 @@
+---
+import '../styles/widgets.css';
+interface Props { mission: string; title?: string }
+const { mission, title = 'Storage sandbox' } = Astro.props;
+---
+<div class="widget card stor" data-storage-sim data-mission={mission}>
+  <div class="widget-head">
+    <strong>{title}</strong>
+    <span class="pill info" data-clock>t = 0s</span>
+    <span class="spacer"></span>
+    <div class="controls">
+      <button class="btn small" type="button" data-play>Pause</button>
+      <button class="btn small" type="button" data-step>Step</button>
+      <label>Speed <select data-speed><option value="1000">1×</option><option value="400" selected>2.5×</option><option value="150">fast</option></select></label>
+      <button class="btn small" type="button" data-reset>Start over</button>
+    </div>
+  </div>
+  <div class="st-grid">
+    <div class="st-left">
+      <div data-term></div>
+      <div class="st-editor">
+        <div class="st-tabs" role="tablist" data-tabs></div>
+        <textarea data-editor spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="File editor"></textarea>
+        <p class="muted st-tip">Edits save as you type. Then <code>kubectl apply -f &lt;file&gt;</code> in the terminal.</p>
+      </div>
+    </div>
+    <div class="st-right">
+      <div data-mission-panel></div>
+      <div class="st-view">
+        <div class="eyebrow">Claims, volumes and pods · one node, kind-control-plane</div>
+        <div class="st-cols">
+          <div><div class="st-h">Claims (PVC)</div><ul data-claims></ul></div>
+          <div><div class="st-h">Volumes (PV)</div><ul data-volumes></ul></div>
+          <div><div class="st-h">Pods</div><ul data-pods></ul></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { SECONDS_PER_TICK } from '../lib/kube-storage/storage.ts';
+  import { STORAGE_MISSIONS, storageRun, storageWatch, type StorageState } from '../lib/kube-storage/missions.ts';
+  import { mountTerminal, mountMission, el } from '../lib/ui.ts';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-storage-sim]')) {
+    const mission = STORAGE_MISSIONS[root.dataset.mission ?? ''];
+    if (!mission) { root.querySelector('[data-term]')!.textContent = `Unknown mission ${root.dataset.mission}`; continue; }
+    let st: StorageState = mission.setup();
+    let current = [...st.files.keys()][0];
+    const tabs = root.querySelector<HTMLElement>('[data-tabs]')!;
+    const editor = root.querySelector<HTMLTextAreaElement>('[data-editor]')!;
+    const clock = root.querySelector<HTMLElement>('[data-clock]')!;
+    const lists = { claims: root.querySelector<HTMLElement>('[data-claims]')!, volumes: root.querySelector<HTMLElement>('[data-volumes]')!, pods: root.querySelector<HTMLElement>('[data-pods]')! };
+
+    const drawTabs = () => {
+      tabs.replaceChildren(...[...st.files.keys()].map((f) => {
+        const b = el('button', { type: 'button', role: 'tab', 'aria-selected': String(f === current), class: f === current ? 'on' : '' }, f);
+        b.addEventListener('click', () => { current = f; drawTabs(); editor.value = st.files.get(f) ?? ''; });
+        return b;
+      }));
+    };
+    editor.addEventListener('input', () => { st.files.set(current, editor.value); });
+
+    // Rows keep their elements between ticks, keyed by name, so a click or a
+    // selection is not lost when the view refreshes (WebKit drops clicks on
+    // elements replaced mid-press).
+    const rowCache = new Map<string, HTMLElement>();
+    const row = (key: string, cls: string, main: string, sub: string) => {
+      let li = rowCache.get(key);
+      if (!li) { li = el('li', {}, el('strong', {}), el('span', { class: 'muted' })); rowCache.set(key, li); }
+      li.className = cls;
+      li.firstChild!.textContent = main;
+      li.lastChild!.textContent = sub;
+      return li;
+    };
+    const sync = (box: HTMLElement, want: HTMLElement[], empty: string) => {
+      if (!want.length) { box.replaceChildren(el('li', { class: 'muted empty' }, empty)); return; }
+      const keep = new Set<Node>(want);
+      for (const n of [...box.childNodes]) if (!keep.has(n)) n.remove();
+      want.forEach((n, i) => { if (box.childNodes[i] !== n) box.insertBefore(n, box.childNodes[i] ?? null); });
+    };
+
+    let refresh = () => {};
+    const draw = () => {
+      const s = st.s;
+      clock.textContent = `t = ${s.tick * SECONDS_PER_TICK}s`;
+      sync(lists.claims, [...s.claims.values()].sort((a, b) => a.name.localeCompare(b.name)).map((c) =>
+        row(`c:${c.name}`, c.deleting ? 'term' : c.phase === 'Bound' ? 'ok' : 'wait', c.name, `${c.deleting ? 'Terminating' : c.phase} · ${c.className ?? 'no class'}`)), 'none');
+      sync(lists.volumes, [...s.volumes.values()].sort((a, b) => a.claim.localeCompare(b.claim)).map((v) =>
+        row(`v:${v.name}`, v.status === 'Bound' ? 'ok' : 'kept', `${v.name.slice(0, 12)}…`, `${v.status} · ${v.reclaim} · ${v.files.size} file${v.files.size === 1 ? '' : 's'} · for ${v.claim}`)), 'none');
+      sync(lists.pods, [...s.pods.values()].sort((a, b) => a.name.localeCompare(b.name)).map((p) =>
+        row(`p:${p.name}`, p.status === 'Running' && p.ready ? 'ok' : p.status === 'Terminating' ? 'term' : p.status === 'ErrImagePull' || p.status === 'ImagePullBackOff' ? 'bad' : 'wait', p.name, `${p.status} · ${p.image}`)), 'none');
+      for (const k of [...rowCache.keys()]) {
+        const [t, n] = [k[0], k.slice(2)];
+        if ((t === 'c' && !s.claims.has(n)) || (t === 'v' && !s.volumes.has(n)) || (t === 'p' && !s.pods.has(n))) rowCache.delete(k);
+      }
+      storageWatch(st);
+      refresh();
+    };
+
+    const term = mountTerminal(root.querySelector<HTMLElement>('[data-term]')!, {
+      prompt: '$',
+      greeting: [`Mission: ${mission.title}. Time runs on its own.`, 'Type help for every command this sandbox understands.'],
+      onCommand: (line) => { const out = storageRun(st, line); draw(); return out; },
+    });
+    refresh = mountMission(root.querySelector<HTMLElement>('[data-mission-panel]')!, mission, () => st, (cmd) => term.type(cmd));
+
+    const load = () => { current = [...st.files.keys()][0]; drawTabs(); editor.value = st.files.get(current) ?? ''; };
+    load();
+
+    let playing = true, visible = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const speed = root.querySelector<HTMLSelectElement>('[data-speed]')!;
+    const playBtn = root.querySelector<HTMLButtonElement>('[data-play]')!;
+    const tick = () => { try { st.s.step(); } catch (e) { term.print([{ text: `a bug in the sandbox: ${(e as Error).message}`, kind: 'err' }]); } draw(); };
+    const schedule = () => {
+      clearInterval(timer);
+      // Only tick while visible: a hidden tab should not burn the learner's battery.
+      if (playing) timer = setInterval(() => { if (!document.hidden && visible) tick(); }, Number(speed.value));
+    };
+    new IntersectionObserver((e) => { visible = e[0].isIntersecting; }).observe(root);
+    playBtn.addEventListener('click', () => { playing = !playing; playBtn.textContent = playing ? 'Pause' : 'Play'; schedule(); });
+    root.querySelector('[data-step]')!.addEventListener('click', tick);
+    speed.addEventListener('change', schedule);
+    root.querySelector('[data-reset]')!.addEventListener('click', () => { st = mission.setup(); rowCache.clear(); load(); term.clear(); term.print([{ text: 'Fresh cluster, files back as they were.', kind: 'dim' }]); draw(); });
+    schedule();
+    draw();
+  }
+</script>
+
+<style is:global>
+  /* Global, prefixed: the rows and tabs are created by the script, and scoped
+     styles never reach elements Astro did not render. */
+  .stor .st-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 900px) { .stor .st-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
+  .stor .st-left, .stor .st-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .stor .st-editor { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg); }
+  .stor .st-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 6px 0; }
+  .stor .st-tabs button { border: 1px solid var(--line-2); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--bg-2); color: var(--ink); font: 600 0.8rem var(--mono); padding: 4px 10px; cursor: pointer; }
+  .stor .st-tabs button.on { background: var(--panel); }
+  .stor textarea[data-editor] { display: block; width: 100%; box-sizing: border-box; min-height: 260px; resize: vertical; border: 0; border-top: 1px solid var(--line-2); padding: 10px 12px; font: 0.8rem/1.45 var(--mono); background: var(--panel); color: var(--ink); tab-size: 2; }
+  .stor .st-tip { margin: 0; padding: 6px 12px 8px; font-size: 0.8rem; }
+  .stor .st-view { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stor .st-cols { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); margin-top: 8px; }
+  .stor .st-h { font: 700 0.78rem var(--sans); margin-bottom: 4px; }
+  .stor .st-cols ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .stor .st-cols li { display: flex; flex-direction: column; border-left: 4px solid var(--line-2); padding: 2px 8px; font-size: 0.8rem; min-width: 0; }
+  .stor .st-cols li strong { font: 600 0.8rem var(--mono); overflow-wrap: anywhere; }
+  .stor .st-cols li span { overflow-wrap: anywhere; }
+  .stor .st-cols li.ok { border-color: var(--bamboo); }
+  .stor .st-cols li.wait { border-color: var(--sun); }
+  .stor .st-cols li.bad { border-color: var(--berry); }
+  .stor .st-cols li.kept { border-color: var(--sky); }
+  .stor .st-cols li.term { border-color: var(--muted); }
+  .stor .st-cols li.empty { border: 0; }
+</style>

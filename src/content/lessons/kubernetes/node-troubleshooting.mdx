@@ -1,0 +1,150 @@
+---
+title: NotReady, and the pods left five minutes later
+summary: When a node's kubelet goes quiet, Kubernetes waits, marks the node, waits again, and only then moves its pods. Stop a kubelet, time each step, and learn where to look when the node itself is the patient.
+minutes: 18
+xp: 40
+tiers: [browser, machine]
+builds_on: [kubernetes/control-plane]
+sources:
+  - title: Kubernetes docs - Nodes (heartbeats and the node controller)
+    url: https://kubernetes.io/docs/concepts/architecture/nodes/
+  - title: Kubernetes docs - Taints and Tolerations (taint-based evictions)
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+  - title: Kubernetes docs - kube-controller-manager reference (--node-monitor-grace-period)
+    url: https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/
+  - title: Kubernetes docs - DaemonSet (taints and tolerations)
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/
+  - title: kind - Known Issues (too many open files)
+    url: https://kind.sigs.k8s.io/docs/user/known-issues/
+  - title: TemplateMechanics/tilt - scripts/student-check.sh
+    url: https://github.com/TemplateMechanics/tilt/blob/main/scripts/student-check.sh
+---
+
+On a three-node kind cluster running Kubernetes 1.36.1, we stopped one worker's kubelet and watched. This is what happened, sampled every few seconds:
+
+| After the stop | What the cluster showed |
+|---|---|
+| 0 s | Node Ready. Its pods Running. |
+| between 45 and 52 s | Node **NotReady**. Its pods still said `Running`, `1/1`. |
+| between 355 and 361 s | The pods on that node turned `Terminating`; replacements started on the other worker. |
+| 11 minutes | The "terminated" pods' containers were **still running** on the node. |
+
+None of that is a bug. Each step is a timer someone chose, and one thing the cluster could not know.
+
+## The heartbeat
+
+Every kubelet keeps telling the API server it is alive: it posts its node's status, and renews a small heartbeat object called a lease. The node controller, one of the loops inside kube-controller-manager, watches for heartbeats that stop. The docs:
+
+> In the case that a node becomes unreachable, updating the Ready condition in the Node's .status field. In this case the node controller sets the Ready condition to Unknown.
+
+How long it waits first is `--node-monitor-grace-period`. The reference page gives its default as **50s**, which is what we measured.
+
+Why do the pods still say Running? Because a pod's status is written by its node's kubelet, the very thing that stopped. The API server is showing you the last thing it was told.
+
+## The second timer
+
+When the node goes NotReady, the node controller puts a **taint** on it. A taint is a mark on a node that says "keep away", and pods that don't **tolerate** that mark are kept off, or, with the `NoExecute` effect, pushed off. Here the taint is `node.kubernetes.io/unreachable`. But nobody wants every pod evicted at the first network blip, so the docs explain that Kubernetes:
+
+> automatically adds a toleration for node.kubernetes.io/not-ready and node.kubernetes.io/unreachable with tolerationSeconds=300
+
+So pods tolerate the problem for 300 seconds, five minutes, and are then evicted. You can see those two tolerations at the bottom of any `kubectl describe pod`. 50 seconds plus 300 is the 350 we saw.
+
+## What eviction can and can't do
+
+Evicting a pod from an unreachable node means deleting it in the API. A Deployment's ReplicaSet then makes a replacement elsewhere. A pod with no controller (made with plain `kubectl run`) has nothing to replace it: it is just gone.
+
+What eviction can't do is reach the node. With the kubelet down there is nobody to stop the containers, so they keep running. On our cluster, 11 minutes after the stop, `crictl ps` on the node still listed every one of them. If that node can still reach your database, the old copy and its replacement both talk to it.
+
+## Stop a kubelet
+
+<OpsSim mission="ops-node" title="ops: stop the kubelet on ops-worker" />
+
+<Callout kind="tip">
+The sandbox runs at 5 seconds of cluster time per tick. Set the speed to fast for the five-minute wait.
+</Callout>
+
+## When the patient is the node
+
+`kubectl` can only show you what the API server was told. When the kubelet is the problem, go to the node and read its own log:
+
+```bash
+journalctl -u kubelet --no-pager | tail -20      # on a kind node: docker exec <node> journalctl ...
+```
+
+We needed exactly that. When we started the stopped kubelet again, the node stayed NotReady. Its journal said why:
+
+```
+"Failed to start cAdvisor" err="inotify_init: too many open files"
+kubelet.service: Failed with result 'exit-code'.
+```
+
+kind's known-issues page explains it: kind nodes share the host's limits on **inotify** (the Linux mechanism programs use to watch files for changes), and those limits are not separate per container. This machine was already at the values kind recommends (`fs.inotify.max_user_instances=512`), and with two other kind clusters running, there were none left for a restarted kubelet. Nothing in `kubectl` said so. Only the node's log did.
+
+tilt's `student-check.sh` records a cousin of this failure: "A full disk shows up as pods stuck in ContainerCreating with no obvious error." Same lesson: when the cluster's view is quiet, read the node.
+
+<Callout kind="trap">
+A node's conditions include `DiskPressure`, `MemoryPressure` and `PIDPressure` as well as Ready. They are set by the kubelet. When the kubelet is down they all turn `Unknown` together, with the message `Kubelet stopped posting node status.`, so they can't tell you what went wrong. They only tell you nobody is reporting.
+</Callout>
+
+<Quiz
+  id="kube-node-1"
+  q="A node's kubelet stops. With default settings, roughly when are its pods evicted?"
+  options={["Immediately", "After about 50 seconds the node goes NotReady; the pods are evicted about 300 seconds after that", "Never, until the kubelet comes back"]}
+  answer={1}
+  explain="The node-monitor grace period (50s by default) passes before the node is marked, then the default 300-second toleration for unreachable runs out. We measured NotReady at 45 to 52 s and eviction at 355 to 361 s."
+/>
+
+<Quiz
+  id="kube-node-2"
+  q="kubectl get pods shows a pod Running on a node that has been NotReady for three minutes. What do you actually know about that pod?"
+  options={["It is running", "Only that it was running when its kubelet last reported", "It has crashed"]}
+  answer={1}
+  explain="The status comes from the kubelet, which isn't reporting. The containers might be fine, or the node might be powered off. The API server can't tell the difference."
+/>
+
+<Quiz
+  id="kube-node-3"
+  q="The node controller has evicted the pods from an unreachable node. Are their containers stopped?"
+  options={["Yes, eviction stops them", "Not necessarily: with the kubelet down, nothing on the node acts on the eviction, so they may still be running", "Yes, after the grace period"]}
+  answer={1}
+  explain="Eviction is an API change. Only the kubelet turns it into stopped containers. On our cluster they were still running 11 minutes after the kubelet stopped."
+/>
+
+<Callout kind="real">
+The sandbox's kubelet heartbeats every 10 seconds of cluster time and the node controller checks every tick, so its timings land within a tick of the defaults. Real clusters can change both timers, and pods can set their own `tolerationSeconds`: DaemonSet pods are never evicted for an unreachable node (the DaemonSet docs: "Any DaemonSet Pods running on such nodes will not be evicted."), which is why the sandbox's kindnet and kube-proxy pods stay. When the kubelet comes back, the sandbox clears the evicted pods. We could not watch that part for real, because our restarted kubelet failed as described above; it is the documented behaviour, not one we observed.
+</Callout>
+
+## What to remember
+
+- NotReady after the grace period (50 s by default); eviction after the default 300 s toleration. Five minutes is deliberate.
+- A NotReady node's pod statuses are the last report, not the truth.
+- Eviction deletes in the API; it can't stop containers on a node nobody can reach.
+- When the cluster's view is quiet, read the kubelet's journal on the node.
+
+<DoItForReal id="kube-node-real">
+
+Read-only, on tilt (run on tiltdev while writing this):
+
+```bash
+kubectl describe node tiltdev-worker | sed -n '/Conditions/,/Addresses/p'
+docker exec tiltdev-worker journalctl -u kubelet --no-pager | tail -20
+```
+
+The kubelet stop goes on a throwaway cluster with a worker, never on tilt, whose only worker runs everything:
+
+```bash
+printf 'kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n- role: control-plane\n- role: worker\n- role: worker\n' > ops-lab.yaml
+kind create cluster --name ops-lab --config ops-lab.yaml
+kubectl --context kind-ops-lab get nodes        # all three Ready? If a worker is missing, see below
+kubectl --context kind-ops-lab create deployment hello --image=nginx:1.27 --replicas=4
+docker exec ops-lab-worker systemctl stop kubelet
+kubectl --context kind-ops-lab get nodes        # again and again; time it
+kubectl --context kind-ops-lab get pods -o wide # and again, after five minutes
+docker exec ops-lab-worker crictl ps            # the evicted pods' containers
+docker exec ops-lab-worker systemctl start kubelet
+kind delete cluster --name ops-lab
+```
+
+We ran this on a three-node cluster. Everything up to the restart behaved as described. The restart failed on our machine for the inotify reason above, and a later attempt to build a cluster with workers created the nodes, reported success, and left the workers unjoined, for the same reason. If `get nodes` is missing a worker, or a node won't come back, read its kubelet journal first.
+
+</DoItForReal>

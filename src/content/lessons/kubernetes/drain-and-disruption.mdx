@@ -1,0 +1,133 @@
+---
+title: The drain that never finished
+summary: kubectl drain empties a node by asking, pod by pod, whether each one may go. A disruption budget can always say no. Watch a drain retry for ever, read the refusal, and change the budget instead of deleting it.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+builds_on: [kubernetes/node-troubleshooting, kubernetes/rollouts]
+sources:
+  - title: Kubernetes docs - Safely Drain a Node
+    url: https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/
+  - title: Kubernetes docs - API-initiated Eviction
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/api-eviction/
+  - title: Kubernetes docs - kubectl drain reference
+    url: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_drain/
+---
+
+Before you patch, reboot or upgrade a node, you empty it: `kubectl drain`. On a real kind cluster (1.36.1) while this lesson was written, one drain printed these two lines, over and over, every five seconds:
+
+```
+evicting pod default/web-7d876db474-lj4r8
+error when evicting pods/"web-7d876db474-lj4r8" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+```
+
+It stopped only because we gave it `--timeout`. Without one it would have gone on until someone pressed Ctrl+C.
+
+## What drain does
+
+`drain` does two things:
+
+1. **Cordon** the node: mark it unschedulable, so no new pods land there. `kubectl get nodes` shows it as `Ready,SchedulingDisabled`.
+2. **Evict** each pod on it, one request per pod, and wait for them to go.
+
+An **eviction** is a polite delete. Instead of deleting the pod outright, drain asks the API to evict it, and the API checks first. The docs list the answers it can give, including:
+
+> 429 Too Many Requests: the eviction is not currently allowed because of the configured PodDisruptionBudget.
+
+A **PodDisruptionBudget** (PDB) is a promise about how many of an app's pods must stay up during voluntary disruptions like this one: `minAvailable` (at least this many) or `maxUnavailable` (at most this many gone). The docs on draining put the consequence plainly: "Any drains that would cause the number of healthy replicas to fall below the specified budget are blocked."
+
+A budget of `minAvailable: 2` on a Deployment with 2 replicas allows **zero** disruptions. `kubectl get pdb` says so in its ALLOWED DISRUPTIONS column. Every eviction gets a 429, and drain retries. That is the drain that never finishes.
+
+## Drain one
+
+<OpsSim mission="ops-drain" title="ops: web, two replicas, minAvailable 2" />
+
+<Callout kind="trap">
+`kubectl drain --dry-run=client` printed `node/... drained (dry run)` on the real cluster while the budget allowed zero disruptions. A client-side dry run never calls the eviction API, so it can't see the budget. It tells you which pods a drain would try, not whether it will succeed.
+</Callout>
+
+## Why it refuses before it starts
+
+Two kinds of pod stop a drain before any eviction is tried. Both refusals are copied from the real cluster:
+
+- `cannot delete DaemonSet-managed Pods (use --ignore-daemonsets to ignore)`. A DaemonSet runs one pod per node and would only put it straight back, so drain wants you to say "skip them". Nearly every drain needs `--ignore-daemonsets`.
+- `cannot delete Pods that declare no controller (use --force to override)`. A pod made with plain `kubectl run` has nothing to recreate it. `--force` deletes it anyway, and it is gone for good.
+
+The tilt platform adds a third: its dry run listed every pod that uses an `emptyDir` scratch volume under `cannot delete Pods with local storage (use --delete-emptydir-data to override)`, because draining deletes that data.
+
+Note the order: drain cordons **first**. A drain that fails leaves the node cordoned, taking no new pods, until someone runs `kubectl uncordon`. That is often what you want during maintenance, and easy to forget afterwards.
+
+## The fix is a better budget, not no budget
+
+`minAvailable: 1` for 2 replicas lets one pod go at a time. Drain evicts one, the ReplicaSet starts a replacement on another node, and once that replacement is Ready the budget allows the next eviction. That is the budget doing its job: the app never drops below one serving pod.
+
+Deleting the PDB also makes the drain finish. It also removes the promise, for this drain and every one after it.
+
+## Why you must not drain tilt's worker
+
+The tilt platform has one schedulable worker, `tiltdev-worker`; the control plane carries the `node-role.kubernetes.io/control-plane:NoSchedule` taint. Drain the worker and every evicted pod has nowhere to go. And the platform already has a budget with zero allowed disruptions: on our tiltdev, `kubectl get pdb -A` listed `cnpg-system/demo-pg-primary` with ALLOWED DISRUPTIONS 0. On a one-node test cluster we saw what that combination does: with `minAvailable: 1` for 2 replicas, drain evicted one pod, its replacement stayed Pending because the only node was cordoned, and the second eviction was refused for the rest of the timeout.
+
+<Quiz
+  id="kube-drain-1"
+  q="A Deployment has 3 replicas and a PDB with minAvailable: 3. What happens when you drain a node running one of its pods?"
+  options={["The pod moves to another node first, then the drain finishes", "Every eviction of that pod is refused (429) and drain retries until its timeout, or for ever without one", "Drain deletes the PDB"]}
+  answer={1}
+  explain="minAvailable equal to replicas allows zero disruptions. The eviction API refuses, drain keeps retrying every 5 seconds. Lower minAvailable, or use maxUnavailable: 1."
+/>
+
+<Quiz
+  id="kube-drain-2"
+  q="kubectl drain failed with a timeout. What state is the node in?"
+  options={["Back to normal", "Cordoned: drain marked it unschedulable before it started evicting, and doesn't undo that", "Deleted from the cluster"]}
+  answer={1}
+  explain="Cordoning comes first. kubectl get nodes shows Ready,SchedulingDisabled until you uncordon it."
+/>
+
+<Quiz
+  id="kube-drain-3"
+  q="kubectl drain --dry-run=client says the node would be drained. Does that mean a real drain will finish?"
+  options={["Yes", "No: the client-side dry run doesn't ask the eviction API, so it can't see a disruption budget that would refuse", "Only if you add --force"]}
+  answer={1}
+  explain="It lists the pods a drain would try to evict. Read kubectl get pdb -A for ALLOWED DISRUPTIONS 0 before you trust it."
+/>
+
+<Callout kind="real">
+The sandbox's eviction loop retries every tick, which is 5 seconds, the same retry interval real drain prints. It models PDBs by an `app` label, `minAvailable` and `maxUnavailable` (numbers, or percentages of the Deployment's replicas), and refuses `--disable-eviction` by name: that real flag deletes pods without asking the eviction API and so skips every budget. Real evictions also respect each pod's termination grace period, and the API's 429 can also come from rate limiting, as the eviction docs note.
+</Callout>
+
+## What to remember
+
+- drain = cordon, then evict each pod through the eviction API.
+- `ALLOWED DISRUPTIONS 0` in `kubectl get pdb` means drain will not finish. Check it first.
+- A failed drain leaves the node cordoned. Uncordon when you are done.
+- Fix a blocking budget by loosening it, not by deleting it.
+
+<DoItForReal id="kube-drain-real">
+
+Read-only on tilt (run on tiltdev while writing this). A client dry run cordons nothing:
+
+```bash
+kubectl get pdb -A
+kubectl drain tiltdev-worker --dry-run=client --ignore-daemonsets
+kubectl get nodes          # still Ready, not SchedulingDisabled
+```
+
+Read what it would evict, and why this lesson says not to do it for real. Then, on a throwaway one-node cluster (kind leaves a one-node cluster's control plane schedulable), the steps we ran:
+
+```bash
+kind create cluster --name ops-lab
+kubectl --context kind-ops-lab create deployment web --image=nginx:1.27 --replicas=2
+kubectl --context kind-ops-lab create pdb web --selector=app=web --min-available=2
+kubectl --context kind-ops-lab rollout status deploy/web
+kubectl --context kind-ops-lab drain ops-lab-control-plane --ignore-daemonsets --timeout=30s
+kubectl --context kind-ops-lab get nodes                    # SchedulingDisabled
+kubectl --context kind-ops-lab patch pdb web -p '{"spec":{"minAvailable":1}}'
+kubectl --context kind-ops-lab drain ops-lab-control-plane --ignore-daemonsets --pod-selector=app=web --timeout=40s
+kubectl --context kind-ops-lab get pods -o wide             # one evicted, its replacement Pending: nowhere to go
+kubectl --context kind-ops-lab uncordon ops-lab-control-plane
+kind delete cluster --name ops-lab
+```
+
+With one node, the second drain still can't finish: that is tilt's single-worker trap, in miniature. With a second worker, the replacement starts there and the drain completes, which is what the sandbox shows; we couldn't run a second node on our machine (see the inotify note in [NotReady, and the pods left five minutes later](/learn/kubernetes/node-troubleshooting/)).
+
+</DoItForReal>

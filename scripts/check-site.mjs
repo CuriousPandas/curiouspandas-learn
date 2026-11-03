@@ -4137,6 +4137,203 @@ print(answer("10 - 3"))
   });
 }
 
+// ---- kubernetes batch C: storage and cluster operations (cs/k8s-c) ----------
+// Both sandboxes tick on a timer, so each scenario turns the speed to fast and
+// waits on what appears, the way a person waits for a pod. Each one also
+// drives the tempting wrong move first and checks it is not ticked.
+{
+  const fast = async (page, r) => { await page.locator(r).scrollIntoViewIfNeeded(); await page.selectOption(`${r} [data-speed]`, '150'); };
+  const ticked = (page, r) => page.locator(`${r} .m-steps li.done`).count();
+  const flags = '--endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key';
+
+  await scenario('storage-pending', '/learn/kubernetes/volumes/', async (page) => {
+    const r = '[data-storage-sim]';
+    await fast(page, r);
+    await type(page, r, 'kubectl get pods,pvc');
+    await type(page, r, 'kubectl describe pvc indexer-data');
+    await expectText(page, `${r} .term-out`, /storageclass\.storage\.k8s\.io "hostpath" not found/);
+    await type(page, r, 'kubectl get sc');
+    // The in-place fix is refused with the API's own words, and ticks nothing.
+    await type(page, r, `kubectl patch pvc indexer-data -p '{"spec":{"storageClassName":"standard"}}'`);
+    await expectText(page, `${r} .term-out`, /spec is immutable after creation/);
+    if (await ticked(page, r) !== 3) throw new Error('the patch attempt changed the checklist');
+    await type(page, r, 'kubectl delete pvc indexer-data');
+    await page.waitForTimeout(600);
+    // Edit the file the way a person would: in the editor panel.
+    const ed = page.locator(`${r} [data-editor]`);
+    await ed.fill((await ed.inputValue()).replace('  storageClassName: hostpath\n', ''));
+    await type(page, r, 'kubectl apply -f indexer.yaml');
+    await expectText(page, `${r} [data-pods]`, /indexer\s*Running/, 20000);
+    await type(page, r, 'kubectl describe pvc scratch');
+    await expectText(page, `${r} .term-out`, /waiting for first consumer/);
+    await type(page, r, 'kubectl exec indexer -- sh -c "echo panda-data > /data/note.txt"');
+    await type(page, r, 'kubectl get pv');
+    const pv = (await page.locator(`${r} .term-out`).innerText()).match(/pvc-[0-9a-f-]{36}/g).pop();
+    await type(page, r, `kubectl patch pv ${pv} -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'`);
+    await type(page, r, 'kubectl delete pod indexer');
+    await type(page, r, 'kubectl delete pvc indexer-data');
+    await expectText(page, `${r} [data-volumes]`, /Released · Retain · 1 file/, 15000);
+    await expectText(page, `${r} .m-debrief`, /Delete, the reclaim policy a StorageClass gets/);
+  });
+
+  await scenario('storage-sts', '/learn/kubernetes/statefulsets/', async (page) => {
+    const r = '[data-storage-sim]';
+    await fast(page, r);
+    await type(page, r, 'kubectl get pods,pvc');
+    await expectText(page, `${r} [data-pods]`, /web-2\s*Running/, 20000);
+    await type(page, r, 'kubectl get pods');
+    await type(page, r, 'kubectl exec web-2 -- sh -c "echo written-before-scale-down > /data/note.txt"');
+    await type(page, r, 'kubectl scale sts web --replicas=1');
+    await page.waitForFunction(() => !/web-1/.test(document.querySelector('[data-storage-sim] [data-pods]').textContent), null, { timeout: 20000 });
+    await type(page, r, 'kubectl get pvc');
+    await type(page, r, 'kubectl scale sts web --replicas=3');
+    await expectText(page, `${r} [data-pods]`, /web-2\s*Running/, 20000);
+    await type(page, r, 'kubectl exec web-2 -- cat /data/note.txt');
+    await expectText(page, `${r} .term-out`, /^written-before-scale-down$/m);
+    await type(page, r, 'kubectl set image sts/web app=panda/web:2.O');
+    await expectText(page, `${r} [data-pods]`, /ImagePullBackOff/, 20000);
+    // Reverting alone must not finish the mission: the stuck pod stays stuck.
+    await type(page, r, 'kubectl set image sts/web app=panda/web:2.0');
+    await page.waitForTimeout(3000);
+    await expectText(page, `${r} .m-steps li.current .m-why`, /still runs the broken image/);
+    await type(page, r, 'kubectl delete pod web-2');
+    await expectText(page, `${r} .m-debrief`, /Deleting it let the fixed template through/, 30000);
+  });
+
+  await scenario('ops-control-plane', '/learn/kubernetes/control-plane/', async (page) => {
+    const r = '[data-ops-sim]';
+    await fast(page, r);
+    await type(page, r, 'kubectl describe pod p');
+    await expectText(page, `${r} .term-out`, /Events: +<none>/);
+    await type(page, r, 'kubectl -n kube-system get pods');
+    await type(page, r, 'docker exec ops-control-plane ls /etc/kubernetes/manifests');
+    await type(page, r, 'docker exec ops-control-plane mv /tmp/kube-scheduler.yaml /etc/kubernetes/manifests/');
+    await expectText(page, `${r} .m-steps`, /Now stop the controller-manager/, 15000);
+    await page.waitForFunction(() => document.querySelectorAll('[data-ops-sim] .m-steps li.done').length >= 4, null, { timeout: 15000 });
+    await type(page, r, 'docker exec ops-control-plane mv /etc/kubernetes/manifests/kube-controller-manager.yaml /tmp/');
+    await page.waitForTimeout(800);
+    await type(page, r, 'kubectl get pods');
+    const name = (await page.locator(`${r} .term-out`).innerText()).match(/hello-\w+-\w+/)[0];
+    await type(page, r, `kubectl delete pod ${name}`);
+    await page.waitForTimeout(1500);
+    await type(page, r, 'kubectl get deploy');
+    await expectText(page, `${r} .term-out`, /hello +2\/2/);
+    await type(page, r, 'docker exec ops-control-plane mv /tmp/kube-controller-manager.yaml /etc/kubernetes/manifests/');
+    await expectText(page, `${r} .m-debrief`, /Silence was the clue/, 20000);
+  });
+
+  await scenario('ops-node', '/learn/kubernetes/node-troubleshooting/', async (page) => {
+    const r = '[data-ops-sim]';
+    await fast(page, r);
+    await type(page, r, 'docker exec ops-worker systemctl stop kubelet');
+    await expectText(page, `${r} [data-nodes]`, /ops-worker\s*NotReady/, 20000);
+    await type(page, r, 'kubectl get nodes');
+    await type(page, r, 'kubectl describe node ops-worker');
+    await expectText(page, `${r} .term-out`, /Kubelet stopped posting node status\./);
+    await type(page, r, 'kubectl get pods -o wide');
+    await page.waitForFunction(() => /Terminating/.test(document.querySelector('[data-ops-sim] [data-nodes]').innerHTML), null, { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    await type(page, r, 'kubectl get pods -o wide');
+    await expectText(page, `${r} .term-out`, /Terminating/);
+    await type(page, r, 'docker exec ops-worker journalctl -u kubelet');
+    await type(page, r, 'docker exec ops-worker systemctl start kubelet');
+    await expectText(page, `${r} .m-debrief`, /Nobody had told them/, 20000);
+  });
+
+  await scenario('ops-drain', '/learn/kubernetes/drain-and-disruption/', async (page) => {
+    const r = '[data-ops-sim]';
+    await fast(page, r);
+    await type(page, r, 'kubectl get pdb');
+    await type(page, r, 'kubectl drain ops-worker --ignore-daemonsets --timeout=60s');
+    await expectText(page, `${r} .term-out`, /Cannot evict pod as it would violate the pod's disruption budget/);
+    await expectText(page, `${r} .term-out`, /global timeout reached: 60s/, 20000);
+    await type(page, r, 'kubectl get nodes');
+    await expectText(page, `${r} .term-out`, /ops-worker +Ready,SchedulingDisabled/);
+    // Deleting the budget is the shortcut that must not pass.
+    await type(page, r, 'kubectl delete pdb web');
+    await page.waitForTimeout(600);
+    await expectText(page, `${r} .m-steps li.current .m-why`, /budget is gone/);
+    await type(page, r, 'kubectl create pdb web --selector=app=web --min-available=1');
+    await page.waitForTimeout(800);
+    await type(page, r, 'kubectl drain ops-worker --ignore-daemonsets --timeout=120s');
+    await expectText(page, `${r} .term-out`, /node\/ops-worker drained/, 20000);
+    await type(page, r, 'kubectl uncordon ops-worker');
+    await expectText(page, `${r} .m-debrief`, /left web unprotected/, 8000);
+  });
+
+  await scenario('ops-upgrade', '/learn/kubernetes/upgrades/', async (page) => {
+    const r = '[data-ops-sim]';
+    await fast(page, r);
+    if (!(await page.locator(`${r} [data-skew-panel]`).isVisible())) throw new Error('the skew panel is hidden');
+    await type(page, r, 'kubectl version');
+    await type(page, r, 'kubectl get nodes');
+    await type(page, r, 'docker cp v1.37.2/kubeadm ops-control-plane:/usr/bin/kubeadm');
+    await type(page, r, 'docker exec ops-control-plane kubeadm upgrade apply v1.37.2 -y');
+    await expectText(page, `${r} .term-out`, /only supports deploying clusters with the control plane version >= 1\.36\.0/);
+    await type(page, r, 'docker cp v1.36.1/kubeadm ops-control-plane:/usr/bin/kubeadm');
+    await type(page, r, 'docker exec ops-control-plane kubeadm upgrade apply v1.36.1 -y');
+    await expectText(page, `${r} .term-out`, /SUCCESS! A control plane node/);
+    await type(page, r, 'kubectl get nodes');
+    // The kubelet first without draining: not accepted.
+    await type(page, r, 'docker cp v1.36.1/kubelet ops-control-plane:/usr/bin/kubelet');
+    await type(page, r, 'docker exec ops-control-plane systemctl restart kubelet');
+    await page.waitForTimeout(800);
+    await expectText(page, `${r} .m-steps li.current .m-why`, /drain first/);
+    await type(page, r, 'kubectl drain ops-control-plane --ignore-daemonsets');
+    await page.waitForTimeout(2500);
+    await type(page, r, 'docker cp v1.36.1/kubelet ops-control-plane:/usr/bin/kubelet');
+    await type(page, r, 'docker exec ops-control-plane systemctl restart kubelet');
+    await type(page, r, 'kubectl uncordon ops-control-plane');
+    await page.waitForTimeout(800);
+    await type(page, r, 'kubectl drain ops-worker --ignore-daemonsets');
+    await expectText(page, `${r} .term-out`, /node\/ops-worker drained/, 20000);
+    for (const c of ['docker cp v1.36.1/kubeadm ops-worker:/usr/bin/kubeadm', 'docker exec ops-worker kubeadm upgrade node', 'docker cp v1.36.1/kubelet ops-worker:/usr/bin/kubelet', 'docker exec ops-worker systemctl restart kubelet', 'kubectl uncordon ops-worker']) await type(page, r, c);
+    await expectText(page, `${r} .m-debrief`, /one minor version at a time is a rule it enforces/, 15000);
+    if (await page.locator(`${r} [data-skew-list] li.bad`).count()) throw new Error('a skew rule is still broken after the upgrade');
+  });
+
+  await scenario('ops-quorum', '/learn/kubernetes/etcd-and-quorum/', async (page) => {
+    const r = '[data-ops-sim][data-mission="ops-quorum"]';
+    await fast(page, r);
+    await type(page, r, `kubectl -n kube-system exec etcd-ops-control-plane -- etcdctl ${flags} member list -w table`);
+    await expectText(page, `${r} .term-out`, /ops-control-plane3/);
+    await type(page, r, 'docker exec ops-control-plane3 mv /etc/kubernetes/manifests/etcd.yaml /tmp/');
+    await expectText(page, `${r} [data-etcd]`, /2 of 3 members up/, 8000);
+    await type(page, r, 'kubectl get nodes');
+    await type(page, r, 'docker exec ops-control-plane2 mv /etc/kubernetes/manifests/etcd.yaml /tmp/');
+    await expectText(page, `${r} [data-etcd]`, /1 of 3 members up · quorum needs 2 · API cannot commit/, 8000);
+    await type(page, r, 'kubectl get nodes');
+    await expectText(page, `${r} .term-out`, /^sandbox: etcd has fewer members up than its quorum/m);
+    await type(page, r, 'docker exec ops-control-plane2 mv /tmp/etcd.yaml /etc/kubernetes/manifests/');
+    await type(page, r, 'docker exec ops-control-plane3 mv /tmp/etcd.yaml /etc/kubernetes/manifests/');
+    await expectText(page, `${r} [data-etcd]`, /3 of 3 members up/, 8000);
+    await type(page, r, 'kubectl get nodes');
+    await expectText(page, `${r} .m-debrief`, /case for odd numbers/, 8000);
+  });
+
+  await scenario('ops-restore', '/learn/kubernetes/etcd-and-quorum/', async (page) => {
+    const r = '[data-ops-sim][data-mission="ops-restore"]';
+    await fast(page, r);
+    await type(page, r, `kubectl -n kube-system exec etcd-ops-control-plane -- etcdctl ${flags} snapshot save /var/lib/etcd/snap.db`);
+    await expectText(page, `${r} .term-out`, /Snapshot saved at \/var\/lib\/etcd\/snap\.db/);
+    await type(page, r, 'kubectl create namespace after-snap');
+    await type(page, r, `kubectl -n kube-system exec etcd-ops-control-plane -- etcdctl ${flags} snapshot restore /var/lib/etcd/snap.db --data-dir /var/lib/etcd/restored`);
+    await expectText(page, `${r} .term-out`, /Error: unknown flag: --data-dir/);
+    await type(page, r, 'kubectl -n kube-system exec etcd-ops-control-plane -- etcdutl --data-dir /var/lib/etcd/restored snapshot restore /var/lib/etcd/snap.db');
+    await type(page, r, "docker exec ops-control-plane sed -i 's#path: /var/lib/etcd$#path: /var/lib/etcd/restored#' /etc/kubernetes/manifests/etcd.yaml");
+    await page.waitForTimeout(1200);
+    await type(page, r, 'kubectl get ns');
+    await expectText(page, `${r} .term-out`, /after-snap +Active/);
+    await type(page, r, 'docker exec ops-control-plane mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/');
+    await page.waitForTimeout(800);
+    await type(page, r, 'docker exec ops-control-plane mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/');
+    await page.waitForTimeout(1500);
+    await type(page, r, 'kubectl get ns after-snap');
+    await expectText(page, `${r} .term-out`, /namespaces "after-snap" not found/);
+    await expectText(page, `${r} .m-debrief`, /answered from what it had cached/, 8000);
+  });
+}
+
 await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {
   const r = '[data-strangler]';
   await page.locator(r).scrollIntoViewIfNeeded();
