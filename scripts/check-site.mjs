@@ -4137,6 +4137,156 @@ print(answer("10 - 3"))
   });
 }
 
+// ---- Kubernetes networking and packaging (NetSim, RenderLab, ApiLab) ----------
+
+await scenario('kube-net-services', '/learn/kubernetes/pods-and-services/', async (page) => {
+  const r = '[data-netsim]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  // The cluster view is built by the script; scoped styles once styled nothing.
+  const pill = await page.locator(`${r} .ns-pods li`).first().evaluate((e) => getComputedStyle(e).borderTopStyle);
+  if (pill !== 'solid') throw new Error(`pod chips are unstyled (${pill}) - widget styles are not applying`);
+  await type(page, r, 'kubectl get svc');
+  await expectText(page, `${r} .term-out`, /LoadBalancer\s+10\.96\.98\.211\s+<pending>\s+80:30292\/TCP/);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web');
+  await expectText(page, `${r} .term-out`, /curl: \(7\) Failed to connect to web port 80 after 3 ms: Could not connect to server/);
+  await type(page, r, 'kubectl get endpointslices');
+  if (await doneSteps(page, r) !== 3) throw new Error(`expected 3 steps after the refusal, got ${await doneSteps(page, r)}`);
+  // Curling a pod directly is the shortcut that must not pass step 4.
+  const ip = (await page.locator(`${r} .ns-pods li code`).first().innerText()).trim();
+  await type(page, r, `kubectl exec client -- curl -sS -m 5 http://${ip}:8080`);
+  if (await doneSteps(page, r) !== 3) throw new Error('curling a pod IP passed the Service fix');
+  await type(page, r, `kubectl patch svc web -p '{"spec":{"ports":[{"port":80,"targetPort":8080}]}}'`);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web');
+  await expectText(page, `${r} .term-out`, /hello from web-.*\(v1\.0\)/);
+  await type(page, r, 'curl http://172.18.0.3:30292');
+  await type(page, r, 'kubectl create deployment web-green --image=panda/web:2.0 --replicas=2');
+  await type(page, r, 'kubectl set selector svc web app=web-green');
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web');
+  await expectText(page, `${r} .m-debrief`, /all blue\/green is/);
+  if (await doneSteps(page, r) !== 6) throw new Error('mission did not tick all 6 steps');
+});
+
+await scenario('kube-net-dns', '/learn/kubernetes/cluster-dns/', async (page) => {
+  const r = '[data-netsim]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web');
+  await expectText(page, `${r} .term-out`, /curl: \(6\) Could not resolve host: web/);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web.shop');
+  await type(page, r, 'kubectl exec client -- nslookup web.shop');
+  await expectText(page, `${r} .term-out`, /server can't find web\.shop: NXDOMAIN/);
+  await type(page, r, 'kubectl exec client -- nslookup web.shop.svc.cluster.local');
+  await type(page, r, 'kubectl exec client -- nslookup web-pods.shop.svc.cluster.local');
+  await type(page, r, 'kubectl -n kube-system scale deployment coredns --replicas=0');
+  await expectText(page, `${r} [data-view]`, /CoreDNS: 0 pods/);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web.shop');
+  // Bringing DNS back without trying the IP must not finish the mission.
+  await type(page, r, 'kubectl -n kube-system scale deployment coredns --replicas=2');
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web.shop');
+  if (await doneSteps(page, r) !== 5) throw new Error(`skipping the IP step ticked ${await doneSteps(page, r)}`);
+  await type(page, r, 'kubectl -n kube-system scale deployment coredns --replicas=0');
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://10.96.98.211');
+  await type(page, r, 'kubectl -n kube-system scale deployment coredns --replicas=2');
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://web.shop');
+  await expectText(page, `${r} .m-debrief`, /only the name did/);
+});
+
+await scenario('kube-net-policy', '/learn/kubernetes/network-policies/', async (page) => {
+  const r = '[data-netsim]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://api');
+  await page.click(`${r} .ns-tab[data-file="deny-all.yaml"]`);
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} .term-out`, /networkpolicy\.networking\.k8s\.io\/default-deny created/);
+  await expectText(page, `${r} [data-mbody]`, /blocked \(egress\)/);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://api');
+  await expectText(page, `${r} .term-out`, /curl: \(28\) Resolving timed out after 5003 milliseconds/);
+  await page.click(`${r} .ns-tab[data-file="allow-dns.yaml"]`);
+  await page.click(`${r} [data-apply]`);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://api');
+  await expectText(page, `${r} .term-out`, /Connection timed out after 5032 milliseconds/);
+  // A syntax error in the editor is refused by name, not half-applied.
+  await page.click(`${r} .ns-tab[data-file="web-to-api.yaml"]`);
+  const box = page.locator(`${r} [data-text]`);
+  const tmpl = await box.inputValue();
+  await box.fill(tmpl.replace('policyTypes:\n  - Ingress', 'policyTypes:\n  - Ingres'));
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} .term-out`, /spec\.policyTypes\[0\]: Unsupported value: "Ingres"/);
+  await box.fill(tmpl.replace('app: CHANGE-ME', 'app: web').replace('app: CHANGE-ME', 'app: api'));
+  await page.click(`${r} [data-apply]`);
+  await type(page, r, 'kubectl exec deploy/web -- curl -sS -m 5 http://api');
+  await expectText(page, `${r} .term-out`, /served_by/);
+  if (await doneSteps(page, r) !== 4) throw new Error(`expected 4 steps with the policies right, got ${await doneSteps(page, r)}`);
+  await page.locator(`${r} [data-cni-box]`).uncheck();
+  await expectText(page, `${r} [data-mbody]`, /"blocked", but connects/);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://api');
+  await expectText(page, `${r} .m-debrief`, /The only test is the connection that should fail/);
+});
+
+await scenario('kube-net-ingress', '/learn/kubernetes/ingress/', async (page) => {
+  const r = '[data-netsim]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await type(page, r, `kubectl create ingress shop --rule='shop.localhost/*=web:80'`);
+  await type(page, r, 'kubectl get ingress');
+  await type(page, r, 'curl http://shop.localhost');
+  await expectText(page, `${r} .term-out`, /Failed to connect to shop\.localhost port 80/);
+  await expectText(page, `${r} [data-view]`, /no address/);
+  await page.click(`${r} [data-install]`);
+  await type(page, r, 'kubectl get ingressclass');
+  await expectText(page, `${r} .term-out`, /panda\s+example\.com\/panda-ingress/);
+  // Installing a controller is not enough: the class-less Ingress stays unclaimed.
+  await expectText(page, `${r} [data-view]`, /no address/);
+  if (await doneSteps(page, r) !== 3) throw new Error(`expected 3 steps before claiming, got ${await doneSteps(page, r)}`);
+  await type(page, r, `kubectl patch ingress shop -p '{"spec":{"ingressClassName":"panda"}}'`);
+  await type(page, r, 'curl http://shop.localhost');
+  await expectText(page, `${r} .term-out`, /hello from web-/);
+  await expectText(page, `${r} .m-debrief`, /Gateway API fixed exactly this/);
+});
+
+await scenario('kube-pkg-render', '/learn/kubernetes/helm-and-kustomize/', async (page) => {
+  const r = '[data-rlab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.fill(`${r} [data-set]`, 'replicaCont=3');
+  await page.click(`${r} [data-helm]`);
+  await expectText(page, `${r} [data-out]`, /^ {2}replicas: 1$/m);
+  if (await page.locator(`${r} [data-out] .chg`).count()) throw new Error('the typo render highlighted a change, but nothing changed');
+  await page.fill(`${r} [data-set]`, 'replicaCount=3');
+  await page.click(`${r} [data-helm]`);
+  await expectText(page, `${r} [data-out] .chg`, /replicas: 3/);
+  await page.locator(`${r} [data-schema]`).check();
+  await page.fill(`${r} [data-set]`, 'replicaCont=3');
+  await page.click(`${r} [data-helm]`);
+  await expectText(page, `${r} [data-out]`, /additional properties 'replicaCont' not allowed/);
+  await page.fill(`${r} [data-overlay]`, 'resources:\n- ../base\nnamePrefix: prod-\nreplicas:\n- name: web\n  count: 3\nimages:\n- name: panda/webb\n  newTag: "2.0"\n');
+  await page.click(`${r} [data-kust]`);
+  await expectText(page, `${r} [data-out]`, /image: panda\/web:1\.0/);
+  if (await doneSteps(page, r) !== 5) throw new Error(`expected 5 steps, got ${await doneSteps(page, r)}`);
+  await page.fill(`${r} [data-overlay]`, 'resources:\n- ../base\nnamePrefix: prod-\nreplicas:\n- name: web\n  count: 3\nimages:\n- name: panda/web\n  newTag: "2.0"\n');
+  await page.click(`${r} [data-kust]`);
+  await expectText(page, `${r} .m-debrief`, /Read the rendered output, not the inputs/);
+});
+
+await scenario('kube-api-removed', '/learn/kubernetes/extending-kubernetes/', async (page) => {
+  const r = '[data-alab]';
+  await page.locator(r).scrollIntoViewIfNeeded();
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} [data-out]`, /no matches for kind "Ingress" in version "networking\.k8s\.io\/v1beta1"/);
+  await page.selectOption(`${r} [data-version]`, '21');
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} [data-out]`, /Warning: networking\.k8s\.io\/v1beta1 Ingress is deprecated in v1\.19\+, unavailable in v1\.22\+; use networking\.k8s\.io\/v1 Ingress/);
+  await page.selectOption(`${r} [data-version]`, '36');
+  await page.fill(`${r} [data-manifest]`, 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: shop\nspec:\n  defaultBackend:\n    service:\n      name: web\n      port:\n        number: 80\n');
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} [data-out]`, /ingress\.networking\.k8s\.io\/shop created/);
+  await page.click(`${r} [data-preset="bamboo"]`);
+  await page.click(`${r} [data-apply]`);
+  await page.locator(`${r} [data-crd]`).check();
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} [data-out]`, /bamboo\.panda\.example\.com\/snack created/);
+  await page.click(`${r} [data-preset="endpoints"]`);
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} .m-debrief`, /they arrive while everything still works/);
+});
+
 await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {
   const r = '[data-strangler]';
   await page.locator(r).scrollIntoViewIfNeeded();
