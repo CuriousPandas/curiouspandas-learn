@@ -8,7 +8,7 @@
 import { Repo } from './git/repo.ts';
 import { run } from './git/shell.ts';
 import { Cluster } from './kube/cluster.ts';
-import { kubectl } from './kube/kubectl.ts';
+import { kubectl, type Files, type Seen } from './kube/kubectl.ts';
 
 // `why` says what is still wrong with the current step. A beginner who gets an unticked
 // box and no reason has nothing to act on, and has no way to see the inputs it was judged on.
@@ -16,7 +16,11 @@ export type Step<S> = { text: string; hint?: string; done: (s: S) => boolean; wh
 export type Mission<S> = { id: string; title: string; xp: number; setup: () => S; steps: Step<S>[]; debrief: string };
 
 export type GitState = { repo: Repo; history: string[] };
-export type KubeState = { cluster: Cluster; history: string[]; seen: Set<string>; deleted: Set<string> };
+// `files` are what `ls`, `cat` and `kubectl apply -f` see; `saw` records what
+// each command looked at, so a "did you find out why" step can judge what was
+// actually on screen rather than the words typed. `deleted` holds
+// "namespace/name" keys.
+export type KubeState = { cluster: Cluster; history: string[]; seen: Set<string>; deleted: Set<string>; files?: Files; saw?: Seen[] };
 
 const ran = (h: string[], re: RegExp) => h.some((l) => re.test(l.trim()));
 
@@ -142,10 +146,10 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
   'kube-self-heal': {
     id: 'kube-self-heal', title: 'Make a promise, then break it', xp: 50, setup: kubeSetup([]),
     steps: [
-      { text: 'Create a deployment called hello with 3 replicas of panda/hello:1.0', hint: 'kubectl create deployment hello --image=panda/hello:1.0 --replicas=3', done: (s) => s.cluster.deployments.get('hello')?.replicas === 3 || s.deleted.size > 0 },
+      { text: 'Create a deployment called hello with 3 replicas of panda/hello:1.0', hint: 'kubectl create deployment hello --image=panda/hello:1.0 --replicas=3', done: (s) => s.cluster.getDeployment('default', 'hello')?.replicas === 3 || s.deleted.size > 0 },
       { text: 'Wait until all three pods are Running and Ready', hint: 'kubectl get pods', done: (s) => (readyOf(s.cluster, 'hello')?.ready ?? 0) >= 3 || s.deleted.size > 0 },
       { text: 'Delete one of the pods', hint: 'kubectl delete pod <copy a name from get pods>', done: (s) => s.deleted.size > 0 },
-      { text: 'Watch Kubernetes put it back - with a new name', hint: 'kubectl get pods', done: (s) => s.deleted.size > 0 && (readyOf(s.cluster, 'hello')?.ready ?? 0) >= 3 && [...s.deleted].every((n) => !s.cluster.pods.has(n)) },
+      { text: 'Watch Kubernetes put it back - with a new name', hint: 'kubectl get pods', done: (s) => s.deleted.size > 0 && (readyOf(s.cluster, 'hello')?.ready ?? 0) >= 3 && [...s.deleted].every((k) => !s.cluster.pods.has(k)) },
     ],
     debrief: 'Nobody told Kubernetes to replace the pod. The ReplicaSet controller kept comparing "want 3" with "have 2" and fixed the difference. That loop, not any single command, is Kubernetes.',
   },
@@ -167,8 +171,8 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
       { text: 'Both pods restart forever. Look at both of them', hint: 'kubectl get pods', done: (s) => ran(s.history, /get (po|pods?)\b/) },
       { text: 'Describe the starved pod: find its exit code and reason', hint: 'kubectl describe pod <starved-...>', done: (s) => s.seen.has('describe:starved') },
       { text: 'Describe the impatient pod: same exit code - what do its Events say?', hint: 'kubectl describe pod <impatient-...>', done: (s) => s.seen.has('describe:impatient') },
-      { text: 'Fix starved the way its reason asks', hint: 'kubectl set resources deployment starved --limits=memory=256Mi', done: (s) => { const d = s.cluster.deployments.get('starved'); return !!d && d.template.limits.mem >= 200 && (readyOf(s.cluster, 'starved')?.ready ?? 0) >= 1; } },
-      { text: 'Fix impatient the way its events ask - a startup probe, not more memory', hint: `kubectl patch deployment impatient -p '{"spec":{"template":{"spec":{"containers":[{"name":"app","startupProbe":{"httpGet":{"path":"/","port":8080},"periodSeconds":5,"failureThreshold":24}}]}}}}'`, done: (s) => { const d = s.cluster.deployments.get('impatient'); return !!d && d.template.startupProbe && (readyOf(s.cluster, 'impatient')?.ready ?? 0) >= 1; } },
+      { text: 'Fix starved the way its reason asks', hint: 'kubectl set resources deployment starved --limits=memory=256Mi', done: (s) => { const d = s.cluster.getDeployment('default', 'starved'); return !!d && d.template.limits.mem >= 200 && (readyOf(s.cluster, 'starved')?.ready ?? 0) >= 1; } },
+      { text: 'Fix impatient the way its events ask - a startup probe, not more memory', hint: `kubectl patch deployment impatient -p '{"spec":{"template":{"spec":{"containers":[{"name":"app","startupProbe":{"httpGet":{"path":"/","port":8080},"periodSeconds":5,"failureThreshold":24}}]}}}}'`, done: (s) => { const d = s.cluster.getDeployment('default', 'impatient'); return !!d && d.template.startupProbe && (readyOf(s.cluster, 'impatient')?.ready ?? 0) >= 1; } },
     ],
     debrief: '137 is 128 + 9: SIGKILL. It says something killed the process, never what. OOMKilled means the kernel did it for memory; a Liveness event means the kubelet did it because a probe gave up. Same number, opposite fixes - and the wrong fix (more memory for impatient) never helps. The startup probe needs a budget, too: 5 s x 24 gives it two minutes, where the defaults (10 s x 3) would have killed it at 30.',
   },
@@ -178,8 +182,8 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
     steps: [
       { text: 'The deployment wants 6. Count what exists', hint: 'kubectl get deploy  then  kubectl get pods', done: (s) => ran(s.history, /get (deploy|deployments?)\b/) },
       { text: 'Find where the refusal is written down', hint: 'kubectl get events  or  kubectl describe deploy quota-demo', done: (s) => ran(s.history, /get (ev|events?)\b/) || s.seen.has('describe:deploy:quota-demo') },
-      { text: 'Raise the quota to 6 - do not delete it', hint: `kubectl patch quota/pandas -p '{"spec":{"hard":{"pods":"6"}}}'`, done: (s) => !!s.cluster.quota && s.cluster.quota.pods >= 6 },
-      { text: 'Wait for the ReplicaSet to retry - it backs off, so this takes a moment', hint: 'kubectl get pods', done: (s) => !!s.cluster.quota && (readyOf(s.cluster, 'quota-demo')?.ready ?? 0) >= 6 },
+      { text: 'Raise the quota to 6 - do not delete it', hint: `kubectl patch quota/pandas -p '{"spec":{"hard":{"pods":"6"}}}'`, done: (s) => (s.cluster.quotaIn('default')?.pods ?? 0) >= 6 },
+      { text: 'Wait for the ReplicaSet to retry - it backs off, so this takes a moment', hint: 'kubectl get pods', done: (s) => !!s.cluster.quotaIn('default') && (readyOf(s.cluster, 'quota-demo')?.ready ?? 0) >= 6 },
     ],
     debrief: 'There was no failing pod to debug because the missing pods were never created - the API server refused them at admission. Deleting the quota would also have "worked", and would have removed the guardrail. That is why this mission only passes with the quota still there.',
   },
@@ -187,7 +191,7 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
     id: 'kube-rollout', title: 'A typo is not an outage', xp: 60,
     setup: kubeSetup(['kubectl create deployment hello --image=panda/hello:1.0 --replicas=3'], 4),
     steps: [
-      { text: 'Roll out version 2.0 - but make the classic typo: a capital O instead of zero', hint: 'kubectl set image deployment/hello app=panda/hello:2.O', done: (s) => s.cluster.deployments.get('hello')?.template.image === 'panda/hello:2.O' || s.seen.has('typo') },
+      { text: 'Roll out version 2.0 - but make the classic typo: a capital O instead of zero', hint: 'kubectl set image deployment/hello app=panda/hello:2.O', done: (s) => s.cluster.getDeployment('default', 'hello')?.template.image === 'panda/hello:2.O' || s.seen.has('typo') },
       { text: 'Watch: the new pod cannot pull its image. Are the old ones still serving?', hint: 'kubectl get pods', done: (s) => s.seen.has('typo') },
       { text: 'Ask the rollout how it is going', hint: 'kubectl rollout status deployment/hello', done: (s) => s.seen.has('typo') && ran(s.history, /rollout status/) },
       { text: 'Fix the tag and finish the rollout', hint: 'kubectl set image deployment/hello app=panda/hello:2.0', done: (s) => { const st = readyOf(s.cluster, 'hello'); return s.seen.has('typo') && !!st && st.ready === 3 && st.current === 3 && [...s.cluster.pods.values()].every((p) => p.template.image === 'panda/hello:2.0'); } },
@@ -200,9 +204,11 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
 export function kubeObserve(s: KubeState, line: string) {
   s.history.push(line);
   const c = s.cluster;
+  // Pods are keyed by namespace; the line names one with -n, or the context's namespace applies.
+  const ns = /(?:-n|--namespace)[\s=](\S+)/.exec(line)?.[1] ?? c.context.namespace;
   const m = /describe\s+(?:po|pods?)(?:\s+|\/)(\S+)/.exec(line);
   if (m) {
-    const p = c.pods.get(m[1]);
+    const p = c.findPod(ns, m[1]);
     if (p && !p.node) s.seen.add('describe:pending');
     if (p?.owner.startsWith('starved-')) s.seen.add('describe:starved');
     if (p?.owner.startsWith('impatient-')) s.seen.add('describe:impatient');
@@ -210,7 +216,7 @@ export function kubeObserve(s: KubeState, line: string) {
   const d = /describe\s+(?:deploy|deployments?)(?:\s+|\/)(\S+)/.exec(line);
   if (d) s.seen.add(`describe:deploy:${d[1]}`);
   const del = /delete\s+(?:po|pods?)(?:\s+|\/)(\S+)/.exec(line);
-  if (del && c.pods.has(del[1])) s.deleted.add(del[1]);
+  if (del && c.findPod(ns, del[1])) s.deleted.add(`${ns}/${del[1]}`);
 }
 
 /** Called every tick so state-only observations (a typo'd rollout happened) are not missed. */

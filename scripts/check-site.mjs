@@ -4137,6 +4137,148 @@ print(answer("10 - 3"))
   });
 }
 
+// ---- kubernetes workloads (cs/k8s-a) -------------------------------------
+// Each mission played by typing, with its failure seen first: the empty
+// namespace, the stale config, the Job stuck at 0/1, the refusal, the silent
+// suspend, the missing node, the Pending pod.
+
+const kube = (id) => `[data-kube-sim][data-mission="${id}"]`;
+const fast = (page, r) => page.selectOption(`${r} [data-speed]`, '150');
+
+await scenario('kube-namespaces', '/learn/kubernetes/objects-and-namespaces/', async (page) => {
+  const r = kube('kube-namespaces');
+  await type(page, r, 'kubectl get pods');
+  await expectText(page, `${r} .term-out`, /No resources found in default namespace\./);
+  await type(page, r, 'kubectl get pods -A');
+  await expectText(page, `${r} .term-out`, /NAMESPACE\s+NAME[\s\S]*shop\s+hello-/);
+  await type(page, r, 'kubectl -n shop get deployment hello -o yaml');
+  await expectText(page, `${r} .term-out`, /progressDeadlineSeconds: 600/);
+  await type(page, r, 'kubectl config set-context --current --namespace=shop');
+  await type(page, r, 'kubectl get pods -l app=hello');
+  await expectText(page, `${r} .m-debrief`, /never "none anywhere"/);
+});
+
+await scenario('kube-config', '/learn/kubernetes/config-and-secrets/', async (page) => {
+  const r = kube('kube-config');
+  await fast(page, r);
+  await type(page, r, 'kubectl logs deployment/web');
+  await type(page, r, `kubectl patch configmap greeting -p '{"data":{"GREETING":"hello from v2"}}'`);
+  await page.waitForTimeout(2500);
+  await type(page, r, 'kubectl logs deployment/web --tail=1');
+  await expectText(page, `${r} .term-out`, /GREETING=hello from v1\s*$/);
+  if (await doneSteps(page, r) < 3) throw new Error('reading, changing and re-reading did not tick three steps');
+  // The tempting shortcut: the password in plain text. api runs, the step must not tick.
+  await type(page, r, 'kubectl set env deployment/api DATABASE_URL=postgres://db:5432/shop');
+  await type(page, r, 'kubectl rollout restart deployment/web');
+  await expectText(page, `${r} .m-why:not([hidden])`, /plain text/, 20000);
+});
+
+await scenario('kube-config-volume', '/learn/kubernetes/config-and-secrets/', async (page) => {
+  const r = kube('kube-config-volume');
+  await fast(page, r);
+  await type(page, r, 'kubectl logs deployment/files');
+  await type(page, r, `kubectl patch configmap greeting -p '{"data":{"GREETING":"v2"}}'`);
+  await type(page, r, 'kubectl exec deployment/files -- cat /etc/greeting/GREETING /etc/sub/GREETING');
+  await expectText(page, `${r} .term-out`, /^v1\nv1$/m);
+  const deadline = Date.now() + 25000;
+  for (;;) {
+    await page.waitForTimeout(1000);
+    await type(page, r, 'kubectl exec deployment/files -- cat /etc/greeting/GREETING /etc/sub/GREETING');
+    if (/v2\nv1\s*$/.test(await page.locator(`${r} .term-out`).innerText())) break;
+    if (Date.now() > deadline) throw new Error('the mounted folder never picked up v2');
+  }
+  await type(page, r, 'kubectl rollout restart deployment/files');
+  await expectText(page, `${r} .m-debrief`, /will not receive ConfigMap updates/, 30000);
+});
+
+await scenario('kube-sidecars', '/learn/kubernetes/init-and-sidecars/', async (page) => {
+  const r = kube('kube-sidecars');
+  await fast(page, r);
+  await type(page, r, 'kubectl get jobs');
+  await expectText(page, `${r} .term-out`, /nightly-report\s+Running\s+0\/1/);
+  await type(page, r, 'kubectl get pods');
+  await expectText(page, `${r} .term-out`, /nightly-report-\S+\s+1\/2\s+NotReady/);
+  await type(page, r, 'kubectl logs job/nightly-report -c report');
+  await type(page, r, 'kubectl apply -f report-native.yaml');
+  await expectText(page, `${r} .term-out`, /field is immutable/);
+  await type(page, r, 'kubectl delete job nightly-report');
+  await type(page, r, 'kubectl apply -f report-native.yaml');
+  await type(page, r, 'kubectl logs deployment/shop -c wait-for-db');
+  await expectText(page, `${r} .term-out`, /waiting for db/);
+  await type(page, r, 'kubectl create deployment db --image=panda/db:1.0');
+  await expectText(page, `${r} .m-debrief`, /restartPolicy: Always/, 40000);
+});
+
+await scenario('kube-nonroot', '/learn/kubernetes/security-context/', async (page) => {
+  const r = kube('kube-nonroot');
+  await fast(page, r);
+  await type(page, r, 'kubectl describe pod -l app=web');
+  await expectText(page, `${r} .term-out`, /container has runAsNonRoot and image will run as root/);
+  await type(page, r, `kubectl patch deployment web -p '{"spec":{"template":{"spec":{"securityContext":{"runAsUser":1000}}}}}'`);
+  // Let web settle first: label the namespace before its new pod exists and
+  // that pod is refused too. Real, but not what this step is about.
+  for (let i = 0; i < 80 && await doneSteps(page, r) < 2; i++) await page.waitForTimeout(250);
+  await type(page, r, 'kubectl label namespace default pod-security.kubernetes.io/enforce=restricted');
+  await expectText(page, `${r} .term-out`, /violate the new PodSecurity enforce level "restricted:latest"/);
+  await type(page, r, 'kubectl create deployment api --image=panda/hello-nonroot:1.0');
+  await expectText(page, `${r} .term-out`, /Warning: would violate PodSecurity/);
+  await page.waitForTimeout(1500);
+  await type(page, r, 'kubectl get events');
+  await expectText(page, `${r} .term-out`, /FailedCreate\s+replicaset\/api-\S+\s+Error creating: pods "api-\S+" is forbidden: violates PodSecurity/);
+  if (await doneSteps(page, r) < 4) throw new Error('the first four steps did not tick');
+});
+
+await scenario('kube-cron', '/learn/kubernetes/jobs-and-cronjobs/', async (page) => {
+  const r = kube('kube-cron');
+  await fast(page, r);
+  await type(page, r, 'kubectl get cronjobs,jobs');
+  await expectText(page, `${r} .term-out`, /cronjob\.batch\/nightly\s+\*\/1 \* \* \* \*\s+<none>\s+True/);
+  await type(page, r, 'kubectl describe cronjob nightly');
+  await expectText(page, `${r} .term-out`, /Suspend:\s+True/);
+  await type(page, r, `kubectl patch cronjob nightly -p '{"spec":{"suspend":false}}'`);
+  await type(page, r, 'kubectl create job nightly-now --from=cronjob/nightly');
+  await type(page, r, 'kubectl describe job backfill');
+  await expectText(page, `${r} .term-out`, /Job has reached the specified backoff limit/);
+  await type(page, r, 'kubectl logs job/backfill');
+  await expectText(page, `${r} .m-debrief`, /simply makes no Jobs/, 30000);
+});
+
+await scenario('kube-daemonset', '/learn/kubernetes/daemonsets-and-taints/', async (page) => {
+  const r = kube('kube-daemonset');
+  await fast(page, r);
+  await type(page, r, 'kubectl get daemonsets');
+  await expectText(page, `${r} .term-out`, /log-collector\s+2\s+2\s+2/);
+  await type(page, r, 'kubectl get nodes');
+  await type(page, r, 'kubectl describe node control-plane');
+  await expectText(page, `${r} .term-out`, /Taints:\s+node-role\.kubernetes\.io\/control-plane:NoSchedule/);
+  if (!/control-plane:NoSchedule/.test(await page.locator(`${r} .taints`).first().innerText())) throw new Error('the taint is not drawn on the node');
+  // The blanket toleration fills the node and must not tick the step.
+  await type(page, r, `kubectl patch daemonset log-collector -p '{"spec":{"template":{"spec":{"tolerations":[{"operator":"Exists"}]}}}}'`);
+  await expectText(page, `${r} .m-why:not([hidden])`, /tolerates every taint/, 15000);
+  await type(page, r, `kubectl patch daemonset log-collector -p '{"spec":{"template":{"spec":{"tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}}}}'`);
+  await type(page, r, 'kubectl taint node worker-2 dedicated=gpu:NoSchedule');
+  await type(page, r, 'kubectl scale deployment web --replicas=4');
+  await expectText(page, `${r} .m-debrief`, /NoExecute is the effect that evicts/, 40000);
+});
+
+await scenario('kube-placement', '/learn/kubernetes/placement/', async (page) => {
+  const r = kube('kube-placement');
+  await fast(page, r);
+  await type(page, r, 'kubectl describe pod -l app=fast');
+  await expectText(page, `${r} .term-out`, /didn't match Pod's node affinity\/selector/);
+  await type(page, r, 'kubectl label node worker-3 disktype=ssd');
+  await type(page, r, 'kubectl scale deployment web --replicas=4');
+  await page.waitForTimeout(1500);
+  await type(page, r, 'kubectl get events');
+  await expectText(page, `${r} .term-out`, /didn't match pod anti-affinity rules/);
+  if (await page.locator(`${r} [data-pending] .pod`).count() < 1) throw new Error('the fourth web pod is not drawn as waiting');
+  await type(page, r, 'kubectl delete deployment web');
+  await type(page, r, 'kubectl apply -f web-preferred.yaml');
+  await page.waitForTimeout(2000);
+  await type(page, r, 'kubectl get pods -o wide');
+  await expectText(page, `${r} .m-debrief`, /closer together than you think/, 30000);
+});
+
 await scenario('strangler-lab', '/learn/change/strangler-fig/', async (page) => {
   const r = '[data-strangler]';
   await page.locator(r).scrollIntoViewIfNeeded();

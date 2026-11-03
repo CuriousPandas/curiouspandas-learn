@@ -82,7 +82,7 @@ Here's what the scheduler did each time it tried the third pod:
 />
 
 <Callout kind="real">
-Real scheduling checks much more than CPU and memory: taints and tolerations, node selectors and affinity, topology spread, volume zones and more. The event message lists every reason, for example `0/3 nodes are available: 1 node(s) had untolerated taint, 2 Insufficient memory.` The habit is the same: describe the pod and read the last lines.
+Real scheduling checks much more than CPU and memory: taints and tolerations, node selectors and affinity, topology spread, volume zones and more. The event message lists every reason, for example `0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient memory.` (the v1.36 wording) The habit is the same: describe the pod and read the last lines.
 </Callout>
 
 <DoItForReal id="kube-sched-real">

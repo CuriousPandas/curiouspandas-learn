@@ -1,0 +1,86 @@
+---
+title: The log collector that skipped a node
+summary: A DaemonSet runs one pod on every node, except the ones it quietly doesn't. Learn how taints push pods away, how tolerations let them in, and why DESIRED is the number to read.
+minutes: 16
+xp: 40
+tiers: [browser, machine]
+builds_on: [kubernetes/scheduling, tools/loki]
+sources:
+  - title: Kubernetes docs - Taints and Tolerations
+    url: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+  - title: Kubernetes docs - DaemonSet
+    url: https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/
+  - title: TemplateMechanics/tilt - the Alloy DaemonSet and its toleration
+    url: https://github.com/TemplateMechanics/tilt/blob/main/helm/loki/base/helm-release-alloy.yaml
+---
+
+The tilt platform ships every pod's logs to Loki with a collector called Alloy, which runs as a **DaemonSet**: one copy per node, reading that node's log files. For a while, logs from the API server and etcd were simply missing. The comment that now sits in the platform's config tells the story:
+
+> Without this toleration the DaemonSet skips control-plane nodes entirely (desiredNumberScheduled drops to 1 on a 2-node kind cluster) and every pod running there — kube-apiserver, etcd, and whichever mesh components landed on it — is silently absent from Loki. Nothing reports an error; the logs simply are not there.
+
+## DaemonSets
+
+The docs: "A DaemonSet ensures that all (or some) Nodes run a copy of a Pod. As nodes are added to the cluster, Pods are added to them." Log collectors, monitoring agents and network plugins are DaemonSets, because their job is per machine, not per request.
+
+"All (or some)" is the part that bites. A DaemonSet's pods follow the same placement rules as any other pod. `kubectl get ds` shows **DESIRED**: how many nodes the controller decided should run one. If that number is smaller than your node count, some node was ruled out, and nothing calls that an error.
+
+## Taints and tolerations
+
+A **taint** is a mark on a node that pushes pods away: a key, an optional value, and an **effect**. The docs: "Taints are the opposite -- they allow a node to repel a set of pods." A **toleration** on a pod says "I can live with that taint". The effects:
+
+- **NoSchedule**: "No new Pods will be scheduled on the tainted node unless they have a matching toleration. Pods currently running on the node are not evicted."
+- **PreferNoSchedule**: the scheduler tries to avoid the node, but may still use it.
+- **NoExecute**: pods that don't tolerate it are evicted, even ones already running.
+
+Clusters built with kubeadm, kind included, put `node-role.kubernetes.io/control-plane:NoSchedule` on the control-plane node, so ordinary workloads stay off the machine that runs the API server. That's what kept Alloy off it. You add a taint with `kubectl taint node <name> key=value:Effect` and remove it with the same line plus a trailing `-`.
+
+## Bring the collector back
+
+This cluster has a tainted control-plane node and two workers. Find the missing node, tolerate exactly what keeps the collector off it, then watch what a new taint does to pods that are already there.
+
+<KubeSim mission="kube-daemonset" title="Two out of three nodes" />
+
+<Callout kind="trap">
+`tolerations: [{operator: Exists}]`, with no key, tolerates every taint there is, including NoExecute taints added later for good reason, such as one marking a node as broken. The tilt platform's `istio-ambient-node-prep` does exactly that, deliberately, because it has to touch every node. A log collector only needs the one taint it was missing.
+</Callout>
+
+<Quiz
+  id="kube-ds-1"
+  q="A cluster has 3 nodes. kubectl get ds shows DESIRED 2 for your log collector, and no events report a problem. What's the likely cause?"
+  options={["The DaemonSet is still rolling out", "One node has a taint the pods don't tolerate, so the controller never planned a pod there", "DaemonSets run on at most two nodes"]}
+  answer={1}
+  explain="DESIRED is the controller's own count of eligible nodes. A NoSchedule taint, often the control-plane one, removes a node without any error. kubectl describe node shows its Taints line."
+/>
+
+<Quiz
+  id="kube-ds-2"
+  q="You add a NoSchedule taint to a node that already runs five pods. What happens to them?"
+  options={["They're evicted at once", "They keep running; only new pods without a matching toleration are kept off", "They're rescheduled to other nodes"]}
+  answer={1}
+  explain="NoSchedule affects scheduling only. NoExecute is the effect that evicts running pods."
+/>
+
+<Callout kind="real">
+The sandbox's nodes are kind-like: a control-plane node tainted NoSchedule and plain workers. It models NoSchedule, and NoExecute as immediate eviction. It treats PreferNoSchedule as no taint at all, where a real scheduler would try to avoid the node. A real NoExecute toleration can set `tolerationSeconds` to stay for a while before eviction; the sandbox refuses that field. Real DaemonSet pods also get several tolerations added automatically, for conditions such as a node being not-ready or under memory pressure, which the sandbox doesn't model because its nodes never get sick.
+</Callout>
+
+## What to remember
+
+- Compare a DaemonSet's DESIRED with your node count. The gap is never reported as an error.
+- A taint repels; a toleration permits. NoSchedule spares running pods; NoExecute evicts them.
+- Tolerate the taint you need, by key. A keyless `Exists` tolerates everything.
+
+<DoItForReal id="kube-ds-real">
+
+On the tilt platform, all read-only. Run on 2026-11-03 against Kubernetes v1.36.1 with the observability apps running.
+
+```bash
+kubectl get nodes -o custom-columns=NAME:.metadata.name,TAINTS:.spec.taints
+kubectl get ds -A
+kubectl -n istio-system get ds istio-ambient-node-prep -o jsonpath='{.spec.template.spec.tolerations}{"\n"}'
+kubectl -n logging get ds alloy -o jsonpath='{.spec.template.spec.tolerations}{"\n"}'
+```
+
+The control plane shows `[map[effect:NoSchedule key:node-role.kubernetes.io/control-plane]]`. Every DaemonSet listed DESIRED 2 on the two-node cluster when this was written: `istio-ambient-node-prep` tolerates everything (`[{"operator":"Exists"}]`), Alloy tolerates exactly the control-plane taint, and kindnet, kube-proxy, ztunnel and the rest must tolerate it somehow too, since they run on the control plane. Don't add taints to this cluster to experiment: it has one worker, and a NoExecute taint there would evict the whole platform.
+
+</DoItForReal>
