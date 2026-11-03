@@ -61,8 +61,8 @@ export type Rendered = { ok: true; output: string; values: Obj } | { ok: false; 
 /**
  * --set as Helm 4.1.4 typed it in our runs: whole numbers become integers,
  * true/false booleans, null deletes, anything else (including 2.10) stays a
- * string. Helm 3 read 2.10 as the number 2.1; we did not run Helm 3, so the
- * lesson doesn't claim either way beyond the version it tested.
+ * string. We did not run Helm 3, so neither this file nor the lesson says
+ * what it does with 2.10.
  */
 export function parseSet(set: string): { path: string[]; value: Yaml }[] {
   const out: { path: string[]; value: Yaml }[] = [];
@@ -202,6 +202,28 @@ data:
 
 const KUSTOMIZATION_FIELDS = ['apiVersion', 'kind', 'resources', 'namePrefix', 'nameSuffix', 'replicas', 'images', 'patches', 'namespace', 'commonLabels', 'labels', 'configMapGenerator', 'secretGenerator', 'components', 'patchesStrategicMerge', 'patchesJson6902', 'generators', 'transformers', 'vars', 'replacements', 'crds', 'helmCharts', 'openapi', 'buildMetadata', 'sortOptions', 'commonAnnotations', 'generatorOptions', 'bases', 'nameReference', 'configurations', 'validators'];
 const SUPPORTED = ['resources', 'namePrefix', 'nameSuffix', 'replicas', 'images', 'patches'];
+const IMAGE_FIELDS = ['name', 'newName', 'newTag', 'digest', 'tagSuffix'];
+const REPLICA_FIELDS = ['name', 'count'];
+const PATCH_FIELDS = ['path', 'patch', 'target', 'options'];
+
+/**
+ * Kustomize decodes a kustomization with Go's encoding/json, so field names
+ * match case-insensitively, a later spelling of the same field wins, and a
+ * name it doesn't have is an error. All three measured on v5.8.1: `nameprefix`,
+ * `newtag` and `Count` were applied, `newtag: "3.0"` after `newTag: "2.0"`
+ * gave 3.0, and `bogus` failed. An earlier version of this file matched names
+ * exactly, so it refused `nameprefix` with a false "unknown field" error and
+ * silently dropped `newtag` and `digest`, which real Kustomize applies.
+ */
+function fold(o: Obj, fields: string[]): { obj: Obj } | { error: string } {
+  const out: Obj = {};
+  for (const [k, v] of Object.entries(o)) {
+    const f = fields.find((x) => x.toLowerCase() === k.toLowerCase());
+    if (!f) return { error: `error: invalid Kustomization: json: unknown field "${k}"` };
+    out[f] = v;
+  }
+  return { obj: out };
+}
 
 type Res = { obj: Obj; original: string };
 const id = (o: Obj) => `${o.kind}.${String(o.apiVersion).includes('/') ? `${String(o.apiVersion).split('/')[1]}.${String(o.apiVersion).split('/')[0]}` : String(o.apiVersion)}/${(o.metadata as Obj).name}.[noNs]`;
@@ -248,8 +270,22 @@ function build(overlay: string): KustomizeResult {
   // Real (Kustomize v5.8.1): an empty file is refused, by name.
   if (k === null) return { ok: false, error: 'error: kustomization.yaml is empty' };
   if (!isObj(k)) return { ok: false, error: 'error: invalid Kustomization: it must be a mapping of fields' };
+  const top = fold(k, KUSTOMIZATION_FIELDS);
+  if ('error' in top) return { ok: false, error: top.error };
+  k = top.obj;
+  // Every nested field is checked before anything is built, as the real
+  // decoder rejects the whole file for one unknown field anywhere in it.
+  for (const [list, fields] of [['images', IMAGE_FIELDS], ['replicas', REPLICA_FIELDS], ['patches', PATCH_FIELDS]] as const) {
+    const items = k[list];
+    if (!Array.isArray(items)) continue;
+    for (let i = 0; i < items.length; i++) {
+      if (!isObj(items[i])) continue;
+      const f = fold(items[i] as Obj, fields);
+      if ('error' in f) return { ok: false, error: f.error };
+      items[i] = f.obj;
+    }
+  }
   for (const f of Object.keys(k)) {
-    if (!KUSTOMIZATION_FIELDS.includes(f)) return { ok: false, error: `error: invalid Kustomization: json: unknown field "${f}"` };
     if (!SUPPORTED.includes(f)) return { ok: false, error: `Kustomize knows "${f}", but this sandbox does not model it. It handles ${SUPPORTED.join(', ')}.` };
   }
   const resources = k.resources ?? [];
@@ -284,12 +320,18 @@ function build(overlay: string): KustomizeResult {
   for (const [i, im] of (Array.isArray(k.images) ? k.images : []).entries()) {
     if (!isObj(im)) return { ok: false, error: `error: images[${i}] must be a mapping` };
     if (im.newTag !== undefined && typeof im.newTag !== 'string') return { ok: false, error: `error: invalid Kustomization: json: cannot unmarshal ${typeof im.newTag === 'number' ? 'number' : typeof im.newTag} into Go struct field Image.images.newTag of type string` };
+    if (im.tagSuffix !== undefined) return { ok: false, error: `Kustomize knows images[${i}].tagSuffix, but this sandbox does not model it. It handles name, newName, newTag and digest.` };
+    for (const f of ['name', 'newName', 'digest'] as const) if (im[f] !== undefined && typeof im[f] !== 'string') return { ok: false, error: `this sandbox needs images[${i}].${f} as text (put quotes around ${JSON.stringify(im[f])})` };
     let hit = false;
     for (const r of res) for (const c of ((((r.obj.spec as Obj)?.template as Obj)?.spec as Obj)?.containers as Obj[] | undefined) ?? []) {
       const [name, tag] = String(c.image).split(':');
       if (name !== im.name) continue;
       hit = true;
-      c.image = `${im.newName ?? name}:${im.newTag ?? tag}`;
+      // Measured (v5.8.1): a digest alone replaces the tag, giving
+      // panda/web@sha256:...; with newTag as well, both are kept: panda/web:2.0@sha256:...
+      const newName = String(im.newName ?? name);
+      if (im.digest !== undefined) c.image = `${newName}${im.newTag !== undefined ? `:${im.newTag}` : ''}@${im.digest}`;
+      else c.image = `${newName}:${im.newTag ?? tag}`;
     }
     // Real: an images entry whose name matches nothing is skipped, no warning.
     if (!hit) unmatchedImages.push(String(im.name));

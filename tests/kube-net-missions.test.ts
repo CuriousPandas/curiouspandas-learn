@@ -153,6 +153,46 @@ test('net-policy: the shortcuts fail step 4', () => {
   assert.equal(policyGoal(c.ctx.net).webToApi, false);
 });
 
+test('net-policy in the ambient mesh: the app port alone fails step 4, 15008 on both ends passes', () => {
+  // The review's case: shop labelled ambient, egress 8080, ingress 8080 + 15008.
+  // The sandbox once let web reach api with that; tilt timed it out.
+  const base = ['kubectl label ns shop istio.io/dataplane-mode=ambient', 'kubectl exec client -- curl -sS -m 5 http://api', 'kubectl apply -f deny-all.yaml', 'kubectl exec client -- curl -sS -m 5 http://api', 'kubectl apply -f allow-dns.yaml', 'kubectl exec client -- curl -sS -m 5 http://api'];
+  const withPorts = (src: string, ing: string, eg: string) => {
+    const [a, b] = FIXED(src).split('---');
+    return a.replace('      port: 8080\n', ing) + '---' + b.replace('      port: 8080\n', eg);
+  };
+  const P = (...ps: number[]) => ps.map((p) => `      port: ${p}\n`).join('    - protocol: TCP\n');
+  const a = NET_MISSIONS['kube-net-policy'].setup();
+  for (const l of base) run(a.ctx, l);
+  assert.equal(ticks('kube-net-policy', a), 3);
+  a.ctx.files['web-to-api.yaml'] = withPorts(a.ctx.files['web-to-api.yaml'], P(8080, 15008), P(8080));
+  const out = run(a.ctx, 'kubectl apply -f web-to-api.yaml').map((l) => l.text).join('\n');
+  assert.match(out, /api-from-web created/);
+  assert.match(run(a.ctx, 'kubectl exec deploy/web -- curl -sS -m 5 http://api').map((l) => l.text).join('\n'), /\(28\) Operation timed out .* with 0 bytes received/);
+  assert.equal(ticks('kube-net-policy', a), 3);
+  assert.match(NET_MISSIONS['kube-net-policy'].steps[3].why!(a), /port 15008/);
+  // Right: 15008 on both ends, with the app port kept.
+  const b = NET_MISSIONS['kube-net-policy'].setup();
+  for (const l of base) run(b.ctx, l);
+  b.ctx.files['web-to-api.yaml'] = withPorts(b.ctx.files['web-to-api.yaml'], P(8080, 15008), P(8080, 15008));
+  for (const l of ['kubectl apply -f web-to-api.yaml', 'kubectl exec deploy/web -- curl -sS -m 5 http://api']) run(b.ctx, l);
+  assert.equal(ticks('kube-net-policy', b), 4);
+  for (const l of ['kubectl exec client -- curl -sS -m 5 http://api']) run(b.ctx, l);
+  b.ctx.net.enforcing = false;
+  run(b.ctx, 'kubectl exec client -- curl -sS -m 5 http://api');
+  assert.equal(ticks('kube-net-policy', b), all('kube-net-policy'));
+  // Differently shaped and also right: 15008 only on both ends (real: enough on tilt).
+  const c = NET_MISSIONS['kube-net-policy'].setup();
+  for (const l of base) run(c.ctx, l);
+  c.ctx.files['web-to-api.yaml'] = withPorts(c.ctx.files['web-to-api.yaml'], P(15008), P(15008));
+  for (const l of ['kubectl apply -f web-to-api.yaml', 'kubectl exec deploy/web -- curl -sS -m 5 http://api']) run(c.ctx, l);
+  assert.equal(ticks('kube-net-policy', c), 4);
+  // In the mesh, step 2's symptom is a connect timeout: ztunnel answered the name.
+  const d = NET_MISSIONS['kube-net-policy'].setup();
+  const outs = base.slice(0, 4).map((l) => run(d.ctx, l).map((x) => x.text).join('\n'));
+  assert.equal(outs[3], 'curl: (28) Operation timed out after 5032 milliseconds with 0 bytes received\ncommand terminated with exit code 28');
+});
+
 test('net-policy: CHANGE-ME left in place applies, and selects nobody', () => {
   const s = NET_MISSIONS['kube-net-policy'].setup();
   const out = run(s.ctx, 'kubectl apply -f web-to-api.yaml').map((l) => l.text).join('\n');

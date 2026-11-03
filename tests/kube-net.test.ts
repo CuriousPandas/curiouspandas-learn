@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Net } from '../src/lib/kube-net/net.ts';
+import { Net, AMBIENT_LABEL } from '../src/lib/kube-net/net.ts';
 import { run, words, type Ctx } from '../src/lib/kube-net/kubectl.ts';
 import { applyManifest } from '../src/lib/kube-net/manifests.ts';
 
@@ -223,6 +223,77 @@ test('ambient mesh: mesh traffic arrives on 15008, and failures read as the mesh
   assert.match(sh(c, 'kubectl exec client -- curl -sS -m 5 http://web'), /^hello from/);
 });
 
+// Measured on tilt (Istio 1.28.3 ambient, kindnet) on 2026-11-03, in scratch
+// namespace fix-k8s-2, each with a new client pod (podinfo's 9898 is 8080 here).
+const EGRESS = (ports: string) => `apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: client-egress\nspec:\n  podSelector:\n    matchLabels:\n      run: client\n  policyTypes:\n  - Egress\n  egress:\n  - to:\n    - podSelector:\n        matchLabels:\n          app: web\n    ports:\n${ports}`;
+
+test('ambient mesh: the source\'s egress sees port 15008 too, not the app port', () => {
+  // The sandbox once checked egress against the app port in the mesh, so an
+  // egress rule for 8080 alone passed here while tilt timed it out 3 times in 3.
+  const c = cluster(undefined, {
+    'app.yaml': EGRESS('    - protocol: TCP\n      port: 8080\n'),
+    'both.yaml': EGRESS('    - protocol: TCP\n      port: 8080\n    - protocol: TCP\n      port: 15008\n'),
+    'hbone.yaml': EGRESS('    - protocol: TCP\n      port: 15008\n'),
+  });
+  sh(c, 'kubectl expose deploy web --port=80 --target-port=8080');
+  sh(c, 'kubectl label ns shop istio.io/dataplane-mode=ambient');
+  sh(c, 'kubectl apply -f app.yaml');
+  // Real: curl: (28) Operation timed out after 5028 milliseconds with 0 bytes received
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 5 http://web'), 'curl: (28) Operation timed out after 5032 milliseconds with 0 bytes received\ncommand terminated with exit code 28');
+  sh(c, 'kubectl apply -f both.yaml');
+  assert.match(sh(c, 'kubectl exec client -- curl -sS -m 5 http://web'), /^hello from/);
+  sh(c, 'kubectl apply -f hbone.yaml');
+  assert.match(sh(c, 'kubectl exec client -- curl -sS -m 5 http://web'), /^hello from/, 'real: 15008 alone was enough');
+  // Out of the mesh the app port is what egress sees (real: 9898 alone gave
+  // 200; that run also allowed DNS, so here the cluster IP stands in for the name).
+  sh(c, 'kubectl label ns shop istio.io/dataplane-mode-');
+  sh(c, 'kubectl apply -f app.yaml');
+  assert.match(sh(c, `kubectl exec client -- curl -sS -m 5 http://${c.net.service('shop', 'web')!.clusterIP}`), /^hello from/);
+});
+
+test('ambient mesh: under a default-deny egress, ztunnel still answers Service names', () => {
+  // The sandbox once sent mesh pods' DNS through egress policy, and printed
+  // "Could not resolve host" where tilt resolved the name and then timed out.
+  const c = cluster((n) => {
+    n.addNamespace('other', { [AMBIENT_LABEL]: 'ambient' });
+    n.createDeployment('other', 'api', 'panda/api:1.0', 1);
+    n.services.set('other/api', { name: 'api', ns: 'other', type: 'ClusterIP', clusterIP: '10.96.141.7', selector: { app: 'api' }, labels: { app: 'api' }, ports: [{ port: 80, targetPort: 8080, protocol: 'TCP' }], created: 0 });
+  }, { 'out.yaml': DENY_OUT });
+  sh(c, 'kubectl expose deploy web --port=80 --target-port=8080');
+  sh(c, 'kubectl expose deploy web --name=web-pods --cluster-ip=None --port=8080');
+  sh(c, 'kubectl label ns shop istio.io/dataplane-mode=ambient');
+  sh(c, 'kubectl apply -f out.yaml');
+  const want28 = 'curl: (28) Operation timed out after 5032 milliseconds with 0 bytes received\ncommand terminated with exit code 28';
+  // Real: "Host web:80 was resolved ... Connected to web", then (28) with 0 bytes received.
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 5 http://web'), want28);
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 5 http://web.shop.svc.cluster.local'), want28);
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 5 http://api.other'), want28, 'real: hello.hello resolved from another namespace');
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 5 http://web-pods:8080'), want28, 'real: a headless short name resolved to the pod IP');
+  // Real: with -m 20, -m 40 and no -m, ztunnel reset the connection after 10.6 to 15.1 s.
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 20 http://web'), 'curl: (56) Recv failure: Connection reset by peer\ncommand terminated with exit code 56');
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS http://web'), 'curl: (56) Recv failure: Connection reset by peer\ncommand terminated with exit code 56');
+  // Real: names ztunnel doesn't know go on to CoreDNS, which the deny blocks.
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 5 http://nosuchsvc'), 'curl: (28) Resolving timed out after 5003 milliseconds\ncommand terminated with exit code 28');
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 20 http://nosuchsvc'), 'curl: (6) Could not resolve host: nosuchsvc\ncommand terminated with exit code 6');
+  const ip = c.net.podsIn('shop').find((p) => p.owner === 'web')!.ip.replace(/\./g, '-');
+  assert.match(sh(c, `kubectl exec client -- curl -sS -m 20 http://${ip}.shop.pod.cluster.local:8080`), /^curl: \(6\) Could not resolve host/);
+  // busybox's mesh output has a shape this sandbox doesn't model: refused by name.
+  assert.match(errs(c, 'kubectl exec client -- nslookup web'), /ambient mesh.*doesn't model/);
+  // Out of the mesh, the same deny still takes DNS with it.
+  sh(c, 'kubectl label ns shop istio.io/dataplane-mode-');
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 20 http://web'), 'curl: (6) Could not resolve host: web\ncommand terminated with exit code 6');
+});
+
+test('ambient mesh: a dropped connection with no -m ends in a reset, not the 2 min 20 s timeout', () => {
+  // The sandbox once printed the out-of-mesh "after 139636 ms" line here.
+  const c = cluster(undefined, { 'in.yaml': DENY_IN });
+  sh(c, 'kubectl expose deploy web --port=80 --target-port=8080');
+  sh(c, 'kubectl label ns shop istio.io/dataplane-mode=ambient');
+  sh(c, 'kubectl apply -f in.yaml');
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS http://web'), 'curl: (56) Recv failure: Connection reset by peer\ncommand terminated with exit code 56');
+  assert.equal(sh(c, 'kubectl exec client -- curl -sS -m 40 http://web'), 'curl: (56) Recv failure: Connection reset by peer\ncommand terminated with exit code 56');
+});
+
 test('a plugin that ignores NetworkPolicy: everything is stored, nothing is blocked', () => {
   const c = cluster(undefined, { 'in.yaml': DENY_IN });
   sh(c, 'kubectl expose deploy web --port=80 --target-port=8080');
@@ -313,6 +384,91 @@ test('what the terminal can\'t do, it refuses by name, and never silently ignore
   assert.match(errs(c, 'kubectl exec nosuch -- curl http://web'), /^Error from server \(NotFound\): pods "nosuch" not found$/);
   assert.equal(sh(c, 'kubectl get ingress'), 'No resources found in shop namespace.');
   assert.match(errs(c, 'kubectl get nosuchkind'), /the server doesn't have a resource type "nosuchkind"/);
+});
+
+test('kinds and commands Kubernetes has are refused as sandbox limits, not as the server\'s words', () => {
+  // The sandbox once answered `get all`, `rs`, `events` and `configmap` with
+  // the server's "doesn't have a resource type", and `version` with "unknown
+  // command": false statements about Kubernetes. All of them work on tilt.
+  const c = cluster();
+  for (const k of ['all', 'rs', 'events', 'configmap', 'secrets', 'statefulsets', 'crd']) {
+    const e = errs(c, `kubectl get ${k}`);
+    assert.match(e, new RegExp(`^This sandbox doesn't model ${k}\\. A real cluster has it`), k);
+    assert.doesNotMatch(e, /the server doesn't have/, k);
+  }
+  assert.match(errs(c, 'kubectl describe cm x'), /This sandbox doesn't model cm/);
+  assert.match(errs(c, 'kubectl delete rs x'), /This sandbox doesn't model rs/);
+  for (const v of ['version', 'api-resources', 'cluster-info', 'top']) assert.match(errs(c, `kubectl ${v}`), new RegExp(`^kubectl ${v} is not in this sandbox \\(a real kubectl has it\\)`), v);
+  // Names no Kubernetes serves still get the real words (kubectl 1.37.2).
+  assert.equal(errs(c, 'kubectl get foo'), `error: the server doesn't have a resource type "foo"`);
+  assert.equal(errs(c, 'kubectl frobnicate'), 'error: unknown command "frobnicate" for "kubectl"');
+  // Group-qualified names work as they do for real.
+  assert.match(sh(c, 'kubectl get deployments.apps'), /^NAME +READY/);
+  assert.match(sh(c, 'kubectl get netpol.networking.k8s.io'), /^No resources found in shop namespace\.$/);
+});
+
+test('POST to a path the panda images do not serve is refused by name, not as a connection failure', () => {
+  // The sandbox once printed "(7) Failed to connect" for POST /foo, after the
+  // connection had worked. Real podinfo 6.9.1 answered 404 (and 405 for POST /).
+  const c = cluster();
+  sh(c, 'kubectl expose deploy web --port=80 --target-port=8080');
+  const e = errs(c, 'kubectl exec client -- curl -sS -m 5 -X POST http://web/foo');
+  assert.match(e, /^The request reached web-.*a real server would answer it with an HTTP status/);
+  assert.doesNotMatch(e, /\(7\)/);
+  assert.match(errs(c, 'kubectl exec client -- curl -sS -m 5 -X POST http://web/'), /doesn't model what POST \/ returns/);
+});
+
+test('kubectl patch on a Service: the real validation text, warnings for unknown fields, all or nothing', () => {
+  const c = cluster();
+  sh(c, 'kubectl expose deploy web --port=80 --target-port=8080');
+  // Real (1.36.1); the sandbox once said "at least one letter or number (a-z, 0-9)".
+  assert.equal(errs(c, `kubectl patch svc web -p '{"spec":{"ports":[{"port":80,"targetPort":"8080"}]}}'`), 'The Service "web" is invalid: spec.ports[0].targetPort: Invalid value: "8080": must contain at least one letter (a-z)');
+  // Real (kubectl 1.37.2): a warning, and the rest applies. The sandbox once refused with BadRequest.
+  assert.equal(sh(c, `kubectl patch svc web -p '{"spec":{"ports":[{"port":80,"bogus":1}]}}'`), 'Warning: unknown field "spec.ports[0].bogus"\nservice/web patched (no change)');
+  // Real: several warnings come sorted.
+  assert.equal(sh(c, `kubectl patch svc web -p '{"spec":{"zeta":1,"bogus":2,"ports":[{"port":80,"targetPort":8080,"bogus":1}]}}'`), 'Warning: unknown field "spec.bogus"\nWarning: unknown field "spec.ports[0].bogus"\nWarning: unknown field "spec.zeta"\nservice/web patched (no change)');
+  assert.equal(sh(c, `kubectl patch svc web -p '{"spec":{"selector":{"tier":"x"},"bogus":1}}'`), 'Warning: unknown field "spec.bogus"\nservice/web patched');
+  assert.equal(c.net.service('shop', 'web')!.selector!.tier, 'x');
+  // A patch that fails part-way changes nothing: the selector half is not kept.
+  sh(c, `kubectl patch svc web -p '{"spec":{"selector":{"tier":null}}}'`);
+  assert.match(errs(c, `kubectl patch svc web -p '{"spec":{"selector":{"tier":"y"},"ports":[{"port":80,"targetPort":"80"}]}}'`), /must contain at least one letter/);
+  assert.equal(c.net.service('shop', 'web')!.selector!.tier, undefined);
+  // A port item with no numeric port can't be merged: refused by name, never a NaN port.
+  assert.match(errs(c, `kubectl patch svc web -p '{"spec":{"ports":[{"targetPort":8080}]}}'`), /matches patched ports by a numeric "port"/);
+  assert.equal(c.net.service('shop', 'web')!.ports.length, 1);
+});
+
+test('the kubernetes Service has the API server endpoint; -l and --show-labels are never ignored', () => {
+  const c = cluster();
+  sh(c, 'kubectl expose deploy web --port=80 --target-port=8080');
+  // Real (1.36.1 on kind): kubernetes   172.18.0.2:6443. The sandbox once showed <none>.
+  assert.match(sh(c, 'kubectl get endpoints -n default'), /\nkubernetes {3}172\.18\.0\.2:6443 {3}\S+$/);
+  // Real: NAME kubernetes, PORTS 6443, ENDPOINTS 172.18.0.2, LABELS kubernetes.io/service-name=kubernetes.
+  assert.match(sh(c, 'kubectl get endpointslices -n default --show-labels'), /^NAME {9}ADDRESSTYPE {3}PORTS {3}ENDPOINTS {4}AGE {3}LABELS\nkubernetes {3}IPv4 {10}6443 {4}172\.18\.0\.2 {3}\S+ +kubernetes\.io\/service-name=kubernetes$/);
+  assert.match(sh(c, 'kubectl describe svc kubernetes -n default'), /^Endpoints: +172\.18\.0\.2:6443$/m);
+  // Real labels on a controller-made slice: the Service's, plus two the controller adds, sorted.
+  assert.match(sh(c, 'kubectl get endpointslices --show-labels'), / app=web,endpointslice\.kubernetes\.io\/managed-by=endpointslice-controller\.k8s\.io,kubernetes\.io\/service-name=web$/m);
+  // The sandbox once ignored every -l on endpointslices except service-name.
+  assert.equal(sh(c, 'kubectl get endpointslices -l app=nothing'), 'No resources found in shop namespace.');
+  assert.match(sh(c, 'kubectl get endpointslices -l app=web'), /^NAME +ADDRESSTYPE.*\nweb-\w{5} /);
+  assert.match(sh(c, 'kubectl get svc --show-labels'), /AGE {3}LABELS\nweb .* app=web$/);
+  // Kinds whose labels the sandbox doesn't keep refuse, rather than listing everything.
+  assert.match(errs(c, 'kubectl get netpol -l app=nothing'), /doesn't keep labels on networkpolicies/);
+  assert.match(errs(c, 'kubectl get deploy --show-labels'), /--show-labels for pods, namespaces, services and endpointslices/);
+  // Real: tilt's kube-dns slice lists both 53s: "53,53,9153".
+  assert.match(sh(c, 'kubectl get endpointslices -n kube-system'), /\nkube-dns-\w{5} {3}IPv4 {10}53,53,9153 /);
+  // curl to the API server's Service is refused by name.
+  assert.match(errs(c, 'kubectl exec client -- curl -sS -m 5 http://10.96.0.1:443'), /leads to the API server/);
+});
+
+test('apply validates an Ingress backend the way 1.36.1 does', () => {
+  const head = 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: i\n';
+  const cases: [string, string][] = [
+    [head, 'The Ingress "i" is invalid: spec: Invalid value: null: either `defaultBackend` or `rules` must be specified'],
+    [head + 'spec:\n  defaultBackend:\n    service:\n      name: web\n', 'The Ingress "i" is invalid: spec.defaultBackend: Required value: port name or number is required'],
+    [head + 'spec:\n  rules:\n  - http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend:\n          service:\n            name: web\n', 'The Ingress "i" is invalid: spec.rules[0].http.paths[0].backend: Required value: port name or number is required'],
+  ];
+  for (const [src, want] of cases) assert.equal(errs(cluster(undefined, { 'f.yaml': src }), 'kubectl apply -f f.yaml'), want, src);
 });
 
 test('an internal exception shows as a bug in the sandbox, not a command error', () => {

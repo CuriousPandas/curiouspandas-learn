@@ -135,9 +135,11 @@ const { mission, title = 'Cluster network sandbox' } = Astro.props;
           if (v.ok) return el('td', { class: 'yes' }, 'allowed');
           return net.enforcing ? el('td', { class: 'no' }, `blocked (${v.side})`) : el('td', { class: 'inert' }, `"blocked", but connects`);
         }))));
-        root.querySelector('[data-mnote]')!.textContent = net.enforcing
-          ? 'Both ends must allow a connection: the source\'s egress and the destination\'s ingress.'
-          : 'This plugin ignores NetworkPolicy: every cell the policies block still connects.';
+        root.querySelector('[data-mnote]')!.textContent = !net.enforcing
+          ? 'This plugin ignores NetworkPolicy: every cell the policies block still connects.'
+          : net.inMesh(m.ns)
+            ? `Both ends must allow a connection. ${m.ns} is in the ambient mesh, so pod-to-pod traffic travels on port 15008 and that is the port both policies see; and ztunnel answers DNS for Service names itself, so the DNS column only matters for other names.`
+            : 'Both ends must allow a connection: the source\'s egress and the destination\'s ingress.';
       }
       refreshMission();
     };

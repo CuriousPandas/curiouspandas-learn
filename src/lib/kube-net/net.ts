@@ -32,6 +32,8 @@ export type SvcPort = { name?: string; port: number; targetPort: number | string
 export type Service = {
   name: string; ns: string; type: 'ClusterIP' | 'NodePort' | 'LoadBalancer'; clusterIP: string; selector: Labels | null;
   ports: SvcPort[]; externalIP?: string; labels: Labels; created: number; system?: boolean;
+  /** Addresses written by hand rather than from a selector: the kubernetes Service's API server endpoint. */
+  staticEndpoints?: { ip: string; port: number }[];
 };
 export type Peer = { podSelector?: Selector; namespaceSelector?: Selector; ipBlock?: { cidr: string; except?: string[] } };
 export type PolicyPort = { protocol: 'TCP' | 'UDP'; port?: number | string; endPort?: number };
@@ -95,7 +97,7 @@ export type Attempt =
   | { ok: false; stage: 'dns'; how: 'nxdomain' | 'timeout'; name: string }
   | { ok: false; stage: 'connect'; how: 'refused' | 'timeout'; why: string; pod?: Pod; via?: Service; policy?: 'egress' | 'ingress' };
 
-export type Lookup = { name: string; tried: string[]; answer?: { fqdn: string; ips: string[] }; how?: 'nxdomain' | 'timeout' };
+export type Lookup = { name: string; tried: string[]; answer?: { fqdn: string; ips: string[] }; how?: 'nxdomain' | 'timeout'; ztunnel?: boolean };
 
 export class Net {
   t = 0;
@@ -123,11 +125,15 @@ export class Net {
     // CoreDNS: two pods behind the kube-dns Service, as kind ships it.
     for (let i = 0; i < 2; i++) this.addPod({ name: `coredns-668d6bf9bc-${suffix('coredns' + i, 5)}`, ns: 'kube-system', labels: { 'k8s-app': 'kube-dns' }, image: 'coredns', node: NODES[0].name, owner: 'coredns' });
     this.services.set('kube-system/kube-dns', {
-      name: 'kube-dns', ns: 'kube-system', type: 'ClusterIP', clusterIP: DNS_IP, selector: { 'k8s-app': 'kube-dns' }, labels: { 'k8s-app': 'kube-dns' },
+      name: 'kube-dns', ns: 'kube-system', type: 'ClusterIP', clusterIP: DNS_IP, selector: { 'k8s-app': 'kube-dns' }, labels: { 'k8s-app': 'kube-dns', 'kubernetes.io/cluster-service': 'true', 'kubernetes.io/name': 'CoreDNS' },
       ports: [{ name: 'dns', port: 53, targetPort: 53, protocol: 'UDP' }, { name: 'dns-tcp', port: 53, targetPort: 53, protocol: 'TCP' }, { name: 'metrics', port: 9153, targetPort: 9153, protocol: 'TCP' }],
       created: 0, system: true,
     });
-    this.services.set('default/kubernetes', { name: 'kubernetes', ns: 'default', type: 'ClusterIP', clusterIP: '10.96.0.1', selector: null, labels: {}, ports: [{ name: 'https', port: 443, targetPort: 6443, protocol: 'TCP' }], created: 0, system: true });
+    // Labels and the API server endpoint as tilt shows them (1.36.1): the
+    // kubernetes Service has no selector, and the API server writes its own
+    // address into its Endpoints and EndpointSlice. An earlier version left
+    // them empty, so `get endpoints -n default` said <none>.
+    this.services.set('default/kubernetes', { name: 'kubernetes', ns: 'default', type: 'ClusterIP', clusterIP: '10.96.0.1', selector: null, labels: { component: 'apiserver', provider: 'kubernetes' }, ports: [{ name: 'https', port: 443, targetPort: 6443, protocol: 'TCP' }], created: 0, system: true, staticEndpoints: [{ ip: NODES[0].ip, port: 6443 }] });
   }
 
   tick(seconds = 3) { this.t += seconds; }
@@ -256,8 +262,38 @@ export class Net {
     return dots < 5 ? [...search, name] : [name, ...search];
   }
 
+  /**
+   * What ztunnel's DNS proxy answers by itself for a pod in the ambient mesh.
+   * Istio's docs: DNS proxying "is enabled by default in ambient mode from
+   * Istio 1.25 onwards", and when the proxy can handle a request it "will
+   * directly return a response to the application, avoiding a roundtrip to the
+   * upstream DNS server". tilt's istio-cni-config has AMBIENT_DNS_CAPTURE "true".
+   * Measured on tilt (Istio 1.28.3), under a default-deny egress: `web` (same
+   * namespace), `hello.hello`, the full name, and a headless Service's short
+   * name (answered with the pod IP) all resolved; a pod's dashed DNS name and
+   * names that exist nowhere did not, because those go on to CoreDNS. Which
+   * aliases ztunnel knows beyond those measured is not modelled: anything else
+   * goes upstream here.
+   */
+  ztunnelAnswer(clientNs: string, name: string): { fqdn: string; ips: string[] } | null {
+    const n = name.replace(/\.$/, '').toLowerCase();
+    for (const s of this.services.values()) {
+      const fqdn = `${s.name}.${s.ns}.svc.${CLUSTER_DOMAIN}`;
+      if (n !== fqdn && n !== `${s.name}.${s.ns}` && !(n === s.name && s.ns === clientNs)) continue;
+      const ips = this.answer(fqdn);
+      return ips ? { fqdn, ips } : null;
+    }
+    return null;
+  }
+
   lookup(from: Pod, name: string, style: 'app' | 'nslookup'): Lookup {
     const tried = this.candidates(name, from.ns, style);
+    // The proxy sits in front of the policy: its answer never leaves the pod,
+    // so a default-deny egress doesn't stop it (measured). An earlier version
+    // sent mesh pods' queries through egress policy like any other, and so
+    // reproduced "could not resolve host" where tilt resolves the name.
+    const z = this.inMesh(from.ns) ? this.ztunnelAnswer(from.ns, name) : null;
+    if (z) return { name, tried: tried.slice(0, 1), answer: z, ztunnel: true };
     if (!this.dnsReachable(from)) return { name, tried, how: 'timeout' };
     for (const c of tried) {
       const ips = this.answer(c);
@@ -307,12 +343,19 @@ export class Net {
    * is open in that direction.
    */
   policyAllows(src: Pod, dst: Pod, port: number, proto: 'TCP' | 'UDP'): { ok: boolean; side?: 'egress' | 'ingress' } {
-    // In ambient mode, mesh-to-mesh traffic reaches the destination pod on
-    // HBONE port 15008, not the app's port, so that is the port its ingress
-    // policy sees. (Measured on tilt; and istio.io's ambient NetworkPolicy page.)
-    const arrives = this.inMesh(src.ns) && this.inMesh(dst.ns) && dst.ns !== 'kube-system' ? HBONE_PORT : port;
+    // In ambient mode, mesh-to-mesh traffic travels between the two pods on
+    // HBONE port 15008, not the app's port, and that is the port both ends'
+    // policies see: the destination's ingress (istio.io's ambient
+    // NetworkPolicy page, and measured) and the source's egress (measured on
+    // tilt, Istio 1.28.3, kindnet, fresh client pods: egress allowing only
+    // 9898 timed out three times in three, adding 15008 gave 200, and 15008
+    // alone gave 200). The Istio page discusses only inbound traffic. An
+    // earlier version checked egress against the app port, so a rule tilt
+    // drops passed here.
+    const hbone = this.inMesh(src.ns) && this.inMesh(dst.ns) && dst.ns !== 'kube-system';
+    const arrives = hbone ? HBONE_PORT : port;
     const eg = this.policiesFor(src, 'Egress');
-    if (eg.length && !eg.some((p) => this.rulesAllow(p.egress, p.ns, { pod: dst, ip: dst.ip }, port, proto, dst))) return { ok: false, side: 'egress' };
+    if (eg.length && !eg.some((p) => this.rulesAllow(p.egress, p.ns, { pod: dst, ip: dst.ip }, arrives, proto, dst))) return { ok: false, side: 'egress' };
     const ing = this.policiesFor(dst, 'Ingress');
     if (ing.length && !ing.some((p) => this.rulesAllow(p.ingress, p.ns, { pod: src, ip: src.ip }, arrives, proto, dst))) return { ok: false, side: 'ingress' };
     return { ok: true };
@@ -332,6 +375,7 @@ export class Net {
     const svc = [...this.services.values()].find((s) => s.clusterIP === ip || (s.externalIP && s.externalIP === ip));
     const node = this.nodeByIp(ip);
     if (svc) {
+      if (svc.staticEndpoints) return { none: 'apiserver', via: svc };
       const sp = svc.ports.find((p) => p.port === port && p.protocol === 'TCP');
       if (!sp) return { none: 'no such port on the Service', via: svc };
       return this.toEndpoint(svc, sp, rr);

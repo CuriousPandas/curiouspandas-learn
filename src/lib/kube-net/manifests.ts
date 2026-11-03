@@ -76,6 +76,24 @@ function typeErrors(v: Yaml, shape: Shape, path: string, out: string[]) {
   }
 }
 
+/**
+ * What the API server answers for a v1 Ingress it would refuse, or null if it
+ * would store it: strict decoding, then types, then validation, the same
+ * checks `kubectl apply` makes here. The API lab uses it so that a v1
+ * Ingress is checked as NetSim checks one. It once checked unknown fields
+ * only, and so took a v1 Ingress with no spec at all.
+ */
+export function ingressRefusal(doc: Yaml, name: string, file: string): string | null {
+  const unknown = strictErrors('Ingress', doc);
+  if (unknown.length) return `Error from server (BadRequest): error when creating "${file}": Ingress in version "v1" cannot be handled as a Ingress: strict decoding error: ${unknown.join(', ')}`;
+  const types: string[] = [];
+  typeErrors(doc, SHAPES.Ingress, '', types);
+  if (types.length) return types[0].startsWith('json:') ? `Error from server (BadRequest): error when creating "${file}": Ingress in version "v1" cannot be handled as a Ingress: ${types[0]}` : `error: ${file}: ${types[0]}`;
+  const invalid: string[] = [];
+  buildIngress(isObj(doc) ? doc : {}, name, '', invalid);
+  return invalid.length ? `The Ingress "${name}" is invalid: ${invalid.join(', ')}` : null;
+}
+
 export type Applied = { kind: string; name: string; ns: string; result: 'created' | 'configured' | 'unchanged' | 'error' };
 export type ApplyResult = { lines: string[]; errors: string[]; applied: Applied[] };
 
@@ -229,8 +247,31 @@ function buildPolicy(doc: Obj, name: string, ns: string, invalid: string[]): Pol
   };
 }
 
+/**
+ * The checks the API server makes on one Ingress backend, in its words
+ * (1.36.1, --dry-run=server): a missing or zero port is "port name or number
+ * is required", both is "cannot set both port name & port number", and a
+ * missing name is "service.name: Required value". The "resource or service
+ * backend is required" line was measured for a path; for defaultBackend it is
+ * the same validator with a different field path, not run separately.
+ */
+function backendErrors(b: Yaml | undefined, path: string, invalid: string[]) {
+  const svc = isObj(b) && isObj(b.service) ? b.service : null;
+  if (!svc) { invalid.push(`${path}: Invalid value: "": resource or service backend is required`); return; }
+  if (typeof svc.name !== 'string' || !svc.name) invalid.push(`${path}.service.name: Required value`);
+  const port = isObj(svc.port) ? svc.port : {};
+  const num = typeof port.number === 'number' && port.number !== 0;
+  const nm = typeof port.name === 'string' && port.name !== '';
+  if (num && nm) invalid.push(`${path}: Invalid value: "": cannot set both port name & port number`);
+  else if (!num && !nm) invalid.push(`${path}: Required value: port name or number is required`);
+}
+
 function buildIngress(doc: Obj, name: string, ns: string, invalid: string[]): Ingress {
   const spec = isObj(doc.spec) ? doc.spec : {};
+  // Real: "either `defaultBackend` or `rules` must be specified", for a
+  // missing spec and for spec: {} alike. An earlier version accepted both.
+  if (spec.defaultBackend === undefined && !(Array.isArray(spec.rules) && spec.rules.length)) invalid.push('spec: Invalid value: null: either `defaultBackend` or `rules` must be specified');
+  if (spec.defaultBackend !== undefined) backendErrors(spec.defaultBackend, 'spec.defaultBackend', invalid);
   const rs: IngressRule[] = (Array.isArray(spec.rules) ? spec.rules : []).map((r, i) => {
     const o = isObj(r) ? r : {};
     const http = isObj(o.http) ? o.http : {};
@@ -239,8 +280,10 @@ function buildIngress(doc: Obj, name: string, ns: string, invalid: string[]): In
       const pp = `spec.rules[${i}].http.paths[${j}]`;
       if (p.pathType === undefined || p.pathType === null) invalid.push(`${pp}.pathType: Required value: pathType must be specified`);
       else if (!['Exact', 'Prefix', 'ImplementationSpecific'].includes(String(p.pathType))) invalid.push(`${pp}.pathType: Unsupported value: "${p.pathType}": supported values: "Exact", "ImplementationSpecific", "Prefix"`);
+      // Real: "must be an absolute path" for a path not starting with /.
+      if (typeof p.path === 'string' && !p.path.startsWith('/')) invalid.push(`${pp}.path: Invalid value: "${p.path}": must be an absolute path`);
       const svc = isObj(p.backend) && isObj(p.backend.service) ? p.backend.service : null;
-      if (!svc) invalid.push(`${pp}.backend: Invalid value: "": resource or service backend is required`);
+      backendErrors(p.backend, `${pp}.backend`, invalid);
       const port = svc && isObj(svc.port) ? (svc.port.number ?? svc.port.name ?? '') : '';
       return { path: String(p.path ?? '/'), pathType: String(p.pathType ?? 'Prefix'), service: svc ? String(svc.name ?? '') : '', port: port as number | string };
     });

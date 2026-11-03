@@ -24,7 +24,7 @@ const { title = 'API lab: what this cluster serves' } = Astro.props;
       <textarea data-manifest rows="11" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="old.yaml"></textarea>
       <div class="al-cmd"><code>kubectl apply -f old.yaml</code><button class="btn small primary" type="button" data-apply>Apply</button></div>
       <div class="term al-term"><div class="term-out" data-out role="log" aria-live="polite"></div></div>
-      <p class="muted small">This sandbox reads apiVersion, kind and name, and checks an Ingress v1 spec field by field. It does not read the spec of the other kinds.</p>
+      <p class="muted small">This sandbox reads apiVersion, kind and name. A v1 Ingress is also checked the way the API server checks it: unknown fields, a backend with a service name and a port, and a pathType on every path. It does not read the spec of the other kinds.</p>
     </div>
     <div class="al-col">
       <div data-mission-panel></div>

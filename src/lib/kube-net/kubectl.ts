@@ -63,6 +63,39 @@ const KINDS: Record<string, string> = {
   ns: 'namespaces', namespace: 'namespaces', namespaces: 'namespaces',
   no: 'nodes', node: 'nodes', nodes: 'nodes',
 };
+// The API group each modelled kind lives in, so `deployments.apps` and
+// `netpol.networking.k8s.io` work as they do for real.
+const GROUPS: Record<string, string> = { deployments: 'apps', endpointslices: 'discovery.k8s.io', networkpolicies: 'networking.k8s.io', ingresses: 'networking.k8s.io', ingressclasses: 'networking.k8s.io' };
+// Resource names a real 1.36 cluster serves that this sandbox doesn't model.
+// They must not get the server's "doesn't have a resource type" error: an
+// earlier version said that for `get all`, `rs` and `events`, which told
+// learners those things don't exist in Kubernetes.
+const UNMODELLED = new Set(('all rs replicaset replicasets ev event events cm configmap configmaps secret secrets sa serviceaccount serviceaccounts ' +
+  'sts statefulset statefulsets ds daemonset daemonsets job jobs cj cronjob cronjobs pv persistentvolume persistentvolumes pvc persistentvolumeclaim persistentvolumeclaims ' +
+  'crd crds customresourcedefinition customresourcedefinitions role roles rolebinding rolebindings clusterrole clusterroles clusterrolebinding clusterrolebindings ' +
+  'hpa horizontalpodautoscaler horizontalpodautoscalers pdb poddisruptionbudget poddisruptionbudgets quota resourcequota resourcequotas limits limitrange limitranges ' +
+  'sc storageclass storageclasses cs componentstatus componentstatuses csr certificatesigningrequest certificatesigningrequests lease leases pc priorityclass priorityclasses ' +
+  'rc replicationcontroller replicationcontrollers podtemplate podtemplates controllerrevision controllerrevisions apiservice apiservices runtimeclass runtimeclasses ' +
+  'mutatingwebhookconfiguration mutatingwebhookconfigurations validatingwebhookconfiguration validatingwebhookconfigurations csidriver csidrivers csinode csinodes ' +
+  'volumeattachment volumeattachments flowschema flowschemas prioritylevelconfiguration prioritylevelconfigurations ipaddress ipaddresses servicecidr servicecidrs').split(' '));
+const MODELLED = 'pods, services, deployments, endpointslices, endpoints, networkpolicies, ingresses, ingressclasses, namespaces and nodes';
+
+/** A resource name as typed, to the kind this sandbox calls it; null for a name no Kubernetes serves. */
+function kindOf(arg: string): string | null {
+  const dot = arg.indexOf('.');
+  const base = (dot < 0 ? arg : arg.slice(0, dot)).toLowerCase();
+  const group = dot < 0 ? null : arg.slice(dot + 1);
+  const kind = KINDS[base];
+  if (kind && (group === null || GROUPS[kind] === group)) return kind;
+  if (UNMODELLED.has(base)) fail(`This sandbox doesn't model ${arg}. A real cluster has it; this one holds only ${MODELLED}.`);
+  if (group !== null) fail(`This sandbox doesn't model ${arg}. It holds only ${MODELLED}, and none of its CRDs are installed.`);
+  return null;
+}
+
+// Real kubectl commands this sandbox doesn't have. Anything else gets kubectl's
+// own "unknown command", which is then true.
+const REAL_COMMANDS = new Set(['autoscale', 'certificate', 'cluster-info', 'top', 'cordon', 'uncordon', 'drain', 'taint', 'attach', 'proxy', 'auth', 'events', 'diff', 'replace', 'wait', 'kustomize', 'completion', 'alpha', 'api-resources', 'api-versions', 'config', 'plugin', 'version', 'options']);
+
 // The group-qualified names kubectl prints in "created" and "deleted" lines.
 const QUALIFIED: Record<string, [string, string]> = {
   pods: ['pod', 'pods'], services: ['service', 'services'], deployments: ['deployment.apps', 'deployments.apps'],
@@ -111,7 +144,13 @@ export function table(rows: string[][]): string {
   return rows.map((r) => r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(w[i] + 3))).join('').trimEnd()).join('\n');
 }
 
-const labelText = (l: Labels) => Object.entries(l).map(([k, v]) => `${k}=${v}`).join(',') || '<none>';
+// kubectl prints labels sorted by key (measured with --show-labels).
+const labelText = (l: Labels) => Object.keys(l).sort().map((k) => `${k}=${l[k]}`).join(',') || '<none>';
+/** The labels on a Service's EndpointSlice, as 1.36.1 writes them. */
+const sliceLabels = (s: Service): Labels => (s.staticEndpoints
+  ? { 'kubernetes.io/service-name': s.name }
+  : { ...s.labels, 'endpointslice.kubernetes.io/managed-by': 'endpointslice-controller.k8s.io', 'kubernetes.io/service-name': s.name });
+const sliceName = (s: Service) => (s.staticEndpoints ? s.name : `${s.name}-${suffix(s.ns + s.name, 5)}`);
 const portsText = (s: Service) => s.ports.map((p) => `${p.port}${p.nodePort ? `:${p.nodePort}` : ''}/${p.protocol}`).join(',');
 
 export const HELP = `This terminal is your machine, with kubectl pointed at a two-node kind cluster.
@@ -182,7 +221,9 @@ function kubectl(ctx: Ctx, args: string[], line: string): Out[] {
     case 'run': return fail('kubectl run is not in this sandbox. A client pod is already running: use kubectl exec client -- ...');
     case 'edit': case 'port-forward': case 'logs': case 'explain': case 'rollout': case 'annotate': case 'cp': case 'debug':
       return fail(`kubectl ${verb} is not in this sandbox. Type help for what is.`);
-    default: return fail(`error: unknown command "${verb ?? ''}" for "kubectl"`);
+    default:
+      if (REAL_COMMANDS.has(verb ?? '')) return fail(`kubectl ${verb} is not in this sandbox (a real kubectl has it). Type help for what is.`);
+      return fail(`error: unknown command "${verb ?? ''}" for "kubectl"`);
   }
 }
 
@@ -199,7 +240,7 @@ function get(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: str
   if (kindArg?.includes('/')) [kindArg, name] = kindArg.split('/');
   if (!kindArg) fail('You must specify the type of resource to get. Use "kubectl api-resources" for a complete list of supported resources.');
   if (kindArg.includes(',')) fail('error: this sandbox gets one kind at a time (no comma lists)');
-  const kind = KINDS[kindArg];
+  const kind = kindOf(kindArg);
   if (!kind) fail(`error: the server doesn't have a resource type "${kindArg}"`);
   const sel = p.flags.get('-l') ?? p.flags.get('--selector');
   const want: Labels = {};
@@ -209,6 +250,12 @@ function get(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: str
     want[m[1]] = m[2];
   }
   const showLabels = p.flags.has('--show-labels');
+  // Kinds whose labels this sandbox doesn't keep refuse -l and --show-labels
+  // by name. An earlier version ignored them, so `get endpointslices
+  // -l app=nothing` listed every slice.
+  const labelled = ['pods', 'namespaces', 'services', 'endpointslices', 'deployments'];
+  if (sel && !labelled.includes(kind)) fail(`error: this sandbox doesn't keep labels on ${kind}, so it can't filter them with -l. It can for pods, namespaces, services, endpointslices and deployments.`);
+  if (showLabels && !['pods', 'namespaces', 'services', 'endpointslices'].includes(kind)) fail(`error: this sandbox shows --show-labels for pods, namespaces, services and endpointslices, not ${kind}.`);
   record(kind, name, ns);
   const net = ctx.net;
   // The API server lists objects in key order: by namespace, then name.
@@ -258,21 +305,23 @@ function get(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: str
     if (name && !ss.length) fail(notFound(kind, name));
     if (!ss.length) return out(empty());
     net.syncLoadBalancers();
-    const rows = ss.map((s) => nsCol([s.name, s.type, s.clusterIP, s.type === 'LoadBalancer' ? s.externalIP ?? '<pending>' : '<none>', portsText(s), age(net, s.created), ...(wide ? [s.selector ? labelText(s.selector) : '<none>'] : [])], s.ns));
-    return out(table([head(['NAME', 'TYPE', 'CLUSTER-IP', 'EXTERNAL-IP', 'PORT(S)', 'AGE', ...(wide ? ['SELECTOR'] : [])]), ...rows]));
+    const rows = ss.map((s) => nsCol([s.name, s.type, s.clusterIP, s.type === 'LoadBalancer' ? s.externalIP ?? '<pending>' : '<none>', portsText(s), age(net, s.created), ...(wide ? [s.selector ? labelText(s.selector) : '<none>'] : []), ...(showLabels ? [labelText(s.labels)] : [])], s.ns));
+    return out(table([head(['NAME', 'TYPE', 'CLUSTER-IP', 'EXTERNAL-IP', 'PORT(S)', 'AGE', ...(wide ? ['SELECTOR'] : []), ...(showLabels ? ['LABELS'] : [])]), ...rows]));
   }
   if (kind === 'endpointslices') {
-    const ss = inNs([...net.services.values()]).filter((s) => s.selector && (!want['kubernetes.io/service-name'] || s.name === want['kubernetes.io/service-name']));
+    const ss = inNs([...net.services.values()]).filter((s) => (s.selector || s.staticEndpoints) && matches(sliceLabels(s)));
     const rows = ss.map((s) => {
+      if (s.staticEndpoints) return nsCol([sliceName(s), 'IPv4', s.staticEndpoints.map((e) => e.port).join(','), s.staticEndpoints.map((e) => e.ip).join(','), age(net, s.created), ...(showLabels ? [labelText(sliceLabels(s))] : [])], s.ns);
       const eps = net.endpoints(s);
+      // One entry per Service port, repeats kept: tilt's kube-dns slice reads "53,53,9153".
       const sp = s.ports.map((p) => (eps[0] ? net.targetOn(p, eps[0].pod) : null)).filter((x): x is number => x !== null);
       // kubectl lists every address in the slice, ready or not; readiness is a
       // condition on each endpoint. Measured: an unready pod still appears here.
-      return { s, row: nsCol([`${s.name}-${suffix(s.ns + s.name, 5)}`, 'IPv4', eps.length && sp.length ? [...new Set(sp)].join(',') : '<unset>', eps.length ? eps.map((e) => e.pod.ip).join(',') : '<unset>', age(net, s.created)], s.ns) };
-    }).filter((r) => !name || r.row[all ? 1 : 0] === name).map((r) => r.row);
+      return nsCol([sliceName(s), 'IPv4', eps.length && sp.length ? sp.join(',') : '<unset>', eps.length ? eps.map((e) => e.pod.ip).join(',') : '<unset>', age(net, s.created), ...(showLabels ? [labelText(sliceLabels(s))] : [])], s.ns);
+    }).filter((r) => !name || r[all ? 1 : 0] === name);
     if (name && !rows.length) fail(notFound(kind, name));
     if (!rows.length) return out(empty());
-    return out(table([head(['NAME', 'ADDRESSTYPE', 'PORTS', 'ENDPOINTS', 'AGE']), ...rows]));
+    return out(table([head(['NAME', 'ADDRESSTYPE', 'PORTS', 'ENDPOINTS', 'AGE', ...(showLabels ? ['LABELS'] : [])]), ...rows]));
   }
   if (kind === 'endpoints') {
     const ss = byName(inNs([...net.services.values()]));
@@ -299,6 +348,7 @@ function get(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: str
 
 /** The ready endpoints, as "ip:port,ip:port" - what describe svc and get endpoints show. */
 function readyEndpoints(net: Net, s: Service) {
+  if (s.staticEndpoints) return s.staticEndpoints.map((e) => `${e.ip}:${e.port}`).join(',');
   const parts: string[] = [];
   for (const e of net.endpoints(s).filter((x) => x.ready)) for (const sp of s.ports) { const t = net.targetOn(sp, e.pod); if (t !== null) parts.push(`${e.pod.ip}:${t}`); }
   return [...new Set(parts)].join(',');
@@ -311,7 +361,7 @@ function describe(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?
   const ns = nsOf(ctx, p);
   let [kindArg, name] = p.pos;
   if (kindArg?.includes('/')) [kindArg, name] = kindArg.split('/');
-  const kind = KINDS[kindArg ?? ''];
+  const kind = kindArg ? kindOf(kindArg) : null;
   if (!kind) fail(kindArg ? `error: the server doesn't have a resource type "${kindArg}"` : 'You must specify the type of resource to describe.');
   if (!name) fail(`error: this sandbox describes one ${kindArg} at a time: kubectl describe ${kindArg} NAME`);
   record(kind, name, ns);
@@ -498,6 +548,10 @@ function parseJson(raw: string): Record<string, unknown> {
   }
 }
 
+// Every field of a v1 ServiceSpec (Kubernetes 1.36). Anything else in a patch
+// is an unknown field, which the real API server warns about and drops.
+const SERVICE_SPEC = ['allocateLoadBalancerNodePorts', 'clusterIP', 'clusterIPs', 'externalIPs', 'externalName', 'externalTrafficPolicy', 'healthCheckNodePort', 'internalTrafficPolicy', 'ipFamilies', 'ipFamilyPolicy', 'loadBalancerClass', 'loadBalancerIP', 'loadBalancerSourceRanges', 'ports', 'publishNotReadyAddresses', 'selector', 'sessionAffinity', 'sessionAffinityConfig', 'trafficDistribution', 'type'];
+
 function patch(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: string) => void): Out[] {
   const p = parseArgs(args, { ...NS_FLAGS, '-p': 'value', '--patch': 'value', '--type': 'value' }, 'patch');
   const ns = nsOf(ctx, p);
@@ -512,10 +566,20 @@ function patch(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: s
   if (keys.some((k) => k !== 'spec')) fail('error: this sandbox patches spec only');
   const spec = (body.spec ?? {}) as Record<string, unknown>;
   const net = ctx.net;
+  // Real (kubectl 1.37.2, 1.36.1): an unknown field in a patch is a warning,
+  // not an error. The rest of the patch applies, and the warnings come sorted:
+  //   Warning: unknown field "spec.bogus"
+  //   Warning: unknown field "spec.ports[0].bogus"
+  //   service/web patched (no change)
+  // An earlier version refused with a strict-decoding BadRequest, which is what
+  // `apply` says, not `patch`.
+  const warnings: string[] = [];
+  const warned = (lines: Out[]) => [...warnings.sort().map((w) => ({ text: `Warning: unknown field "${w}"`, kind: 'err' as const })), ...lines];
   if (kind === 'services') {
-    const s = net.service(ns, name ?? '') ?? fail(notFound(kind, name ?? ''));
+    const s = structuredClone(net.service(ns, name ?? '') ?? fail(notFound(kind, name ?? '')));
     const before = JSON.stringify(s);
     for (const [k, v] of Object.entries(spec)) {
+      if (!SERVICE_SPEC.includes(k)) { warnings.push(`spec.${k}`); continue; }
       if (k === 'selector') {
         if (v === null) s.selector = null;
         else if (typeof v === 'object' && !Array.isArray(v)) {
@@ -532,32 +596,41 @@ function patch(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: s
       } else if (k === 'ports') {
         if (!Array.isArray(v)) fail('error: spec.ports must be a list');
         // Strategic merge: list items are matched by "port" and merged.
-        for (const item of v as Record<string, unknown>[]) {
-          const allowed = ['port', 'targetPort', 'protocol', 'name', 'nodePort'];
-          const bad = Object.keys(item).find((x) => !allowed.includes(x));
-          if (bad) fail(`Error from server (BadRequest): Service in version "v1" cannot be handled as a Service: strict decoding error: unknown field "spec.ports[0].${bad}"`);
-          const port = Number(item.port);
+        for (const [idx, item] of (v as Record<string, unknown>[]).entries()) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) fail('error: each item in spec.ports must be a mapping, like {"port":80,"targetPort":8080}');
+          for (const x of Object.keys(item)) {
+            if (x === 'appProtocol') fail('error: this sandbox does not model appProtocol on a Service port');
+            if (!['port', 'targetPort', 'protocol', 'name', 'nodePort'].includes(x)) warnings.push(`spec.ports[${idx}].${x}`);
+          }
+          if (typeof item.port !== 'number' || !Number.isInteger(item.port)) fail('error: this sandbox matches patched ports by a numeric "port", as strategic merge does; add "port": 80');
+          const port = item.port;
           let sp = s.ports.find((x) => x.port === port);
           if (!sp) { sp = { port, targetPort: port, protocol: 'TCP' }; s.ports.push(sp); if (s.type !== 'ClusterIP') sp.nodePort = net.allocNodePort(); }
-          if (item.targetPort !== undefined) sp.targetPort = typeof item.targetPort === 'number' ? item.targetPort : /^\d+$/.test(String(item.targetPort)) ? fail(`The Service "${s.name}" is invalid: spec.ports[0].targetPort: Invalid value: "${item.targetPort}": must contain at least one letter or number (a-z, 0-9)`) : String(item.targetPort);
+          // Real (1.36.1): a quoted number is read as a port name, and names
+          // need a letter. The index is the port's place in the merged Service.
+          if (item.targetPort !== undefined) sp.targetPort = typeof item.targetPort === 'number' ? item.targetPort : /^\d+$/.test(String(item.targetPort)) ? fail(`The Service "${s.name}" is invalid: spec.ports[${s.ports.indexOf(sp)}].targetPort: Invalid value: "${item.targetPort}": must contain at least one letter (a-z)`) : String(item.targetPort);
           if (item.protocol !== undefined && item.protocol !== 'TCP') fail('error: this sandbox carries TCP only');
           if (item.name !== undefined) sp.name = String(item.name);
         }
       } else fail(`error: this sandbox patches a Service's selector, type and ports; not spec.${k}`);
     }
+    // A patch is all or nothing: commit the copy only once every part passed.
+    net.services.set(`${s.ns}/${s.name}`, s);
     record(kind, s.name, ns);
-    return out(JSON.stringify(s) === before ? `service/${s.name} patched (no change)` : `service/${s.name} patched`);
+    return warned(out(JSON.stringify(s) === before ? `service/${s.name} patched (no change)` : `service/${s.name} patched`));
   }
   if (kind === 'ingresses') {
-    const i = net.ingresses.get(`${ns}/${name}`) ?? fail(notFound(kind, name ?? ''));
+    const i = structuredClone(net.ingresses.get(`${ns}/${name}`) ?? fail(notFound(kind, name ?? '')));
     const before = JSON.stringify(i);
     for (const [k, v] of Object.entries(spec)) {
       if (k === 'ingressClassName') i.className = v === null ? null : String(v);
+      else if (!['defaultBackend', 'tls', 'rules'].includes(k)) warnings.push(`spec.${k}`);
       else fail(`error: this sandbox patches an Ingress's ingressClassName only; edit the rest in a file and kubectl apply it`);
     }
+    net.ingresses.set(`${i.ns}/${i.name}`, i);
     syncIngress(net);
     record(kind, i.name, ns);
-    return out(JSON.stringify(i) === before ? `ingress.networking.k8s.io/${i.name} patched (no change)` : `ingress.networking.k8s.io/${i.name} patched`);
+    return warned(out(JSON.stringify(i) === before ? `ingress.networking.k8s.io/${i.name} patched (no change)` : `ingress.networking.k8s.io/${i.name} patched`));
   }
   return fail('error: this sandbox patches services and ingresses');
 }
@@ -635,7 +708,7 @@ function del(ctx: Ctx, args: string[], record: (k?: string, n?: string, ns?: str
   if (p.flags.has('-f')) fail('error: this sandbox deletes by kind and name: kubectl delete netpol NAME');
   let [kindArg, ...names] = p.pos;
   if (kindArg?.includes('/')) { names = [kindArg.split('/')[1]]; kindArg = kindArg.split('/')[0]; }
-  const kind = KINDS[kindArg ?? ''];
+  const kind = kindArg ? kindOf(kindArg) : null;
   if (!kind) fail(kindArg ? `error: the server doesn't have a resource type "${kindArg}"` : 'error: You must provide one or more resources by argument or filename.');
   if (!names.length) fail('error: resource(s) were provided, but no name was specified');
   const lines: Out[] = [];
@@ -755,13 +828,22 @@ function curlFailure(o: CurlOpts, a: Exclude<Attempt, { ok: true }>, host: strin
     const ms = Math.round((o.maxTime ?? 0) * 1000) + 32;
     // In the mesh, the local ztunnel accepts the connection and the drop
     // happens behind it, so curl connects and then waits (measured on tilt).
-    if (o.maxTime === undefined) {
+    // ztunnel gives up on the tunnel after roughly ten seconds and resets the
+    // connection: measured on tilt (Istio 1.28.3) with a default deny on
+    // either side, -m 5 and -m 8 timed out, while -m 20, -m 40 and no -m all
+    // ended in a reset after 10.6 to 15.1 s. An earlier version printed the
+    // out-of-mesh 2 min 20 s timeout here. Between -m 8 and -m 20 is not
+    // measured; this takes ten seconds as the line.
+    if (fromMesh && (o.maxTime === undefined || o.maxTime > 10)) {
+      msg = 'curl: (56) Recv failure: Connection reset by peer'; code = 56;
+    } else if (o.maxTime === undefined) {
       // Measured once on tilt: with no -m, a dropped connection gave up after
       // 2 min 20 s with this message. The number is that run's, not a constant.
-      msg = `curl: (28) Failed to connect to ${host} port ${port} after 139636 ms: Could not connect to server`;
+      msg = `curl: (28) Failed to connect to ${host} port ${port} after 139636 ms: Could not connect to server`; code = 28;
       lines.push({ text: '(a real terminal sits silent for over two minutes here first; add -m 5 to give up after five seconds)', kind: 'out' });
-    } else msg = fromMesh ? `curl: (28) Operation timed out after ${ms} milliseconds with 0 bytes received` : `curl: (28) Connection timed out after ${ms} milliseconds`;
-    code = 28;
+    } else {
+      msg = fromMesh ? `curl: (28) Operation timed out after ${ms} milliseconds with 0 bytes received` : `curl: (28) Connection timed out after ${ms} milliseconds`; code = 28;
+    }
   }
   if (o.writeOut) lines.push(...out(o.writeOut.replace(/%\{http_code\}/g, '000').replace(/\\n/g, '\n').replace(/\n$/, '')));
   if (!o.quiet || o.showErr) lines.push({ text: msg, kind: 'err' });
@@ -782,9 +864,14 @@ function podCurl(ctx: Ctx, pod: Pod, args: string[]): Out[] {
       return o.writeOut ? out(o.writeOut.replace(/%\{http_code\}/g, '202').replace(/\\n/g, '\n').replace(/\n$/, '')) : [];
     }
   } else attempt = net.connect(pod, u.host, u.port);
+  if (!attempt.ok && attempt.stage === 'connect' && attempt.why === 'apiserver') fail("That is the kubernetes Service, which leads to the API server. It speaks HTTPS with client credentials, and this sandbox doesn't model it; use kubectl instead.");
   ctx.events.push({ type: 'curl', from: `${pod.ns}/${pod.name}`, url: o.url, attempt, host: false, ...snap(net) });
   if (!attempt.ok) return curlFailure(o, attempt, u.host, u.port, net.inMesh(pod.ns));
-  if (o.method === 'POST' && u.path !== '/') return curlFailure(o, { ok: false, stage: 'connect', how: 'refused', why: 'no such path' }, u.host, u.port, false);
+  // The connection worked, so a real server answers with an HTTP status of its
+  // own here: podinfo 6.9.1 on tilt gave 404 "404 page not found" for POST
+  // /foo and 405 for POST /. An earlier version printed curl's "(7) Could not
+  // connect" instead, which blamed the network for an application's answer.
+  if (o.method === 'POST') fail(`The request reached ${attempt.pod.name}, and a real server would answer it with an HTTP status of its own. This sandbox's panda images take POST only on /readyz/disable and /readyz/enable, so it doesn't model what POST ${u.path} returns.`);
   if (o.writeOut || o.devnull) return o.writeOut ? out(o.writeOut.replace(/%\{http_code\}/g, '200').replace(/\\n/g, '\n').replace(/\n$/, '')) : [];
   if (o.head) return out('HTTP/1.1 200 OK\nContent-Type: text/plain; charset=utf-8');
   return out(attempt.body);
@@ -794,6 +881,10 @@ function nslookup(ctx: Ctx, pod: Pod, args: string[]): Out[] {
   if (args.length !== 1 || args[0].startsWith('-')) fail('this sandbox runs nslookup NAME (one name, no options or server)');
   const name = args[0];
   const net = ctx.net;
+  // Measured on tilt: in the mesh, busybox's output changes shape (extra
+  // "canonical name" answers, misses in another order), and this sandbox
+  // doesn't reproduce it. Refusing is better than printing the out-of-mesh shape.
+  if (net.inMesh(pod.ns)) fail(`${pod.ns} is in the ambient mesh, so ztunnel's DNS proxy answers this pod's queries, and nslookup prints a different shape there that this sandbox doesn't model. Use curl to see whether a name resolves, or remove the namespace's istio.io/dataplane-mode label.`);
   const l = net.lookup(pod, name, 'nslookup');
   ctx.events.push({ type: 'lookup', from: `${pod.ns}/${pod.name}`, name, found: !!l.answer, how: l.how, ips: l.answer?.ips ?? [], corednsReplicas: net.corednsReplicas });
   if (l.how === 'timeout') {
