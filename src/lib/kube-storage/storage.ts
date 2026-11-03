@@ -24,6 +24,12 @@ export type Claim = {
   volume?: string; created: number; deleting: boolean; events: Ev[]; selectedNode?: string; provisionAt?: number;
   /** Set when a StatefulSet's volumeClaimTemplates made it. */
   ownerSts?: string;
+  /**
+   * What the last `kubectl apply` wrote for storageClassName (null: the
+   * manifest left it out), as kubectl keeps it in the last-applied annotation.
+   * Undefined for claims apply never touched.
+   */
+  appliedClass?: string | null;
 };
 
 export type Volume = {
@@ -35,6 +41,8 @@ export type PodStatus = 'Pending' | 'ContainerCreating' | 'Running' | 'ErrImageP
 
 export type Pod = {
   name: string; image: string; claims: { volume: string; claim: string; mountPath: string }[];
+  /** Allocated once when the pod is placed. */
+  ip?: string;
   node?: string; status: PodStatus; ready: boolean; created: number; startAt?: number; goneAt?: number;
   events: Ev[]; owner?: string; ordinal?: number; revision?: number; lastSchedTry?: number;
 };
@@ -68,6 +76,7 @@ export class Storage {
   services = new Map<string, Service>();
   /** Everything the learner has written into a pod, by volume: kept for the "is the data still there" checks. */
   written: { volume: string; path: string; text: string }[] = [];
+  private nextIP = 5;
 
   constructor() {
     uuidSeed = 0x5eed;
@@ -192,6 +201,13 @@ export class Storage {
         continue;
       }
       p.node = NODE;
+      // One address per pod, in order, never shared. It used to be computed
+      // from the creation tick, so two pods made in the same tick shared one.
+      // .2 to .4 go to what kind runs there first (CoreDNS, the provisioner).
+      const used = new Set([...this.pods.values()].map((x) => x.ip));
+      for (let tries = 0; used.has(`10.244.0.${this.nextIP}`) && tries < 250; tries++) this.nextIP = this.nextIP >= 254 ? 5 : this.nextIP + 1;
+      p.ip = `10.244.0.${this.nextIP}`;
+      this.nextIP = this.nextIP >= 254 ? 5 : this.nextIP + 1;
       p.status = 'ContainerCreating';
       p.startAt = t + 2;
       record(p.events, t, 'Normal', 'Scheduled', 'default-scheduler', `Successfully assigned default/${p.name} to ${NODE}`);

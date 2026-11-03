@@ -47,8 +47,15 @@ export type PodStatus = 'Pending' | 'ContainerCreating' | 'Running' | 'Terminati
 export type Pod = {
   name: string; ns: string; app: string; image: string; node?: string;
   owner: { kind: 'ReplicaSet' | 'DaemonSet' | 'Node' | 'none'; name: string };
-  status: PodStatus; ready: boolean; created: number; startAt?: number; deleting?: number;
+  status: PodStatus;
+  /** What the kubelet last reported for the container: the READY column. */
+  ready: boolean;
+  created: number; startAt?: number; deleting?: number;
   events: Ev[]; component?: Component;
+  /** The node controller set this pod's Ready condition False when its node went NotReady (MarkPodsNotReady). */
+  markedNotReady?: boolean;
+  /** Allocated once, when the pod lands on a node. */
+  ip?: string;
 };
 
 export type Deployment = { name: string; ns: string; replicas: number; image: string; hash: string; created: number;
@@ -59,7 +66,7 @@ export type Pdb = { name: string; ns: string; app: string; minAvailable?: number
   /** Written by the disruption controller in kube-controller-manager. */
   status: { allowed: number; current: number; desired: number; total: number } };
 
-export type Snapshot = { path: string; node: string; revision: number; namespaces: string[]; pods: string[] };
+export type Snapshot = { path: string; node: string; revision: number; namespaces: string[]; pods: string[]; nsCreated: [string, number][] };
 
 export class Ops {
   tick = 0;
@@ -73,6 +80,20 @@ export class Ops {
   restoredDirs = new Map<string, Snapshot>();
   /** The API server's watch cache: what it last read from etcd. Survives an etcd restore until it restarts. */
   cache: { namespaces: string[] } | null = null;
+  /**
+   * etcd's own data, as distinct from the cache: `namespaces` above is what
+   * etcd holds. This is the data directory etcd last loaded it from, so a
+   * restore replaces etcd's contents exactly once, at the moment etcd starts
+   * on the restored directory.
+   */
+  etcdLoaded = '/var/lib/etcd';
+  /** etcd's data was swapped under a running API server: its cache is stale until it restarts. */
+  cacheStale = false;
+  /** Namespaces the last restore removed from etcd (the mission checks it was the restore that did it). */
+  droppedByRestore: string[] = [];
+  /** Nodes whose running kubelet was ever newer than the API server: a skew the policy never supports. */
+  kubeletAhead = new Set<string>();
+  private nextIP = new Map<string, number>();
   etcdRevision = 2000;
   /** Revisions per apiserver container: a restart drops the cache. */
   private rand = suffixer(7);
@@ -133,7 +154,7 @@ export class Ops {
 
   // ---- the loops -----------------------------------------------------------
 
-  step(n = 1) { for (let i = 0; i < n; i++) this.once(); }
+  step(n = 1) { for (let i = 0; i < n; i++) { this.once(); this.noteSkew(); } }
 
   private once() {
     this.tick++;
@@ -145,7 +166,11 @@ export class Ops {
       if (!n.kubelet.running) continue;
       for (const c of COMPONENTS) {
         const want = n.manifests.has(`${c}.yaml`);
-        if (want && !n.containers.has(c)) { n.containers.add(c); if (c === 'kube-apiserver') this.cache = null; }
+        if (want && !n.containers.has(c)) {
+          n.containers.add(c);
+          if (c === 'kube-apiserver') { this.cache = null; this.cacheStale = false; }
+          if (c === 'etcd' && n === this.nodes[0] && n.etcdDataDir !== this.etcdLoaded) this.loadDataDir(n.etcdDataDir);
+        }
         if (!want) n.containers.delete(c);
       }
       if (!apiOk) continue;
@@ -153,6 +178,8 @@ export class Ops {
       if (!n.ready) {
         n.ready = true; n.notReadySince = undefined;
         n.taints = n.taints.filter((x) => !x.key.startsWith('node.kubernetes.io/'));
+        // The kubelet reports its pods again, Ready condition included.
+        for (const p of this.pods.values()) if (p.node === n.name) p.markedNotReady = false;
         record(n.events, t, 'Normal', 'NodeReady', 'kubelet', `Node ${n.name} status is now: NodeReady`);
       }
       for (const p of this.pods.values()) {
@@ -191,7 +218,13 @@ export class Ops {
         n.ready = false; n.notReadySince = t;
         n.taints.push({ key: 'node.kubernetes.io/unreachable', effect: 'NoSchedule', added: t }, { key: 'node.kubernetes.io/unreachable', effect: 'NoExecute', added: t });
         record(n.events, t, 'Normal', 'NodeNotReady', 'node-controller', `Node ${n.name} status is now: NodeNotReady`);
-        for (const p of this.pods.values()) if (p.node === n.name && p.owner.kind !== 'Node') record(p.events, t, 'Warning', 'NodeNotReady', 'node-controller', 'Node is not ready');
+        // MarkPodsNotReady (pkg/controller/util/node, release-1.36): the Ready
+        // condition goes False and this event is recorded. That takes the pods
+        // out of Service endpoints and PDB health now, at ~50 s, not at eviction.
+        for (const p of this.pods.values()) if (p.node === n.name && p.owner.kind !== 'Node') {
+          p.markedNotReady = true;
+          record(p.events, t, 'Warning', 'NodeNotReady', 'node-controller', 'Node is not ready');
+        }
       }
       if (!n.ready && n.notReadySince !== undefined && t - n.notReadySince >= EVICT_TICKS) {
         // DaemonSet pods tolerate unreachable for ever, and mirror pods are not the API's to evict.
@@ -209,7 +242,7 @@ export class Ops {
       const live = mine.filter((p) => p.deleting === undefined);
       for (let i = live.length; i < d.replicas; i++) this.addPod({ name: `${d.name}-${d.hash}-${this.rand(5)}`, ns: d.ns, app: d.name, image: d.image, owner: { kind: 'ReplicaSet', name: `${d.name}-${d.hash}` } });
       for (const p of live.slice(d.replicas)) this.deletePod(p);
-      const ready = mine.filter((p) => p.ready && p.deleting === undefined).length;
+      const ready = mine.filter((p) => this.podReady(p) && p.deleting === undefined).length;
       d.status = { ready, upToDate: Math.min(d.replicas, live.length), available: ready };
       void t;
     }
@@ -219,7 +252,7 @@ export class Ops {
   private disruption() {
     for (const b of this.pdbs.values()) {
       const pods = [...this.pods.values()].filter((p) => p.ns === b.ns && p.app === b.app && p.deleting === undefined);
-      const healthy = pods.filter((p) => p.ready && p.status === 'Running').length;
+      const healthy = pods.filter((p) => this.podReady(p) && p.status === 'Running').length;
       const expected = this.deployments.get(`${b.ns}/${b.app}`)?.replicas ?? pods.length;
       const resolve = (v: number | string) => typeof v === 'number' ? v : Math.ceil((parseInt(v, 10) / 100) * expected);
       const desired = b.minAvailable !== undefined ? resolve(b.minAvailable) : Math.max(0, expected - resolve(b.maxUnavailable ?? 0));
@@ -268,22 +301,60 @@ export class Ops {
     p.deleting = this.tick + 1;
   }
 
-  /** Copy what etcd holds into the API server's cache, while both are up. */
-  syncCache() {
-    if (this.apiservers().length && this.hasQuorum()) {
-      const restored = this.restoredFor();
-      if (restored && this.cache === null) {
-        // A fresh API server reading a restored etcd sees only what the snapshot held.
-        for (const ns of [...this.namespaces.keys()]) if (!restored.namespaces.includes(ns)) this.namespaces.delete(ns);
-      }
-      if (!restored || this.cache === null) this.cache = { namespaces: [...this.namespaces.keys()] };
-    }
+  /**
+   * etcd starts on a data directory: a restored one holds exactly what its
+   * snapshot held. This runs once per directory change, never on an API server
+   * restart. It used to run inside syncCache at every API server start, which
+   * silently deleted every namespace created after the restore the next time
+   * the API server restarted, although the restored etcd had committed them.
+   */
+  private loadDataDir(dir: string) {
+    this.etcdLoaded = dir;
+    const snap = this.restoredDirs.get(dir);
+    if (!snap) return;
+    this.droppedByRestore = [...this.namespaces.keys()].filter((n) => !snap.namespaces.includes(n));
+    this.namespaces = new Map(snap.nsCreated);
+    // An API server running across the swap keeps serving what it had cached.
+    if (this.apiservers().length && this.cache) this.cacheStale = true;
   }
 
-  /** The snapshot etcd is now serving, if its manifest points at a restored directory. */
+  /** Copy what etcd holds into the API server's cache, while both are up, unless the cache went stale under a restore. */
+  syncCache() {
+    if (this.apiservers().length && this.hasQuorum() && (this.cache === null || !this.cacheStale)) this.cache = { namespaces: [...this.namespaces.keys()] };
+  }
+
+  /** Ready as the API's controllers read it: the kubelet's report, unless the node controller has since marked the pod not ready. */
+  podReady(p: Pod) { return p.ready && !p.markedNotReady; }
+
+  /**
+   * A pod IP from its node's range, allocated once and never shared. kindnet and
+   * kube-proxy run on the host network and mirror pods are static, so those show
+   * the node's address. It used to be computed from the creation tick, which gave
+   * pods that existed at start 10.244.0.-155, and two pods made in one tick the same IP.
+   */
+  podIP(p: Pod): string {
+    const i = this.nodes.findIndex((n) => n.name === p.node);
+    if (p.owner.kind === 'Node' || p.app === 'kindnet' || p.app === 'kube-proxy') return `172.18.0.${i + 2}`;
+    if (!p.ip) {
+      const used = new Set([...this.pods.values()].filter((x) => x.node === p.node && x.ip).map((x) => x.ip));
+      let k = this.nextIP.get(p.node!) ?? 2;
+      // host-local hands out addresses in order; skip any still held.
+      for (let tries = 0; used.has(`10.244.${i}.${k}`) && tries < 253; tries++) k = k >= 254 ? 2 : k + 1;
+      p.ip = `10.244.${i}.${k}`;
+      this.nextIP.set(p.node!, k >= 254 ? 2 : k + 1);
+    }
+    return p.ip;
+  }
+
+  /** Record any running kubelet newer than the oldest API server. Called after every tick and command. */
+  noteSkew() {
+    const api = Math.min(...this.nodes.filter((n) => n.controlPlane).map((n) => ver(n.componentVersion).minor));
+    for (const n of this.nodes) if (n.kubelet.running && ver(n.kubelet.version).minor > api) this.kubeletAhead.add(n.name);
+  }
+
+  /** The snapshot etcd is now serving, if it started on a restored directory. */
   restoredFor(): Snapshot | undefined {
-    const cp = this.nodes[0];
-    return this.restoredDirs.get(cp.etcdDataDir);
+    return this.restoredDirs.get(this.etcdLoaded);
   }
 
   versions() {

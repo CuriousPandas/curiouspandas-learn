@@ -64,11 +64,47 @@ test('the decoy: a default-class claim with no pod waits, correctly, with its ow
   assert.match(k('kubectl get pvc'), /scratch +Pending +standard +<unset>/);
 });
 
-test('changing the class in place is refused with the real message', () => {
-  const { k } = fresh({ 'indexer.yaml': INDEXER });
+// The API server's refusal, byte for byte, for a one-access-mode claim on
+// hostpath: `kubectl --context kind-tiltdev -n fix-k8s-3 patch pvc wrong-class
+// -p '{"spec":{"storageClassName":"standard"}}'` (1.36.1, 2026-11-03).
+const IMMUTABLE = (name: string, to: string) => `The PersistentVolumeClaim "${name}" is invalid: spec: Forbidden: spec is immutable after creation except resources.requests and volumeAttributesClassName for bound claims\n@@ -10,7 +10,7 @@\n   }\n  },\n  "VolumeName": "",\n- "StorageClassName": "hostpath",\n+ "StorageClassName": ${to},\n  "VolumeMode": "Filesystem",\n  "DataSource": null,\n  "DataSourceRef": null,\n`;
+
+test('changing the class in place is refused with the real message and diff', () => {
+  const { k, f } = fresh({ 'indexer.yaml': INDEXER });
   k('kubectl apply -f indexer.yaml');
-  // kubectl patch pvc wrong-class -p '{"spec":{"storageClassName":"standard"}}'
-  assert.equal(k(`kubectl patch pvc indexer-data -p '{"spec":{"storageClassName":"standard"}}'`), 'The PersistentVolumeClaim "indexer-data" is invalid: spec: Forbidden: spec is immutable after creation except resources.requests and volumeAttributesClassName for bound claims');
+  assert.equal(k(`kubectl patch pvc indexer-data -p '{"spec":{"storageClassName":"standard"}}'`), IMMUTABLE('indexer-data', '"standard"'));
+  // Two access modes move the hunk down a line: seen on tiltdev with [ReadWriteOnce, ReadOnlyMany].
+  f.set('two.yaml', 'apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: two-modes\nspec:\n  storageClassName: hostpath\n  accessModes: [ReadWriteOnce, ReadOnlyMany]\n  resources:\n    requests:\n      storage: 2Gi\n');
+  k('kubectl apply -f two.yaml');
+  assert.match(k(`kubectl patch pvc two-modes -p '{"spec":{"storageClassName":"standard"}}'`), /\n@@ -11,7 \+11,7 @@\n/);
+});
+
+// The original failure: delete the storageClassName line and apply over the
+// existing claim, and the sandbox said "persistentvolumeclaim/indexer-data
+// unchanged" (and "pod/indexer configured"), telling the learner the edit had
+// worked. kubectl's three-way merge sends the field's removal, and the API
+// refuses it. Real, on tiltdev 1.36.1, `kubectl apply -f` of the same edit
+// over an applied claim: the refusal below, after the other objects' lines.
+test('apply that drops an applied class is refused, not "unchanged" (the silent success)', () => {
+  const { s, f, k } = fresh({ 'indexer.yaml': INDEXER });
+  k('kubectl apply -f indexer.yaml');
+  f.set('indexer.yaml', INDEXER.replace('  storageClassName: hostpath\n', ''));
+  const out = k('kubectl apply -f indexer.yaml');
+  assert.doesNotMatch(out, /indexer-data unchanged/);
+  assert.equal(out, 'pod/indexer configured\n' + IMMUTABLE('indexer-data', 'null'));
+  assert.equal(s.claims.get('indexer-data')!.className, 'hostpath');
+  // A class that was defaulted at creation is not in the last apply, so leaving it out is a no-op.
+  f.set('d.yaml', 'apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: d\nspec:\n  accessModes: [ReadWriteOnce]\n  resources:\n    requests:\n      storage: 1Gi\n');
+  assert.equal(k('kubectl apply -f d.yaml'), 'persistentvolumeclaim/d created');
+  assert.equal(k('kubectl apply -f d.yaml'), 'persistentvolumeclaim/d unchanged');
+  // Naming the class it already has changes only the last-applied note: real said "configured".
+  const named = f.get('d.yaml')!.replace('spec:\n', 'spec:\n  storageClassName: standard\n');
+  f.set('d.yaml', named);
+  assert.equal(k('kubectl apply -f d.yaml'), 'persistentvolumeclaim/d configured');
+  assert.equal(k('kubectl apply -f d.yaml'), 'persistentvolumeclaim/d unchanged');
+  // And now that the last apply named it, dropping it again is refused, as it was for real.
+  f.set('d.yaml', named.replace('  storageClassName: standard\n', ''));
+  assert.match(k('kubectl apply -f d.yaml'), /^The PersistentVolumeClaim "d" is invalid: spec: Forbidden: spec is immutable[^\n]*\n@@ -10,7 \+10,7 @@\n[\s\S]*- "StorageClassName": "standard",\n\+ "StorageClassName": null,\n/);
 });
 
 test('unknown and missing fields fail as a real API server fails them', () => {
@@ -257,4 +293,66 @@ test('mission: statefulsets plays start to finish, and a revert alone does not p
   for (let i = 0; i < 40; i++) r.st.s.step();
   let ok = true;
   assert.deepEqual(STATEFULSET_MISSION.steps.map((x) => (ok = ok && x.done(r.st))), STATEFULSET_MISSION.steps.map(() => true));
+});
+
+test('rollout status says "Waiting for N pods to be ready" while a pod is stuck, as kubectl does', () => {
+  const { s, k } = fresh({ 'web.yaml': WEB });
+  k('kubectl apply -f web.yaml');
+  s.step(40);
+  k('kubectl set image sts/web app=panda/web:2.O');
+  s.step(20);
+  // kubectl 1.37.2 `rollout status sts/web --watch=false` on tiltdev, web-2 in
+  // ErrImagePull: readiness is tested before staleness (rollout_status.go).
+  // The sandbox used to print "Waiting for partitioned roll out to finish" here.
+  assert.equal(kubectl(s, new Map(), 'kubectl rollout status sts/web')[0].text, 'Waiting for 1 pods to be ready...');
+});
+
+test('describe in another namespace is NotFound, not default\'s object', () => {
+  const { k } = fresh({ 'indexer.yaml': INDEXER });
+  k('kubectl apply -f indexer.yaml');
+  // kubectl -n kube-system describe pvc rwop, on tiltdev (the claim lived in fix-k8s-3)
+  assert.equal(k('kubectl describe pvc indexer-data -n kube-system'), 'Error from server (NotFound): persistentvolumeclaims "indexer-data" not found');
+  assert.match(k('kubectl describe pvc indexer-data -n default'), /^Name: +indexer-data$/m);
+});
+
+test('real kubectl verbs and flags the sandbox lacks are named as the sandbox\'s limit', () => {
+  const { k } = fresh({ 'indexer.yaml': INDEXER });
+  assert.match(k('kubectl create -f indexer.yaml'), /^sandbox: kubectl create -f <file> is real/);
+  assert.match(k('kubectl delete pvc x -n default'), /^sandbox: -n is a real kubectl flag/);
+  assert.match(k('kubectl get pvc --context kind-tiltdev'), /^sandbox: --context is real kubectl/);
+  // and a flag kubectl really lacks still gets kubectl's own words
+  assert.match(k('kubectl get pvc --bogus'), /^error: unknown flag: --bogus/);
+});
+
+test('pod IPs are valid and never shared', () => {
+  const { s, k } = fresh({ 'web.yaml': WEB, 'indexer.yaml': INDEXER.replace('hostpath', 'standard') });
+  k('kubectl apply -f web.yaml');
+  k('kubectl apply -f indexer.yaml');
+  s.step(60);
+  const ips = [...k('kubectl get pods -o wide').matchAll(/ (10\.244\.0\.(\d+)) /g)];
+  assert.equal(ips.length, 4);
+  assert.equal(new Set(ips.map((m) => m[1])).size, 4);
+  for (const m of ips) assert.ok(+m[2] >= 2 && +m[2] <= 254, m[1]);
+});
+
+test('mission: volumes passes a class you made on purpose, and an apply over the claim does not pass', () => {
+  const m = VOLUMES_MISSION;
+  // Differently-shaped right answer: a Retain class of your own, named in the manifest.
+  const st = m.setup();
+  st.files.set('keep.yaml', 'apiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: keep\nprovisioner: rancher.io/local-path\nreclaimPolicy: Retain\nvolumeBindingMode: WaitForFirstConsumer\n');
+  for (const c of ['kubectl get pods,pvc', 'kubectl describe pvc indexer-data', 'kubectl get sc', 'kubectl apply -f keep.yaml', 'kubectl delete pvc indexer-data']) storageRun(st, c);
+  st.s.step();
+  st.files.set('indexer.yaml', INDEXER.replace('hostpath', 'keep'));
+  storageRun(st, 'kubectl apply -f indexer.yaml');
+  st.s.step(20);
+  let ok = true;
+  assert.deepEqual(m.steps.slice(0, 4).map((x) => (ok = ok && x.done(st))), [true, true, true, true]);
+  // Shortcut: edit the file and apply without deleting the claim. Refused, so not passed.
+  const st2 = m.setup();
+  for (const c of ['kubectl get pods,pvc', 'kubectl describe pvc indexer-data', 'kubectl get sc']) storageRun(st2, c);
+  st2.files.set('indexer.yaml', INDEXER.replace('  storageClassName: hostpath\n', ''));
+  assert.match(storageRun(st2, 'kubectl apply -f indexer.yaml').map((l) => l.text).join('\n'), /spec is immutable after creation/);
+  st2.s.step(20);
+  assert.equal(m.steps[3].done(st2), false);
+  assert.match(m.steps[3].why!(st2), /Delete the claim first/);
 });

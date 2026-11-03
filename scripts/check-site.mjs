@@ -4449,11 +4449,16 @@ await scenario('kube-api-removed', '/learn/kubernetes/extending-kubernetes/', as
     await type(page, r, `kubectl patch pvc indexer-data -p '{"spec":{"storageClassName":"standard"}}'`);
     await expectText(page, `${r} .term-out`, /spec is immutable after creation/);
     if (await ticked(page, r) !== 3) throw new Error('the patch attempt changed the checklist');
-    await type(page, r, 'kubectl delete pvc indexer-data');
-    await page.waitForTimeout(600);
     // Edit the file the way a person would: in the editor panel.
     const ed = page.locator(`${r} [data-editor]`);
     await ed.fill((await ed.inputValue()).replace('  storageClassName: hostpath\n', ''));
+    // Applying the edit over the claim is refused too; it once said "unchanged".
+    await type(page, r, 'kubectl apply -f indexer.yaml');
+    await expectText(page, `${r} .term-out`, /"StorageClassName": null/);
+    if (/indexer-data unchanged/.test(await page.locator(`${r} .term-out`).innerText())) throw new Error('apply over the claim said unchanged');
+    await expectText(page, `${r} .m-steps li.current .m-why`, /Delete the claim first/);
+    await type(page, r, 'kubectl delete pvc indexer-data');
+    await page.waitForTimeout(600);
     await type(page, r, 'kubectl apply -f indexer.yaml');
     await expectText(page, `${r} [data-pods]`, /indexer\s*Running/, 20000);
     await type(page, r, 'kubectl describe pvc scratch');
@@ -4538,7 +4543,7 @@ await scenario('kube-api-removed', '/learn/kubernetes/extending-kubernetes/', as
     await type(page, r, 'kubectl get pdb');
     await type(page, r, 'kubectl drain ops-worker --ignore-daemonsets --timeout=60s');
     await expectText(page, `${r} .term-out`, /Cannot evict pod as it would violate the pod's disruption budget/);
-    await expectText(page, `${r} .term-out`, /global timeout reached: 60s/, 20000);
+    await expectText(page, `${r} .term-out`, /global timeout reached: 1m0s/, 20000);
     await type(page, r, 'kubectl get nodes');
     await expectText(page, `${r} .term-out`, /ops-worker +Ready,SchedulingDisabled/);
     // Deleting the budget is the shortcut that must not pass.
@@ -4623,6 +4628,25 @@ await scenario('kube-api-removed', '/learn/kubernetes/extending-kubernetes/', as
     await type(page, r, 'kubectl get ns after-snap');
     await expectText(page, `${r} .term-out`, /namespaces "after-snap" not found/);
     await expectText(page, `${r} .m-debrief`, /answered from what it had cached/, 8000);
+  });
+
+  // The docs' order must finish too: it used to strand the learner at r5.
+  await scenario('ops-restore-docs-order', '/learn/kubernetes/etcd-and-quorum/', async (page) => {
+    const r = '[data-ops-sim][data-mission="ops-restore"]';
+    await fast(page, r);
+    await type(page, r, `kubectl -n kube-system exec etcd-ops-control-plane -- etcdctl ${flags} snapshot save /var/lib/etcd/snap.db`);
+    await type(page, r, 'kubectl create namespace after-snap');
+    await type(page, r, 'kubectl -n kube-system exec etcd-ops-control-plane -- etcdutl --data-dir /var/lib/etcd/restored snapshot restore /var/lib/etcd/snap.db');
+    await type(page, r, 'docker exec ops-control-plane mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/');
+    await page.waitForTimeout(800);
+    await type(page, r, "docker exec ops-control-plane sed -i 's#path: /var/lib/etcd$#path: /var/lib/etcd/restored#' /etc/kubernetes/manifests/etcd.yaml");
+    await page.waitForTimeout(800);
+    await type(page, r, 'docker exec ops-control-plane mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/');
+    await page.waitForTimeout(1500);
+    await type(page, r, 'kubectl get ns');
+    const out = await page.locator(`${r} .term-out`).innerText();
+    if (/after-snap/.test(out.slice(out.lastIndexOf('kubectl get ns') + 14))) throw new Error('after-snap listed after a docs-order restore');
+    await expectText(page, `${r} .m-debrief`, /as the docs say, after-snap was gone at the first look/, 8000);
   });
 }
 

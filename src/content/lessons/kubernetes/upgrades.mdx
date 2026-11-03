@@ -35,7 +35,7 @@ A Kubernetes version like `v1.36.1` is major `1`, **minor** `36`, **patch** `1`.
 - kube-controller-manager and kube-scheduler "must not be newer than the kube-apiserver instances they communicate with", "but may be up to one minor version older (to allow live upgrades)."
 - "kubectl is supported within one minor version (older or newer) of kube-apiserver." That is the warning you met in [kind and the Kubernetes version nobody chose](/learn/tools/kind/). Our kubectl 1.37 printed it against the 1.35 cluster: `version difference between client (1.37) and server (1.35) exceeds the supported minor version skew of +/-1`.
 
-Those rules fix the order. The API server has to go first, because nothing may be newer than it. The kubelets go last, because they may lag behind it.
+Those rules fix the order. The API server has to go first, because no cluster component may be newer than it (kubectl, a client, may be one minor newer). The kubelets go last, because they may lag behind it.
 
 ## The order
 
@@ -68,7 +68,7 @@ That was a single-node cluster, so there were no other nodes to upgrade, and it 
 - **Preparing the machine.** Installing kubeadm has prerequisites a kind node already meets: the docs' install guide covers a container runtime, open ports (6443 for the API server, among others), and swap: "The default behavior of a kubelet is to fail to start if swap memory is detected on a node."
 
 <Callout kind="trap">
-`kubeadm upgrade plan` asks dl.k8s.io for the newest patch in your minor series and suggests that, not the version you have. On tiltdev (1.36.1) it printed `remote version is much newer: v1.37.2; falling back to: stable-1.36` and offered `v1.36.6`, then added `Before you can perform this upgrade, you have to update kubeadm to v1.36.6.` Even its own suggestions stay inside one minor.
+`kubeadm upgrade plan` asks dl.k8s.io for the latest stable release and suggests a version, not the one you have. When the latest stable is a newer minor than kubeadm itself, it falls back to the newest patch of kubeadm's own minor. On tiltdev (kubeadm 1.36.1) it printed `remote version is much newer: v1.37.2; falling back to: stable-1.36` and offered `v1.36.6`, then added `Before you can perform this upgrade, you have to update kubeadm to v1.36.6.` The limit comes from kubeadm's version, not the cluster's: kubeadm's source (`cmd/kubeadm/app/util/version.go`, release-1.36) falls back only when kubeadm's minor is older than the release it found, so a newer kubeadm would offer a newer minor.
 </Callout>
 
 <Quiz
@@ -96,7 +96,7 @@ That was a single-node cluster, so there were no other nodes to upgrade, and it 
 />
 
 <Callout kind="real">
-The sandbox models one control-plane node and one worker, kubeadm's version checks, and the skew rules above. Its `kubeadm upgrade apply` prints the real run's main lines in a moment rather than three and a half minutes; `kubeadm upgrade node` prints the lines it printed on our control-plane node, since we had no worker to run it on. It doesn't model images, CoreDNS, certificate renewal, the `-y` prompt (it asks you to add `-y`) or downgrades. The skew panel checks the policy's rules; the policy says what is supported, not what a component does when you break it, and neither does the sandbox.
+The sandbox models one control-plane node and one worker, kubeadm's version checks, and the skew rules above. Its `kubeadm upgrade apply` prints the real run's main lines in a moment rather than three and a half minutes; `kubeadm upgrade node` prints the lines it printed on our control-plane node, since we had no worker to run it on, and on the worker the sandbox says so on screen. It refuses `kubeadm upgrade node` until the node's kubeadm matches the control plane, because what a mismatched one prints was never captured. It doesn't model images, CoreDNS, certificate renewal, the `-y` prompt (it asks you to add `-y`) or downgrades. The skew panel checks the policy's rules; the policy says what is supported, not what a component does when you break it, and neither does the sandbox.
 </Callout>
 
 <GoDeeper title="The skew policy's own upgrade order">
@@ -115,8 +115,8 @@ The policy has a section called "Supported component upgrade order", which it in
 Read-only on tilt (run on tiltdev while writing this; `kubeadm upgrade plan` only reads, and needs internet access to dl.k8s.io):
 
 ```bash
-kubectl version
-kubectl get nodes -o wide                                  # the VERSION column
+kubectl --context kind-tiltdev version
+kubectl --context kind-tiltdev get nodes -o wide                                  # the VERSION column
 docker exec tiltdev-control-plane kubeadm version -o short
 docker exec tiltdev-control-plane kubeadm upgrade plan
 ```

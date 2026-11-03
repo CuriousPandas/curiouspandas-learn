@@ -59,8 +59,10 @@ Someone did maintenance on this cluster and didn't finish. A pod is Pending. Fin
 |---|---|---|
 | kube-scheduler | New pods Pending with **no events** | The scheduler writes FailedScheduling; nothing else assigns nodes |
 | kube-controller-manager | Deleted pods not replaced; `kubectl get deploy` still shows the old READY count | Controllers do the replacing *and* write the status you are reading |
-| kube-apiserver | `Unable to connect to the server: EOF` | Nothing is listening; kubectl can't even ask |
-| a kubelet | That node's pods keep their last reported status | The next lesson |
+| kube-apiserver | On kind: `Unable to connect to the server: EOF` | Nothing is answering; kubectl can't even ask |
+| a kubelet | That node's pods keep their last reported status, except that their Ready condition turns False | The next lesson |
+
+The EOF is kind's wording: Docker's port forward accepts the connection, then closes it. On a machine where nothing listens on the API server's port at all, such as a kubeadm VM, kubectl says `The connection to the server <host>:6443 was refused - did you specify the right host or port?` instead (we reproduced that wording with kubectl 1.37 against a closed port, which also printed a few `Couldn't get current server API group list` log lines first).
 
 The controller-manager row is the dangerous one. On the real cluster, with it stopped and one of two pods deleted, `kubectl get deploy` printed `2/2`. Status in Kubernetes is written by the controllers, so when they stop, status stops being true and doesn't say so.
 
@@ -103,10 +105,10 @@ The sandbox models four components and a kubelet per node, each as a loop that r
 Read-only, on the tilt platform. These ran on tiltdev while this lesson was written:
 
 ```bash
-kubectl -n kube-system get pods -o wide
+kubectl --context kind-tiltdev -n kube-system get pods -o wide
 docker exec tiltdev-control-plane ls /etc/kubernetes/manifests
 docker exec tiltdev-control-plane crictl ps
-kubectl get --raw='/readyz?verbose' | tail
+kubectl --context kind-tiltdev get --raw='/readyz?verbose' | tail
 ```
 
 The breaking part goes on a throwaway cluster, never on tilt:
@@ -121,6 +123,6 @@ kubectl --context kind-ops-lab get pod p -o wide       # scheduled within second
 kind delete cluster --name ops-lab
 ```
 
-Every command names `--context`, so nothing lands on tilt by accident whichever context kind leaves selected. Check with `kubectl config current-context` before you break anything.
+Every `kubectl` command, on tilt and on the throwaway cluster, names `--context`, so nothing lands on the wrong cluster whichever context kind leaves selected (after `kind delete cluster`, none is selected at all). Check with `kubectl config current-context` before you break anything.
 
 </DoItForReal>
