@@ -223,3 +223,73 @@ test('api-removed: applying v1 on 1.21 does not count as the migration to 1.36',
   applyApi(s);
   assert.equal(ticks(API_MISSION.steps, s), 2);
 });
+
+// ---- fixes from the second review (2026-11-03) ------------------------------------------
+
+test('Kustomize field names fold case and unknown images fields fail, as v5.8.1 did', () => {
+  // Measured with kubectl 1.37.2's Kustomize v5.8.1 on 2026-11-03. The sandbox
+  // once matched field names exactly: it refused `nameprefix` with a false
+  // "unknown field", and silently dropped `newtag`, `digest` and `bogus`.
+  const img = (k: string) => { const r = kustomize(k); return r.ok ? /image: (\S+)/.exec(r.output)![1] : r.error; };
+  const D = 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  assert.equal(img(`resources:\n- ../base\nimages:\n- name: panda/web\n  digest: ${D}\n`), `panda/web@${D}`);
+  assert.equal(img(`resources:\n- ../base\nimages:\n- name: panda/web\n  newTag: "2.0"\n  digest: ${D}\n`), `panda/web:2.0@${D}`);
+  assert.equal(img('resources:\n- ../base\nimages:\n- name: panda/web\n  newtag: "2.0"\n'), 'panda/web:2.0');
+  assert.equal(img('resources:\n- ../base\nimages:\n- Name: panda/web\n  NewTag: "2.0"\n'), 'panda/web:2.0');
+  // A later spelling of the same field wins: newtag 3.0 after newTag 2.0 gave 3.0.
+  assert.equal(img('resources:\n- ../base\nimages:\n- name: panda/web\n  newTag: "2.0"\n  newtag: "3.0"\n'), 'panda/web:3.0');
+  assert.equal(img('resources:\n- ../base\nimages:\n- name: panda/web\n  bogus: 1\n'), 'error: invalid Kustomization: json: unknown field "bogus"');
+  assert.equal(img('resources:\n- ../base\nimages:\n- name: panda/web\n  newTag: "2.0"\n  bogus: 1\n'), 'error: invalid Kustomization: json: unknown field "bogus"');
+  assert.equal(img('resources:\n- ../base\nreplicas:\n- name: web\n  count: 3\n  bogus: 1\n'), 'error: invalid Kustomization: json: unknown field "bogus"');
+  assert.match(img('resources:\n- ../base\nimages:\n- name: panda/web\n  tagSuffix: -x\n'), /this sandbox does not model it/);
+  const pre = kustomize('resources:\n- ../base\nnameprefix: prod-\n');
+  assert.ok(pre.ok && pre.output.includes('name: prod-web'), 'nameprefix is namePrefix to Go json');
+  const later = kustomize('resources:\n- ../base\nNamePrefix: a-\nnamePrefix: b-\n');
+  assert.ok(later.ok && later.output.includes('name: b-web'));
+  const cnt = kustomize('resources:\n- ../base\nreplicas:\n- name: web\n  Count: 3\n');
+  assert.ok(cnt.ok && cnt.output.includes('replicas: 3'));
+});
+
+test('the render debrief no longer says every missing patch target is an error', () => {
+  // Measured: a patches entry with target: {kind: Deployment, name: webb}
+  // matching nothing exited 0 with the output unchanged. The sandbox refuses
+  // target: by name rather than pretending either way.
+  assert.match(RENDER_MISSION.debrief, /target: selector that matches nothing/);
+  const r = kustomize('resources:\n- ../base\npatches:\n- target:\n    kind: Deployment\n    name: webb\n  patch: |-\n    - op: replace\n      path: /spec/replicas\n      value: 3\n');
+  assert.ok(!r.ok && /no target: or path:/.test(r.error));
+});
+
+test('api lab: a v1 Ingress gets the API server\'s validation, not just unknown fields', () => {
+  // Real, Kubernetes 1.36.1, kubectl apply --dry-run=server, 2026-11-03. The
+  // lab once said it checked the spec "field by field" and took all of these.
+  const at36 = (m: string) => { const s: ApiState = { ...API_MISSION.setup(), manifest: m }; return applyApi(s).lines.map((l) => l.text).join('\n'); };
+  const head = 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: shop\n';
+  assert.equal(at36(head), 'The Ingress "shop" is invalid: spec: Invalid value: null: either `defaultBackend` or `rules` must be specified');
+  assert.equal(at36(head + 'spec: {}\n'), 'The Ingress "shop" is invalid: spec: Invalid value: null: either `defaultBackend` or `rules` must be specified');
+  assert.equal(at36(head + 'spec:\n  defaultBackend:\n    service:\n      name: web\n'), 'The Ingress "shop" is invalid: spec.defaultBackend: Required value: port name or number is required');
+  assert.equal(at36(head + 'spec:\n  defaultBackend:\n    service:\n      name: web\n      port:\n        number: 0\n'), 'The Ingress "shop" is invalid: spec.defaultBackend: Required value: port name or number is required');
+  assert.equal(at36(head + 'spec:\n  defaultBackend:\n    service:\n      port:\n        number: 80\n'), 'The Ingress "shop" is invalid: spec.defaultBackend.service.name: Required value');
+  assert.equal(at36(head + 'spec:\n  defaultBackend:\n    service:\n      name: web\n      port:\n        number: 80\n        name: http\n'), 'The Ingress "shop" is invalid: spec.defaultBackend: Invalid value: "": cannot set both port name & port number');
+  assert.equal(at36(head + 'spec:\n  rules:\n  - http:\n      paths:\n      - path: /\n        backend:\n          service:\n            name: web\n            port:\n              number: 80\n'), 'The Ingress "shop" is invalid: spec.rules[0].http.paths[0].pathType: Required value: pathType must be specified');
+  assert.equal(at36(head + 'spec:\n  rules:\n  - http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend:\n          service:\n            name: web\n'), 'The Ingress "shop" is invalid: spec.rules[0].http.paths[0].backend: Required value: port name or number is required');
+  assert.equal(at36(head + 'spec:\n  rules:\n  - http:\n      paths:\n      - path: foo\n        pathType: Prefix\n        backend:\n          service:\n            name: web\n            port:\n              number: 80\n'), 'The Ingress "shop" is invalid: spec.rules[0].http.paths[0].path: Invalid value: "foo": must be an absolute path');
+  // Real: a rule with a host and nothing else is accepted.
+  assert.equal(at36(head + 'spec:\n  rules:\n  - host: a.localhost\n'), 'ingress.networking.k8s.io/shop created');
+});
+
+test('api-removed: deleting the spec is not a migration; rules with pathType are', () => {
+  const s: ApiState = API_MISSION.setup();
+  applyApi(s); s.minor = 21; applyApi(s); s.minor = 36;
+  // The shortcut the review found: new apiVersion, spec removed.
+  s.manifest = 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: shop\n';
+  applyApi(s);
+  assert.equal(ticks(API_MISSION.steps, s), 2);
+  // Also not enough: a backend with no port.
+  s.manifest = 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: shop\nspec:\n  defaultBackend:\n    service:\n      name: web\n';
+  applyApi(s);
+  assert.equal(ticks(API_MISSION.steps, s), 2);
+  // A differently shaped right answer: rules, with pathType and a named port.
+  s.manifest = 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: shop\nspec:\n  rules:\n  - http:\n      paths:\n      - path: /\n        pathType: ImplementationSpecific\n        backend:\n          service:\n            name: web\n            port:\n              name: http\n';
+  applyApi(s);
+  assert.equal(ticks(API_MISSION.steps, s), 3);
+});

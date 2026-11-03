@@ -188,7 +188,9 @@ export function policyGoal(net: Net) {
     webToApi: net.policyAllows(web, api, 8080, 'TCP').ok,
     clientToApi: net.policyAllows(cl, api, 8080, 'TCP').ok,
     clientToWeb: net.policyAllows(cl, web, 8080, 'TCP').ok,
-    webDns: net.policyAllows(web, dns, 53, 'UDP').ok,
+    // In the ambient mesh ztunnel answers Service names itself, so web
+    // resolves api without allow-dns (measured on tilt); out of it, web needs it.
+    webDns: net.policyAllows(web, dns, 53, 'UDP').ok || net.inMesh('shop'),
     // Still default-deny: the client may not reach anything it was not given.
     isolated: net.policiesFor(cl, 'Egress').length > 0 && net.policiesFor(api, 'Ingress').length > 0,
   };
@@ -219,12 +221,14 @@ export const POLICY_MISSION: NetMission = {
       if (!g.isolated) return 'deny-all is gone, so nothing is isolated any more. Apply it again.';
       if (g.clientToApi) return 'The client can still reach api: the ingress rule lets in more than web.';
       if (!g.webDns) return 'web can no longer resolve names: allow-dns must still apply to it.';
-      if (!g.webToApi) return 'The policies still block web → api. Both halves must allow it: web\'s egress and api\'s ingress.';
+      if (!g.webToApi) return s.ctx.net.inMesh('shop')
+        ? 'The policies still block web → api. shop is in the ambient mesh, so the connection travels on port 15008, and both web\'s egress and api\'s ingress must allow that port.'
+        : 'The policies still block web → api. Both halves must allow it: web\'s egress and api\'s ingress.';
       return '';
     } },
     { text: 'Now switch the network plugin to one that ignores NetworkPolicy, and curl api from the client', hint: 'Untick the "Network plugin" switch  then  kubectl exec client -- curl -sS -m 5 http://api', done: (s) => curls(s).some((c) => !c.enforcing && c.policies > 0 && c.from === 'shop/client' && c.attempt.ok && owner(c.attempt.pod) === 'api') },
   ],
-  debrief: 'Default deny took DNS with it, because egress to CoreDNS is traffic like any other. Allowing DNS fixed the names and nothing else: both ends of a connection must allow it, web\'s egress and api\'s ingress. And with a plugin that doesn\'t enforce NetworkPolicy, every policy you wrote was still there, still listed by kubectl, and blocked nothing. The only test is the connection that should fail.',
+  debrief: 'Default deny took DNS with it, because egress to CoreDNS is traffic like any other. That is outside the mesh. In tilt\'s ambient namespaces ztunnel answers Service names itself, so the same deny shows up as a timeout, and in the mesh both ends must also allow port 15008. Allowing DNS fixed the names and nothing else: both ends of a connection must allow it, web\'s egress and api\'s ingress. And with a plugin that doesn\'t enforce NetworkPolicy, every policy you wrote was still there, still listed by kubectl, and blocked nothing. The only test is the connection that should fail.',
 };
 
 // ---- ingress ----------------------------------------------------------------

@@ -6,7 +6,7 @@ import type { Mission } from '../missions.ts';
 import { helmTemplate, kustomize, renderedReplicas, CHART_VALUES, type HelmInput, type Rendered, type KustomizeResult } from './render.ts';
 import { applyVerdict, type Verdict } from './api.ts';
 import { parse, YamlError, type Yaml } from './yaml.ts';
-import { strictErrors } from './manifests.ts';
+import { ingressRefusal } from './manifests.ts';
 
 // ---- render lab -------------------------------------------------------------
 
@@ -51,7 +51,7 @@ export const RENDER_MISSION: Mission<RenderState> = {
     { text: 'Change the image tag to 2.0 with an images: entry, but misspell the image name. What does Kustomize say?', hint: 'images: [{name: panda/webb, newTag: "2.0"}], then Build', done: (s) => kusts(s).some((e) => e.result.ok && e.result.warnings.length > 0 && imageOf(deployOf(e.result)) === 'panda/web:1.0') },
     { text: 'Fix the name, and build until the Deployment runs panda/web:2.0', hint: 'name: panda/web', done: (s) => kusts(s).some((e) => imageOf(deployOf(e.result)) === 'panda/web:2.0') },
   ],
-  debrief: 'Helm took replicaCont=3, stored it, and rendered the chart\'s default, because no template reads that key. Only a values.schema.json that forbids unknown keys turned the typo into an error. Kustomize was strict where it has a target to find, refusing a replicas entry or patch whose name matches nothing, and silent where it doesn\'t: an images entry for a name no container uses changes nothing and says nothing. Read the rendered output, not the inputs.',
+  debrief: 'Helm took replicaCont=3, stored it, and rendered the chart\'s default, because no template reads that key. Only a values.schema.json that forbids unknown keys turned the typo into an error. Kustomize was strict where an entry names one object, refusing a replicas entry, or a patch whose own body names an object that isn\'t there. It was silent where an entry is a rule to match: an images entry for a name no container uses changes nothing and says nothing, and so does a patch aimed with a target: selector that matches nothing (measured on v5.8.1; this sandbox doesn\'t model target:). Read the rendered output, not the inputs.',
 };
 
 export { CHART_VALUES };
@@ -97,11 +97,12 @@ export function applyApi(s: ApiState): Verdict {
   const name = typeof meta.name === 'string' ? meta.name : '';
   let v = applyVerdict(apiVersion, kind, name, s.minor, s.crd);
   let specError = false;
-  // A served v1 Ingress gets its spec checked, so a v1beta1 spec under a v1
-  // apiVersion fails the way it does for real (strict decoding, 1.36.1).
+  // A served v1 Ingress gets the API server's whole check, as NetSim's apply
+  // does: a v1beta1 spec under a v1 apiVersion fails strict decoding, and a
+  // spec with no backend, no port or no pathType fails validation (1.36.1).
   if ((v.kind === 'created' || v.kind === 'warned') && apiVersion === 'networking.k8s.io/v1' && kind === 'Ingress') {
-    const errs = strictErrors('Ingress', doc);
-    if (errs.length) { specError = true; v = { kind: 'unknown', lines: [{ text: `Error from server (BadRequest): error when creating "old.yaml": Ingress in version "v1" cannot be handled as a Ingress: strict decoding error: ${errs.join(', ')}`, kind: 'err' }] }; }
+    const refused = ingressRefusal(doc, name, 'old.yaml');
+    if (refused) { specError = true; v = { kind: 'unknown', lines: [{ text: refused, kind: 'err' }] }; }
   }
   if (!name && v.kind !== 'missing' && v.kind !== 'crd-missing') return fail('error: this sandbox needs metadata.name');
   s.events.push({ apiVersion, kind, name, minor: s.minor, crd: s.crd, verdict: v, specError });

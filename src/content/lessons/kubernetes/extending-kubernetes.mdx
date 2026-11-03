@@ -35,7 +35,7 @@ That file had applied without complaint for years. Nothing in it changed. What c
 
 Every object has an `apiVersion` and a `kind`. The apiVersion is a **group** and a **version**: `networking.k8s.io/v1`, or just `v1` for the original core group. The API server publishes the group, version and kind triples it serves, and kubectl reads that list (**discovery**) to work out where to send each object. That's what `kubectl api-resources` prints. If a manifest names a triple that's not on the list, kubectl stops right there: "no matches for kind".
 
-Versions follow a policy. Alpha and beta versions get replaced; the deprecation policy says "Beta API versions are deprecated no more than 9 months or 3 minor releases after introduction", and then removed some releases later. "GA API versions may be marked as deprecated, but must not be removed within a major version of Kubernetes". The migration guide lists each removal and the version that replaces it. For the Ingress above: "The extensions/v1beta1 and networking.k8s.io/v1beta1 API versions of Ingress is no longer served as of v1.22." Its replacement, `networking.k8s.io/v1`, has been "available since v1.19", and three fields were renamed on the way, so changing the apiVersion alone isn't enough.
+Versions follow a policy. Alpha and beta versions get replaced; the deprecation policy says "Beta API versions are deprecated no more than 9 months or 3 minor releases after introduction", and then removed some releases later. "GA API versions may be marked as deprecated, but must not be removed within a major version of Kubernetes". The migration guide lists each removal and the version that replaces it. For the Ingress above: "The extensions/v1beta1 and networking.k8s.io/v1beta1 API versions of Ingress is no longer served as of v1.22." Its replacement, `networking.k8s.io/v1`, has been "available since v1.19". On the way, `backend` became `defaultBackend`, `serviceName` became `service.name`, `servicePort` became `service.port.number` (or `service.port.name`), and the guide adds that "pathType is now required for each specified path". Changing the apiVersion alone isn't enough.
 
 Removal doesn't delete your objects. The guide says, for each one, "All existing persisted objects are accessible via the new API." What breaks is the YAML in your repo, the Helm chart with an old template, the CI job that applies them.
 
@@ -47,7 +47,7 @@ Before an API is removed, it's deprecated, and from v1.19, the deprecation polic
 Warning: networking.k8s.io/v1beta1 Ingress is deprecated in v1.19+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
 ```
 
-The same request also "Sets an apiserver_requested_deprecated_apis gauge metric to 1", labelled with the release that removes the API, so you can ask a cluster what is still calling deprecated APIs, whoever sent the request. On our tilt cluster it already listed APIs that 1.36 still serves but has deprecated, among them `v1 Endpoints` ("deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice") and a Crossplane API, each with an empty `removed_release`. A request we made ourselves (`kubectl get componentstatuses`) showed up there too.
+The same request also "Sets an apiserver_requested_deprecated_apis gauge metric to 1 in the kube-apiserver process", labelled with the API and the release that removes it. It is a flag, not a count: it says which deprecated APIs someone has requested since that API server started, not who, how often, or whether they still do. A restart clears it, and a cluster with several API servers keeps one per server, so check each. To find the caller, the policy says the same request "Adds a "k8s.io/deprecated":"true" annotation to the audit event", which you can search for if the cluster keeps an audit log. On our tilt cluster it already listed APIs that 1.36 still serves but has deprecated, among them `v1 Endpoints` ("deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice") and a Crossplane API, each with an empty `removed_release`. A request we made ourselves (`kubectl get componentstatuses`) showed up there too.
 
 ## Adding your own kinds
 
@@ -62,7 +62,7 @@ Now run the same file against clusters of different versions, then install a CRD
 <ApiLab />
 
 <Callout kind="trap">
-A deprecation warning arrives while everything works, and it's printed by whoever sent the request. A Flux or Argo controller applying from git sees it in its logs, not on your screen. Check the cluster's metric before an upgrade, not your terminal: `kubectl get --raw /metrics | grep apiserver_requested_deprecated_apis`.
+A deprecation warning arrives while everything works, and it's printed by whoever sent the request. A Flux or Argo controller applying from git sees it in its logs, not on your screen. Check the cluster's metric before an upgrade, not your terminal: `kubectl get --raw /metrics | grep apiserver_requested_deprecated_apis`. That reaches one API server, and only remembers requests since it last started; a cluster with several API servers needs each one asked.
 </Callout>
 
 <Callout kind="real">
@@ -88,9 +88,9 @@ The sandbox's versions and dates come from the migration guide and from the Kube
 <Quiz
   id="kube-ext-3"
   q="How can you find out, before an upgrade, what is still using APIs that the next version removes?"
-  options={["Read your terminal history", "The API server's apiserver_requested_deprecated_apis metric, labelled with removed_release, counts requests from any client", "Run kubectl version"]}
+  options={["Read your terminal history", "The API server's apiserver_requested_deprecated_apis gauge, set to 1 for each deprecated API any client has requested since that server started, labelled with removed_release", "Run kubectl version"]}
   answer={1}
-  explain="Warnings go to whichever client made the request, often a controller. The metric is kept by the API server itself, for every caller."
+  explain="Warnings go to whichever client made the request, often a controller. The gauge is kept by the API server itself, whoever called. It says which APIs, not who: for the caller, look for the k8s.io/deprecated annotation in the audit log. It resets when the API server restarts, so check every API server."
 />
 
 <DoItForReal id="kube-ext-real" profile="minimal">
@@ -125,4 +125,4 @@ Installing and deleting a CRD changes the whole cluster, so do that on a throwaw
 - kubectl checks discovery before it sends anything. "no matches for kind" means this cluster doesn't serve that group, version and kind.
 - Two common causes: an API version removed by an upgrade, or a CRD not installed.
 - Removed versions don't delete objects; they break manifests. Migrate the fields as well as the apiVersion.
-- Deprecation warnings go to whoever made the request. The `apiserver_requested_deprecated_apis` metric sees every caller.
+- Deprecation warnings go to whoever made the request. The `apiserver_requested_deprecated_apis` gauge records which deprecated APIs were requested since the API server started, by anyone; the audit log's `k8s.io/deprecated` annotation says who.

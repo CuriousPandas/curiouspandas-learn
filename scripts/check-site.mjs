@@ -4293,6 +4293,9 @@ await scenario('kube-net-services', '/learn/kubernetes/pods-and-services/', asyn
   await expectText(page, `${r} .term-out`, /curl: \(7\) Failed to connect to web port 80 after 3 ms: Could not connect to server/);
   await type(page, r, 'kubectl get endpointslices');
   if (await doneSteps(page, r) !== 3) throw new Error(`expected 3 steps after the refusal, got ${await doneSteps(page, r)}`);
+  // Kinds Kubernetes has are a sandbox limit, never the server's "doesn't have".
+  await type(page, r, 'kubectl get all');
+  await expectText(page, `${r} .term-out`, /This sandbox doesn't model all\. A real cluster has it/);
   // Curling a pod directly is the shortcut that must not pass step 4.
   const ip = (await page.locator(`${r} .ns-pods li code`).first().innerText()).trim();
   await type(page, r, `kubectl exec client -- curl -sS -m 5 http://${ip}:8080`);
@@ -4362,6 +4365,15 @@ await scenario('kube-net-policy', '/learn/kubernetes/network-policies/', async (
   await expectText(page, `${r} [data-mbody]`, /"blocked", but connects/);
   await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://api');
   await expectText(page, `${r} .m-debrief`, /The only test is the connection that should fail/);
+  // In the ambient mesh, a default deny no longer takes Service names with it
+  // (measured on tilt): the sandbox once printed "Resolving timed out" here.
+  await page.click(`${r} [data-reset]`);
+  await type(page, r, 'kubectl label ns shop istio.io/dataplane-mode=ambient');
+  await page.click(`${r} .ns-tab[data-file="deny-all.yaml"]`);
+  await page.click(`${r} [data-apply]`);
+  await type(page, r, 'kubectl exec client -- curl -sS -m 5 http://api');
+  await expectText(page, `${r} .term-out`, /curl: \(28\) Operation timed out after 5032 milliseconds with 0 bytes received/);
+  await expectText(page, `${r} [data-mnote]`, /port 15008/);
 });
 
 await scenario('kube-net-ingress', '/learn/kubernetes/ingress/', async (page) => {
@@ -4405,6 +4417,14 @@ await scenario('kube-pkg-render', '/learn/kubernetes/helm-and-kustomize/', async
   await page.fill(`${r} [data-overlay]`, 'resources:\n- ../base\nnamePrefix: prod-\nreplicas:\n- name: web\n  count: 3\nimages:\n- name: panda/web\n  newTag: "2.0"\n');
   await page.click(`${r} [data-kust]`);
   await expectText(page, `${r} .m-debrief`, /Read the rendered output, not the inputs/);
+  // Field names fold case and digest applies, as Kustomize v5.8.1 did; the
+  // sandbox once dropped both without a word.
+  await page.fill(`${r} [data-overlay]`, 'resources:\n- ../base\nimages:\n- name: panda/web\n  newtag: "2.0"\n  digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n');
+  await page.click(`${r} [data-kust]`);
+  await expectText(page, `${r} [data-out]`, /image: panda\/web:2\.0@sha256:0123/);
+  await page.fill(`${r} [data-overlay]`, 'resources:\n- ../base\nimages:\n- name: panda/web\n  bogus: 1\n');
+  await page.click(`${r} [data-kust]`);
+  await expectText(page, `${r} [data-out]`, /json: unknown field "bogus"/);
 });
 
 await scenario('kube-api-removed', '/learn/kubernetes/extending-kubernetes/', async (page) => {
@@ -4416,6 +4436,11 @@ await scenario('kube-api-removed', '/learn/kubernetes/extending-kubernetes/', as
   await page.click(`${r} [data-apply]`);
   await expectText(page, `${r} [data-out]`, /Warning: networking\.k8s\.io\/v1beta1 Ingress is deprecated in v1\.19\+, unavailable in v1\.22\+; use networking\.k8s\.io\/v1 Ingress/);
   await page.selectOption(`${r} [data-version]`, '36');
+  // The shortcut the review found: new apiVersion, spec deleted. Refused as 1.36.1 refuses it.
+  await page.fill(`${r} [data-manifest]`, 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: shop\n');
+  await page.click(`${r} [data-apply]`);
+  await expectText(page, `${r} [data-out]`, /either `defaultBackend` or `rules` must be specified/);
+  if (await doneSteps(page, r) !== 2) throw new Error(`deleting the spec ticked the migration (${await doneSteps(page, r)} steps)`);
   await page.fill(`${r} [data-manifest]`, 'apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: shop\nspec:\n  defaultBackend:\n    service:\n      name: web\n      port:\n        number: 80\n');
   await page.click(`${r} [data-apply]`);
   await expectText(page, `${r} [data-out]`, /ingress\.networking\.k8s\.io\/shop created/);

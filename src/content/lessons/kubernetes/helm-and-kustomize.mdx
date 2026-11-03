@@ -22,7 +22,7 @@ You want three replicas. You type `helm upgrade shop ./web --reuse-values --set 
 
 Most of what runs on a cluster arrives as YAML that someone generated rather than wrote. Two tools do most of that generating, and they work in opposite ways.
 
-**Helm** packages an app as a **chart**: templates with blanks in them, plus a `values.yaml` of defaults. `helm template` (or `install`, or `upgrade`) fills the blanks. In a template, `{{ .Values.replicaCount }}` means "the value at replicaCount". Values come from several places, and the Helm docs give the order: the chart's `values.yaml` "can be overridden by a user-supplied values file, which can in turn be overridden by --set parameters." Setting a value to `null` removes a default. The [Helm lesson](/learn/tools/helm/) covered what upgrades do to CRDs; this one is about the values going in.
+**Helm** packages an app as a **chart**: templates with blanks in them, plus a `values.yaml` of defaults. `helm template` (or `install`, or `upgrade`) fills the blanks. In a template, `{{ .Values.replicaCount }}` means "the value at replicaCount". Values come from several places, and the Helm docs give the order. The chart's `values.yaml` is the default, a parent chart's `values.yaml` can override it, "which can in turn be overridden by a user-supplied values file, which can in turn be overridden by --set parameters." Setting a value to `null` removes a default. The [Helm lesson](/learn/tools/helm/) covered what upgrades do to CRDs; this one is about the values going in.
 
 **Kustomize** has no templates. You start from a **base**, plain manifests that already work, and write an **overlay** that changes them: a name prefix, a replica count, an image tag, a patch. In the Kubernetes docs' words, "A base has no knowledge of an overlay and can be used in multiple overlays." It's built into kubectl: `kubectl kustomize DIR` prints the result, and `kubectl apply -k DIR` applies it. tilt's examples are built this way, and Flux applies Kustomizations, as in [GitOps](/learn/platform/gitops/).
 
@@ -38,7 +38,7 @@ web:
 - at '': additional properties 'replicaCont' not allowed
 ```
 
-Kustomize is strict where it has something to find. A `replicas` entry or a patch that names a Deployment that isn't there is an error. But an `images` entry whose name matches no container changes nothing and prints nothing: `kubectl kustomize` exited 0 with the old image in the output. And Kustomize follows a rename only where it knows a field holds a name. With `namePrefix: prod-`, it renamed the ConfigMap and updated the Deployment's `configMapRef` to match, but left the same name inside the container's `args` untouched.
+Kustomize is strict where an entry names one object. A `replicas` entry naming a Deployment that isn't there is an error, and so is a patch whose own body names one (`metadata.name: webb`). It is silent where an entry is a rule to match. An `images` entry whose name matches no container changes nothing and prints nothing: `kubectl kustomize` exited 0 with the old image in the output. A patch aimed with a `target:` selector (`kind: Deployment, name: webb`) that matches nothing is skipped the same way, exit 0 and no message. And Kustomize follows a rename only where it knows a field holds a name. With `namePrefix: prod-`, it renamed the ConfigMap and updated the Deployment's `configMapRef` to match, but left the same name inside the container's `args` untouched.
 
 Try both. The output panel highlights every line that differs from the tool's output with no changes, which is the habit to keep: diff the render, not the inputs.
 
@@ -106,5 +106,5 @@ helm -n pkg-lab uninstall shop && kubectl delete namespace pkg-lab
 
 - Helm fills templates from values: chart defaults, then `-f` files, then `--set`. A key no template reads is silently ignored.
 - Only a `values.schema.json` makes unknown or wrongly typed values an error.
-- Kustomize patches plain YAML. It errors when a target is missing, and stays silent when a rule like `images` matches nothing.
+- Kustomize patches plain YAML. It errors when a `replicas` entry or a patch body names a missing object, and stays silent when a rule like `images`, or a patch's `target:` selector, matches nothing.
 - Exit code 0 means YAML came out. Read it.

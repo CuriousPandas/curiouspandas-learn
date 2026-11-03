@@ -12,6 +12,8 @@ sources:
     url: https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/
   - title: Istio docs - Kubernetes Ingress
     url: https://istio.io/latest/docs/tasks/traffic-management/ingress/kubernetes-ingress/
+  - title: Istio reference - Global Mesh Options (ingressClass, ingressService, ingressControllerMode)
+    url: https://istio.io/latest/docs/reference/config/istio.mesh.v1alpha1/
   - title: TemplateMechanics/tilt - helm/argocd/httproute.yaml (the comment on why tilt moved off Traefik IngressRoute)
     url: https://github.com/TemplateMechanics/tilt/blob/main/helm/argocd/httproute.yaml
 ---
@@ -22,7 +24,7 @@ sources:
 
 An **Ingress** holds HTTP routing rules: a host, a path, and the Service and port to send matching requests to. It doesn't route anything itself. The docs are blunt: "You must have an Ingress controller to satisfy an Ingress. Only creating an Ingress resource has no effect."
 
-An **Ingress controller** is a proxy running in the cluster (in pods, like anything else) that watches Ingress objects and configures itself to match. When it takes on an Ingress, it writes its own address into the Ingress's status, and that's the ADDRESS column. No controller, no address.
+An **Ingress controller** is a proxy running in the cluster (in pods, like anything else) that watches Ingress objects and configures itself to match. When it takes on an Ingress, it usually writes its own address into the Ingress's status, and that's the ADDRESS column. No controller, no address. The reverse doesn't hold: an empty ADDRESS doesn't prove nobody is serving it. A controller can watch an Ingress and still write no address, because it has none to write or isn't set up to publish one. tilt has an example, below.
 
 An **IngressClass** says which controller an Ingress is for. An Ingress names one in `spec.ingressClassName`. `kubectl explain` describes the link as "controller -> IngressClass -> Ingress resource". If the field is empty, a class marked default with the annotation `ingressclass.kubernetes.io/is-default-class: "true"` is filled in, but, the docs say, only for "new Ingresses without an ingressClassName field specified". An Ingress created before anyone marked a default stays class-less.
 
@@ -41,7 +43,7 @@ In the sandbox there's no Ingress controller until you install one. Create the I
 <NetSim mission="kube-net-ingress" title="An Ingress, a class and a controller" />
 
 <Callout kind="trap">
-"Ingress created" and an Ingress in `kubectl get` prove the object is stored, nothing more. The proof that something serves it is an ADDRESS, and a request that comes back from your backend. An empty ADDRESS with no events is what "no controller claimed this" looks like, and also "a controller exists, but for another class".
+"Ingress created" and an Ingress in `kubectl get` prove the object is stored, nothing more. The proof that something serves it is a request that comes back from your backend. An empty ADDRESS with no events is what "no controller claimed this" looks like, and also "a controller exists, but for another class", and also "a controller watches it but never writes status". Only the request tells them apart.
 </Callout>
 
 <Callout kind="real">
@@ -50,14 +52,14 @@ The sandbox's controller is a toy: it serves `*.localhost` on port 80, writes `l
 
 ## What serves Ingress on tilt
 
-Nothing, as we found on the running platform. `kubectl get ingressclass` returns `No resources found`. tilt routes everything with Gateway API, through Istio. Istio can serve Ingress objects, and its control plane does watch them: the istiod log on tilt shows it syncing IngressClasses. But Istio's own Ingress guide relies on its ingress gateway deployment, and tilt doesn't run one: `kubectl -n istio-system get pods -l istio=ingressgateway` finds none. We created an Ingress with no class and one with `--class=istio`. Neither got an address or an event, and `https://<host>.localhost` for each returned a 404 from tilt's Gateway, which had no route for those hostnames.
+Nothing, as we found on the running platform. `kubectl get ingressclass` returns `No resources found`. tilt routes everything with Gateway API, through Istio. Istio can serve Ingress objects, and its control plane does watch them: the istiod log on tilt says `Starting ingress controller`, and Istio's mesh config there has `ingressClass: istio` and `ingressControllerMode: STRICT`, so it takes Ingresses of class `istio`. The same config says `ingressService: istio-ingressgateway`, which Istio's reference calls the "Name of the Kubernetes service used for the istio ingress controller", and tilt has no Service by that name. Nor does it run the ingress gateway that Istio's own Ingress guide relies on: `kubectl -n istio-system get pods -l istio=ingressgateway` finds none. We created an Ingress with no class and one with `--class=istio`. Neither got an address or an event, and `https://<host>.localhost` for each returned a 404 from tilt's Gateway, which had no route for those hostnames. So the `istio` one was watched by a controller and still showed an empty ADDRESS.
 
 <Quiz
   id="kube-ing-1"
   q="An Ingress has existed for ten minutes. ADDRESS is empty and describe shows no events. What is the most likely cause?"
   options={["The backend Service has no endpoints", "No Ingress controller has claimed it: none is installed, or none serves its class", "DNS for the host is missing"]}
   answer={1}
-  explain="The ADDRESS is written by the controller that takes on the Ingress. A missing backend would still give an address (and errors from the controller); an empty one means no controller claimed it."
+  explain="The ADDRESS is written by the controller that takes on the Ingress. A missing backend would still give an address (and errors from the controller). An empty one usually means no controller claimed it, but not always: on tilt, istiod watches class istio and left one empty. The proof either way is a request that reaches your backend."
 />
 
 <Quiz
@@ -78,25 +80,29 @@ Nothing, as we found on the running platform. `kubectl get ingressclass` returns
 
 <DoItForReal id="kube-ing-real" profile="minimal">
 
-These ran on tilt (Kubernetes 1.36.1, Istio 1.28.3), in a scratch namespace with a Service called `web`; in `hello`, use the `hello` Service instead.
+These ran on tilt (Kubernetes 1.36.1, Istio 1.28.3). The Ingresses go in a scratch namespace, `ing-lab`, with a `web` Service of its own, so nothing is added to `hello` or any other namespace tilt uses. The HTTPRoute line only reads `hello`.
 
 ```bash
 kubectl get ingressclass                                     # No resources found
 kubectl -n istio-system get pods -l istio=ingressgateway     # No resources found
-kubectl -n hello create ingress hello-ing --rule='hello2.localhost/*=hello:80'
-kubectl -n hello get ingress hello-ing                       # CLASS <none>, ADDRESS empty
-kubectl -n hello describe ingress hello-ing                  # the backend's pod IPs, and Events: <none>
-curl -sk -o /dev/null -w '%{http_code}\n' https://hello2.localhost/     # 404, from tilt's Gateway
+kubectl create namespace ing-lab
+kubectl -n ing-lab create deployment web --image=ghcr.io/stefanprodan/podinfo:6.9.1 --port=9898
+kubectl -n ing-lab expose deploy web --port=80 --target-port=9898
+kubectl -n ing-lab create ingress web-ing --rule='ing-lab.localhost/*=web:80'
+kubectl -n ing-lab create ingress web-istio --class=istio --rule='ing-lab-istio.localhost/*=web:80'
+kubectl -n ing-lab get ingress                               # CLASS <none> and istio, ADDRESS empty for both
+kubectl -n ing-lab describe ingress web-ing                  # the backend's pod IP, and Events: <none>
+curl -sk -o /dev/null -w '%{http_code}\n' https://ing-lab.localhost/     # 404, from tilt's Gateway
 kubectl -n hello get httproute hello -o jsonpath='{.status.parents[0].conditions[*].type}'; echo   # Accepted ResolvedRefs ...: Gateway API reports
 kubectl explain ingress.spec.tls.secretName                  # a name, no namespace
-kubectl -n hello delete ingress hello-ing
+kubectl delete namespace ing-lab
 ```
 
 </DoItForReal>
 
 ## What to remember
 
-- An Ingress is rules. A controller makes them real and writes the ADDRESS; with no controller, nothing happens and nothing says so.
+- An Ingress is rules. A controller makes them real and usually writes the ADDRESS; with no controller, nothing happens and nothing says so. A request through it is the only proof.
 - `ingressClassName` ties an Ingress to a controller. A default class is filled in only on new Ingresses.
 - The Ingress API is frozen. Kubernetes recommends Gateway API, which reports attachment in status.
 - tilt serves no Ingress at all: no IngressClass, and no Istio ingress gateway.

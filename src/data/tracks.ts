@@ -98,7 +98,7 @@ export const TRACKS: Track[] = [
       { slug: 'placement', title: 'Pending: didn\'t match Pod\'s node affinity', status: 'ready' },
       { slug: 'pods-and-services', title: 'EXTERNAL-IP pending, forever', status: 'ready' },
       { slug: 'cluster-dns', title: 'It works by IP, not by name', status: 'ready' },
-      { slug: 'network-policies', title: 'Default deny, and now nothing resolves', status: 'ready' },
+      { slug: 'network-policies', title: 'Default deny, then allow just enough', status: 'ready' },
       { slug: 'ingress', title: 'An Ingress with nothing behind it', status: 'ready' },
       { slug: 'volumes', title: 'The claim that stayed Pending', status: 'ready' },
       { slug: 'statefulsets', title: 'Scaled down, and the disks stayed', status: 'ready' },

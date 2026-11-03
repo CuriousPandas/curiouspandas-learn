@@ -83,7 +83,7 @@ A Service with endpoints isn't proof that anything listens. EndpointSlices are b
 
 ## Ready, not just running
 
-Endpoints carry readiness, too. Each endpoint has a `ready` condition, which follows the pod's Ready condition, and a failing readiness probe turns that false. A pod whose readiness probe fails is still Running and isn't restarted; it just stops getting new traffic. In the sandbox, the panda images copy podinfo's switch: `curl -X POST http://POD-IP:8080/readyz/disable` from the client pod makes that pod fail its probe.
+Endpoints carry readiness, too. Each endpoint has a `ready` condition, which follows the pod's Ready condition, and a failing readiness probe turns that false. A pod whose readiness probe fails is still Running and isn't restarted; it just stops getting new traffic. In the sandbox, the panda images copy podinfo's switch: `curl -X POST http://POD-IP:8080/readyz/disable` from the client pod makes that pod fail its probe. The switch only matters to a pod that has a readiness probe on `/readyz`. tilt's `hello` Deployment has one. A pod made with `kubectl create deployment` has none, so it takes the request (202) and stays 1/1: we checked.
 
 One detail surprised us on a real cluster. `kubectl get endpointslices` still listed the unready pod's address. Readiness is a condition on each endpoint, so you see it with `-o yaml` (`ready: false`), while `kubectl describe svc` lists only the ready addresses.
 
@@ -117,25 +117,20 @@ The sandbox applies changes instantly and uses kindnet and kube-proxy's behaviou
 
 <DoItForReal id="kube-svc-real" profile="minimal">
 
-These ran on tilt with Kubernetes 1.36.1. The LoadBalancer, the wrong port and the readiness switch were checked in a scratch namespace, with the same podinfo image `hello` runs.
+These ran on tilt with Kubernetes 1.36.1. The first commands only read tilt's own objects. Everything that creates something does it in a scratch namespace, `svc-lab`, with the same podinfo image `hello` runs, and deleting the namespace at the end removes it all. It is outside the mesh, so a refused connection shows as the sandbox's `(7)`; in `hello`, which is in the mesh, it would be `(56) ... Connection reset by peer`.
 
 ```bash
 kubectl -n hello get svc hello -o wide            # port 80, selector app.kubernetes.io/name=hello
 kubectl -n hello get deploy hello -o jsonpath='{.spec.template.spec.containers[0].ports}'; echo   # the "http" port is 9898
 kubectl -n istio-system get svc                   # localhost-gateway-nodeport: 80:30080, 443:30443
 kubectl -n hello get pods -o wide                 # pod IPs from 10.244.x.0/24
-kubectl -n hello expose deploy hello --name=hello-lb --type=LoadBalancer --port=80 --target-port=9898
-kubectl -n hello get svc hello-lb                 # EXTERNAL-IP <pending>, and a node port
-kubectl -n hello describe svc hello-lb | tail -3  # Events: <none>
-kubectl -n hello get svc hello-lb                 # a minute later: still <pending>
-kubectl -n hello delete svc hello-lb
-```
 
-`hello` is in the ambient mesh, so a refused connection there shows as `(56) ... Connection reset by peer`. To see the `(7)` from the sandbox, use a namespace outside the mesh:
-
-```bash
 kubectl create namespace svc-lab
 kubectl -n svc-lab create deployment web --image=ghcr.io/stefanprodan/podinfo:6.9.1 --port=9898
+kubectl -n svc-lab expose deploy web --name=web-lb --type=LoadBalancer --port=80 --target-port=9898
+kubectl -n svc-lab get svc web-lb                 # EXTERNAL-IP <pending>, and a node port
+kubectl -n svc-lab describe svc web-lb | tail -3  # Events: <none>
+kubectl -n svc-lab get svc web-lb                 # a minute later: still <pending>
 kubectl -n svc-lab expose deploy web --port=80 --target-port=8080       # the wrong port
 kubectl -n svc-lab run client --image=curlimages/curl:8.11.1 --restart=Never --command -- sleep 3600
 kubectl -n svc-lab wait --for=condition=Ready pod/client
