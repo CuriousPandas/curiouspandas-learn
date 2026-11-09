@@ -127,6 +127,17 @@ for (const path of pages('dist')) {
   if (errors.length) fail(path, `console errors: ${errors.join(' | ')}`);
   if (failed.length) fail(path, `failed requests: ${failed.join(' | ')}`);
   if (overflow > 1) fail(path, `scrolls sideways by ${overflow}px at 375px wide: ${wide.join(', ')}`);
+  // Videos (<Watch>): the poster must have loaded and the player must not be
+  // there yet. The play button is deliberately not pressed: that is the one
+  // request to Google the site makes, and only on the learner's say-so, so
+  // the third-party check above would rightly fail the page.
+  const videos = await page.evaluate(() => [...document.querySelectorAll('[data-video]')].map((w) => ({
+    id: w.getAttribute('data-video'), poster: w.querySelector('img')?.complete && w.querySelector('img')?.naturalWidth > 0,
+    play: Boolean(w.querySelector('.w-play')), iframe: Boolean(w.querySelector('iframe')) })));
+  for (const v of videos) {
+    if (!v.poster) fail(path, `video ${v.id}: poster did not load`);
+    if (!v.play || v.iframe) fail(path, `video ${v.id}: player present before play was pressed`);
+  }
   // Diagrams: ids must be unique on a page (they key the SVG title, desc and
   // arrowhead ids - a duplicate silently borrows another diagram's arrows), and
   // each must draw at least one box.
