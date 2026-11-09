@@ -131,8 +131,8 @@ for (const path of pages('dist')) {
   // there yet. The play button is deliberately not pressed: that is the one
   // request to Google the site makes, and only on the learner's say-so, so
   // the third-party check above would rightly fail the page.
-  const videos = await page.evaluate(() => [...document.querySelectorAll('[data-watch]')].map((w) => ({
-    id: w.getAttribute('data-watch'), poster: w.querySelector('img')?.complete && w.querySelector('img')?.naturalWidth > 0,
+  const videos = await page.evaluate(() => [...document.querySelectorAll('[data-video]')].map((w) => ({
+    id: w.getAttribute('data-video'), poster: w.querySelector('img')?.complete && w.querySelector('img')?.naturalWidth > 0,
     play: Boolean(w.querySelector('.w-play')), iframe: Boolean(w.querySelector('iframe')) })));
   for (const v of videos) {
     if (!v.poster) fail(path, `video ${v.id}: poster did not load`);

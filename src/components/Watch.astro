@@ -20,7 +20,9 @@ if (!poster.startsWith('/') || !existsSync(join(process.cwd(), 'public', poster)
 const watchUrl = `https://www.youtube.com/watch?v=${youtube}`;
 const embed = `https://www.youtube-nocookie.com/embed/${youtube}?autoplay=1&rel=0`;
 ---
-<figure class="watch card" data-watch={youtube} data-embed={embed} data-title={title}>
+<!-- data-video, not data-watch: StranglerLab already uses data-watch for its
+     watch-window text, and the site checker keys on this attribute. -->
+<figure class="watch card" data-video={youtube} data-embed={embed} data-title={title}>
   <div class="w-frame">
     <img src={poster} alt="" width="1280" height="720" loading="lazy" />
     <button class="w-play" type="button" aria-label={`Play video: ${title}`}><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>Play{minutes && ` · ${minutes} min`}</button>
@@ -31,7 +33,7 @@ const embed = `https://www.youtube-nocookie.com/embed/${youtube}?autoplay=1&rel=
   </figcaption>
 </figure>
 <script>
-  for (const root of document.querySelectorAll<HTMLElement>('[data-watch]')) {
+  for (const root of document.querySelectorAll<HTMLElement>('[data-video]')) {
     const frame = root.querySelector<HTMLElement>('.w-frame')!;
     root.querySelector('.w-play')!.addEventListener('click', () => {
       const f = document.createElement('iframe');
