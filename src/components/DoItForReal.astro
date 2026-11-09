@@ -8,7 +8,8 @@
 interface Props { id: string; lab?: string; profile?: string; xp?: number; needs?: 'tilt' | 'terminal' }
 const { id, lab, profile = 'minimal', xp = 50, needs = 'tilt' } = Astro.props;
 const labUrl = lab ? `https://github.com/TemplateMechanics/tilt/tree/main/labs/${lab}` : 'https://github.com/TemplateMechanics/tilt';
-// Our setup lesson once it is written; the platform's own guide until then.
+// Our setup lesson when it is in the curriculum; the platform's own guide if
+// it were ever pulled, so the link never 404s.
 const { curriculum } = await import('../lib/curriculum.ts');
 const setupReady = (await curriculum()).some((t) => t.lessons.some((l) => l.id === 'platform/bring-it-home' && l.entry));
 const setupUrl = setupReady ? '/learn/platform/bring-it-home/' : 'https://github.com/TemplateMechanics/tilt/blob/main/docs/STUDENT-SETUP.md';

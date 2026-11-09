@@ -173,6 +173,9 @@ request a certificate (`https_certificate` stays null and HTTPS serves the
 2. Write `src/content/lessons/<track>/<slug>.mdx`. Any component in
    `src/components/` is available by name (`<Quiz>`, `<Callout>`,
    `<DoItForReal>`, `<GitPlayground mission=...>`, `<KubeSim mission=...>`, ...).
+   A demo video is `<Watch youtube="<id>" title="..." poster="/video/<name>.jpg" minutes={n} />`
+   with the poster committed under `public/video/`; it streams from YouTube
+   only after the learner presses play, so the no-third-party promise holds.
 3. Flip the status to `ready`. The build fails if the plan and the files
    disagree in either direction.
 4. Any number you state goes in `sources:`, and any new widget gets an engine
