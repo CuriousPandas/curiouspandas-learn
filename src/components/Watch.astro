@@ -7,10 +7,19 @@
 // privacy-enhanced embed: no viewing history is stored unless they play it.
 // A wrong id or a missing poster fails the build; an empty frame would pass
 // every other check and read as a broken video.
+// Which video comes from src/data/videos.ts by lesson, not from attributes
+// here: /videos/ shows the same list, and an id written in two places is two
+// places to forget on a re-upload.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-interface Props { youtube: string; title: string; poster: string; minutes?: number }
-const { youtube, title, poster, minutes } = Astro.props;
+import { videoFor } from '../data/videos.ts';
+interface Props { lesson: string }
+const { lesson } = Astro.props;
+// In a lesson, the tag must name the lesson it sits in. A tag copied from
+// another lesson would build, play, and show that other lesson's video.
+const here = Astro.url.pathname.match(/^\/learn\/([^/]+\/[^/]+)\/?$/)?.[1];
+if (here && here !== lesson) throw new Error(`<Watch lesson="${lesson}"> is in lesson ${here}; a lesson can only embed its own video`);
+const { youtube, title, poster, minutes } = videoFor(lesson);
 if (!/^[\w-]{11}$/.test(youtube)) throw new Error(`<Watch> youtube="${youtube}" is not a YouTube video id`);
 // From the project root, not import.meta.url: at build time this code runs
 // from a bundled chunk under dist/, where ../../public is nothing.
@@ -20,15 +29,18 @@ if (!poster.startsWith('/') || !existsSync(join(process.cwd(), 'public', poster)
 const watchUrl = `https://www.youtube.com/watch?v=${youtube}`;
 const embed = `https://www.youtube-nocookie.com/embed/${youtube}?autoplay=1&rel=0`;
 ---
-<!-- data-video, not data-watch: StranglerLab already uses data-watch for its
+<!-- The accessible name of the play button starts with the words on it. With
+     "Play video: ..." axe failed the page (label-content-name-mismatch): a
+     voice-control user who says what they see, "Play 2 min", matched nothing.
+     data-video, not data-watch: StranglerLab already uses data-watch for its
      watch-window text, and the site checker keys on this attribute. -->
 <figure class="watch card" data-video={youtube} data-embed={embed} data-title={title}>
   <div class="w-frame">
     <img src={poster} alt="" width="1280" height="720" loading="lazy" />
-    <button class="w-play" type="button" aria-label={`Play${minutes ? ` · ${minutes} min` : ''}: ${title}`}><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>Play{minutes && ` · ${minutes} min`}</button>
+    <button class="w-play" type="button" aria-label={`Play · ${minutes} min: ${title}`}><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>Play · {minutes} min</button>
   </div>
   <figcaption>
-    <div class="w-head"><strong>Watch: {title}</strong>{minutes && <span class="pill">{minutes} min</span>}</div>
+    <div class="w-head"><strong>Watch: {title}</strong><span class="pill">{minutes} min</span></div>
     <span class="muted small">Plays from YouTube when you press play; nothing loads from Google before that. <a href={watchUrl}>Open on YouTube</a></span>
   </figcaption>
 </figure>
