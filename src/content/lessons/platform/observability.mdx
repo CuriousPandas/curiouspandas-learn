@@ -110,7 +110,7 @@ Look at what the lab's grader checks. It asserts four separate facts on purpose,
 A fixed ServiceMonitor also isn't picked up instantly. The operator writes the new configuration into a Secret, the kubelet refreshes the mounted copy on its own schedule, and only then does a sidecar tell Prometheus to reload. It can take a minute or more to show up. Testing straight away and concluding "my fix did nothing" is its own trap. Wait, then look at `/targets` again.
 </Callout>
 
-<Watch youtube="PGLt8VsIqPE" title="The dashboard that lies, on a real cluster" poster="/video/platform-observability.jpg" minutes={2} />
+<Watch youtube="Wcz8unQJ2Ws" title="The dashboard that lies, on a real cluster" poster="/video/platform-observability.jpg" minutes={2} />
 
 <DoItForReal id="platform-obs-real" lab="08-empty-dashboard" profile="observability">
 
