@@ -131,9 +131,29 @@ for (const path of pages('dist')) {
   // there yet. The play button is deliberately not pressed: that is the one
   // request to Google the site makes, and only on the learner's say-so, so
   // the third-party check above would rightly fail the page.
-  const videos = await page.evaluate(() => [...document.querySelectorAll('[data-video]')].map((w) => ({
-    id: w.getAttribute('data-video'), poster: w.querySelector('img')?.complete && w.querySelector('img')?.naturalWidth > 0,
-    play: Boolean(w.querySelector('.w-play')), iframe: Boolean(w.querySelector('iframe')) })));
+  // The poster is lazy and the first one sits 5,200px down its page, so it has
+  // not been asked for when the page loads. Asking "has it loaded" there
+  // failed WebKit with "poster did not load" on a poster that loads fine, and
+  // passed Chromium only by luck of what ran before. Bring it on screen as a
+  // learner would, give it time, then put the page back for the checks below.
+  const videos = await page.evaluate(async () => {
+    const found = [];
+    for (const w of document.querySelectorAll('[data-video]')) {
+      const img = w.querySelector('img');
+      if (img && !img.complete) {
+        img.scrollIntoView();
+        await new Promise((done) => {
+          img.addEventListener('load', done, { once: true });
+          img.addEventListener('error', done, { once: true });
+          setTimeout(done, 10000);
+        });
+      }
+      found.push({ id: w.getAttribute('data-video'), poster: Boolean(img?.complete && img.naturalWidth > 0),
+        play: Boolean(w.querySelector('.w-play')), iframe: Boolean(w.querySelector('iframe')) });
+    }
+    scrollTo(0, 0);
+    return found;
+  });
   for (const v of videos) {
     if (!v.poster) fail(path, `video ${v.id}: poster did not load`);
     if (!v.play || v.iframe) fail(path, `video ${v.id}: player present before play was pressed`);
