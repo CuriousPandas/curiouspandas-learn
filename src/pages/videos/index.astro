@@ -1,0 +1,44 @@
+---
+import Base from '../../layouts/Base.astro';
+import Watch from '../../components/Watch.astro';
+import { curriculum } from '../../lib/curriculum.ts';
+import { VIDEOS } from '../../data/videos.ts';
+
+// Every video in one place, for checking them side by side. Each also sits in
+// its lesson, where it has context; both read src/data/videos.ts.
+const lessons = new Map((await curriculum()).flatMap((t) => t.lessons.map((l) => [l.id, { ...l, track: t }])));
+const videos = VIDEOS.map((v) => {
+  const lesson = lessons.get(v.lesson);
+  // A video for a lesson that is not published would link into a 404.
+  if (!lesson?.entry) throw new Error(`src/data/videos.ts: "${v.lesson}" is not a ready lesson`);
+  return { ...v, href: lesson.href, lessonTitle: lesson.entry.data.title, track: lesson.track.title };
+});
+const minutes = videos.reduce((n, v) => n + v.minutes, 0);
+---
+<Base title="Videos" description="Short demo videos recorded on a real cluster, each one from a lesson you can do yourself.">
+  <section class="wrap page">
+    <p class="eyebrow">Videos</p>
+    <h1>Watch it happen on a real cluster</h1>
+    <p class="lede">{videos.length === 1 ? 'One short video so far' : `${videos.length} short videos`}, about {minutes} {minutes === 1 ? 'minute' : 'minutes'} in all. Each is a recording of a real lab, not a simulation, and each belongs to a lesson where you can break the same thing yourself. Nothing loads from YouTube until you press play.</p>
+    <ol class="list">
+      {videos.map((v) => (
+        <li>
+          <Watch lesson={v.lesson} />
+          <p class="about">{v.about}</p>
+          <p class="from">From the lesson <a href={v.href}>{v.lessonTitle}</a> <span class="muted">· {v.track}</span></p>
+        </li>
+      ))}
+    </ol>
+  </section>
+</Base>
+<style>
+  .page { padding-top: 32px; }
+  .lede { max-width: 680px; color: var(--ink-2); font-size: 1.06rem; margin-bottom: 8px; }
+  .list { list-style: none; padding: 0; margin: 0; max-width: 860px; }
+  .list li { margin-bottom: 44px; }
+  /* <Watch> carries 36px of its own margin for sitting between paragraphs of
+     a lesson; here its description should read as part of it. */
+  .list :global(.watch) { margin-bottom: 14px; }
+  .about { margin: 0 0 4px; }
+  .from { margin: 0; }
+</style>
