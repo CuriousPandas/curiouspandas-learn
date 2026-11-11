@@ -30,6 +30,14 @@ export const VIDEOS: Video[] = [
     minutes: 2,
     about: 'Tilt lab 08 on a real cluster. One word changes in a ServiceMonitor, every pod stays green, and Prometheus is quietly left with no target until the lab grader says so.',
   },
+  {
+    lesson: 'kubernetes/restarts',
+    youtube: 'Qcycel3b8Aw',
+    title: 'Why did it restart?, on a real cluster',
+    poster: '/video/kubernetes-restarts.jpg',
+    minutes: 2,
+    about: 'Tilt lab 09 on a real cluster. Two pods crash-loop with the same exit code, 137. The termination reason and the events show one ran out of memory and the other was killed by its own health check, and each gets a different fix.',
+  },
 ];
 
 export function videoFor(lesson: string): Video {
