@@ -287,3 +287,14 @@ test('a function written as name() is refused as a function', () => {
   assert.match(out(sh, 'f() { echo hi; }'), /no shell functions/);
   assert.match(out(sh, 'echo $(date)'), /subshells and arrays/);
 });
+
+// This was a parity case against `bash -c`, where the answer depends on a race
+// (see the note in shell-parity.test.ts). The sandbox is a terminal: job
+// control is on, a background job keeps the default SIGINT, and it dies of it.
+test('kill -INT ends a background job with 130, as in a terminal', () => {
+  const sh = world();
+  sh.run('sleep 30 &');
+  sh.run('kill -INT $!');
+  sh.run('wait $!');
+  assert.equal(out(sh, 'echo $?'), '130');
+});

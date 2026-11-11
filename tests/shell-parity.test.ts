@@ -59,7 +59,14 @@ const SAME_STDOUT = [
   'echo hi > g; echo there >> g; cat g', 'cat f > f2; cat f2 > f2; cat f2', 'cat f | tee t > /dev/null; cat t',
   `echo 'a  b' "c   d" e`, 'echo -n no-newline', 'printf "%s-%d\\n" a 3 b 4',
   'false && echo no || echo yes', 'true || echo a && echo b', 'nosuch 2>/dev/null; echo $?', 'grep zzz log; echo $?', 'grep x missing 2>/dev/null; echo $?',
-  'sleep 30 & kill -TERM $!; wait $!; echo $?', 'sleep 30 & kill -KILL $!; wait $!; echo $?', 'sleep 30 & kill -INT $!; wait $!; echo $?',
+  // No `kill -INT $!` here. `bash -c` has no job control, so a background job
+  // is started with SIGINT ignored. An INT sent at once usually lands before
+  // the child has set that (130), and sometimes after (the sleep runs its
+  // full 30 seconds and wait gives 0). CI lost that race once and failed a
+  // change that had nothing to do with it. With 50 ms between the two it is
+  // ignored 300 times in 300. A terminal, which is what the sandbox models,
+  // gives 130: tests/shell.test.ts holds the sandbox to that.
+  'sleep 30 & kill -TERM $!; wait $!; echo $?', 'sleep 30 & kill -KILL $!; wait $!; echo $?',
   'ls | cat', 'mkdir -p d/e; ls d', 'touch new; ls | grep new',
 ];
 
