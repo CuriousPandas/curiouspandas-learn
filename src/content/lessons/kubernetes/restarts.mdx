@@ -74,6 +74,8 @@ The tempting alternative is a big `initialDelaySeconds` on the liveness probe. I
 The tilt lab's grader checks the *shape* of each fix, not just that pods went green. Raising memory on the probe-killed pod might eventually look healthy for the wrong reason. It also waits for the rollout to **finish**: while the lab was being written, the grader once passed on the old pod, which was Ready and still had the bug. "A pod is Ready" and "your change is live" are different facts.
 </Callout>
 
+<Watch lesson="kubernetes/restarts" />
+
 <DoItForReal id="kube-restart-real" lab="09-why-did-it-restart">
 
 ```bash
