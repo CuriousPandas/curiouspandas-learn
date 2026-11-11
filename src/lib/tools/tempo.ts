@@ -19,7 +19,7 @@ export const TEMPO_DECK: Deck = {
     },
     {
       id: 'aged', title: 'Gone after a day',
-      body: 'On the tilt platform, a trace id copied from a log line yesterday morning found a full trace. Today, two days later, Tempo cannot find it. The spans-received counter is still going up and new traces appear within seconds.',
+      body: 'On the tilt platform, a trace id copied from a log line on Monday morning found a full trace. On Wednesday, two days later, Tempo cannot find it. The spans-received counter is still going up and new traces appear within seconds.',
       options: [
         { id: 'a', text: 'Working as configured: the chart\'s retention is 24h and tilt does not change it, so old traces are deleted', why: 'Supported. The tempo chart sets retention: 24h, which becomes the compactor\'s block retention. Ingestion is healthy; the old trace was deleted on schedule.' },
         { id: 'b', text: 'Ingestion has stopped, so the trace was never stored', why: 'It was stored: it was found yesterday. And the counter shows spans still arriving.' },

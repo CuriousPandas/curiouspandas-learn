@@ -63,7 +63,10 @@ export const SCENARIOS: Scenario[] = [
     meaning: 'No answer at all, not even "no". Typically a firewall silently dropping packets, or a route to nowhere. Slow failure is a clue.',
   },
   {
-    id: 'reset', title: 'Connection cut mid-way', failedAt: 'tcp', exit: 56, status: null, body: null,
+    // Fails at the http stage, not tcp: the trace below connects, finishes TLS
+    // and sends the request before the reset. The tracker used to show TLS and
+    // HTTP as never reached, beside a terminal showing both.
+    id: 'reset', title: 'Connection cut mid-way', failedAt: 'http', exit: 56, status: null, body: null,
     trace: [...resolve, ...connect, ...tlsOk, ...ask, 'curl: (56) Recv failure: Connection reset by peer'],
     meaning: 'Something on the path tore the connection down. Your request may never have reached the application - a reset is not an answer from it.',
   },

@@ -1,7 +1,7 @@
 {
   "source": "https://raw.githubusercontent.com/cncf/landscape/master/landscape.yml",
-  "fetchedAt": "2026-10-29",
-  "items": 2441,
+  "fetchedAt": "2026-11-11",
+  "items": 2445,
   "tools": {
     "kubernetes": {
       "landscapeName": "Kubernetes",
@@ -107,7 +107,7 @@
     },
     "cloudnative-pg": {
       "landscapeName": "CloudNativePG",
-      "maturity": "sandbox",
+      "maturity": "incubating",
       "homepage": "https://www.cloudnative-pg.io/",
       "landscapeCategory": "App Definition and Development / Database"
     },
@@ -197,7 +197,7 @@
     },
     "nats": {
       "landscapeName": "NATS",
-      "maturity": "incubating",
+      "maturity": "graduated",
       "homepage": "https://nats.io/",
       "landscapeCategory": "App Definition and Development / Streaming & Messaging"
     },
@@ -329,7 +329,7 @@
     },
     "kubevirt": {
       "landscapeName": "KubeVirt",
-      "maturity": "incubating",
+      "maturity": "graduated",
       "homepage": "https://kubevirt.io/",
       "landscapeCategory": "App Definition and Development / Application Definition & Image Build"
     }

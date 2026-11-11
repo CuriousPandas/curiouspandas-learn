@@ -145,7 +145,7 @@ Double the text and the plain version takes about four times the calls. That's q
 Those are this matcher's own step counts, and they aren't comparable with Cloudflare's numbers, which came from Perl's debugger counting its own idea of a step.
 
 <Callout kind="real">
-Python's `re` module isn't available on this page, so that matcher is a stand-in. The real thing does backtrack. This site's research measured `^a*b?a*$` on one Windows machine with CPython 3.11: 0.49 seconds at 8,000 characters and 2.02 seconds at 16,000, which is quadratic. It also has a trap for testers. `re` barely slows down on Cloudflare's own example string, and it needs many `=` signs to blow up, so a test using that string would pass and prove nothing.
+Python's `re` module isn't available on this page, so that matcher is a stand-in. The real thing does backtrack. This site's research measured `^a*b?a*$` on one Windows machine with CPython 3.11: 0.49 seconds at 8,000 characters and 2.02 seconds at 16,000, which is quadratic. It also has a trap for testers. On Cloudflare's own 22-character example, `re` finishes at once. The same shape is still quadratic in Python once the input is thousands of characters long, and it takes many `=` signs to make it cubic. So a test using the short string would pass and prove nothing.
 
 Ruby's fix also has limits, and its notes state them: "This optimization may consume memory proportional to the input length for each match." It covers "about 90% in our experiments", and it doesn't cover back-references or look-around. So Ruby added a second defence: "As a fallback measure, a timeout feature for Regexp matches is also introduced."
 </Callout>

@@ -132,7 +132,6 @@ export class Shell {
   readonly pid = 4242;
   procs = new Map<number, Proc>();
   nextPid = 4250;
-  nextJob = 1;
   history: string[] = [];
   signals: Signal[] = [];
   /** What `echo $?`-style lines printed: missions check the learner read a status. */
@@ -246,7 +245,10 @@ export class Shell {
       this.status = e.code;
       return out;
     }
-    const job = this.nextJob++, pid = this.nextPid++;
+    // bash numbers a new job one above the highest job it still has, so the
+    // number comes back to 1 once earlier jobs are waited for. A counter that
+    // only went up made the lesson's second `kill -9 %1` fail with "no such job".
+    const job = 1 + Math.max(0, ...[...this.procs.values()].map((x) => x.job ?? 0)), pid = this.nextPid++;
     const cmd = argv.join(' ');
     out.push({ text: `[${job}] ${pid}`, kind: 'out' });
     this.lastBg = pid;
@@ -1187,6 +1189,9 @@ export function tokenize(line: string): Tok[] {
     if (ch === '\\') { part('single').s += line[i + 1] ?? ''; i++; continue; }
     // These parsed as a confusing syntax error or as part of a word. Refused by name.
     if (/^([12]?>&|&>)/.test(line.slice(i)) && !cur) throw new Error(`${/^([12]?>&\S*|&>)/.exec(line.slice(i))![0]}: real bash can join output streams; this sandbox has only > >> < 2> and 2>>`);
+    // `name() {` is how most people write a function, and it used to get the
+    // subshell message below, which names the wrong missing feature.
+    if (ch === '(' && line[i + 1] === ')' && /^\s*[A-Za-z_]\w*\s*\(\)/.test(line)) throw new Error(`${line.trim().split(/[\s(]/)[0]}(): real bash has it; this sandbox has no shell functions`);
     if (ch === '(' || ch === ')') throw new Error(`${ch}: real bash has subshells and arrays; this sandbox does not`);
     if (ch === '2' && line[i + 1] === '>' && !cur) { end(); const app = line[i + 2] === '>'; toks.push({ op: app ? '2>>' : '2>' }); i += app ? 2 : 1; continue; }
     const two = line.slice(i, i + 2);

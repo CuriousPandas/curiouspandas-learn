@@ -69,7 +69,7 @@ The platform's policies set that spec-level field. Kyverno has deprecated it sin
 <Callout kind="real">
 Turning on a single policy is the useful experiment. Enforce just `disallow-privileged-containers` (`kubectl patch clusterpolicy disallow-privileged-containers --type merge -p '{"spec":{"validationFailureAction":"Enforce"}}'`), then restart something that really is privileged: `kubectl -n istio-system rollout restart daemonset/istio-ambient-node-prep`. Either the restart is refused, or its new pods are and `kubectl -n istio-system get events --field-selector reason=FailedCreate` shows it. Both messages name the policy and the rule. Then put it back to `Audit` straight away.
 
-The platform's README suggests restarting ztunnel instead. That proves nothing: ztunnel runs with `privileged: false` plus added capabilities, so this policy lets it straight through.
+Restarting ztunnel instead would prove nothing: it runs with `privileged: false` plus added capabilities, so this policy lets it straight through.
 </Callout>
 
 <DoItForReal id="platform-sec-real">

@@ -32,7 +32,7 @@ Code can be rolled back in seconds. Data can't. A schema change is a code change
 
 Danilo Sato's name for the pattern is **parallel change**, in three steps: *expand* to support both the old and the new shape, *migrate* everything onto the new one, then *contract* by removing the old. Renaming a column becomes: add the new column, write to both, backfill, move reads, stop writing the old one, drop it. Each step can be deployed and rolled back on its own.
 
-Stripe described the same shape for moving data between stores: dual-write to both, change reads to the new one, change writes, then remove the old data, while keeping its services running throughout. Pramod Sadalage and Martin Fowler call the time when both shapes exist the transition period, and it can last months. The contract step is the one teams skip, and the reason the old column is still there years later.
+Stripe described the same shape for moving data between stores: dual-write to both, change reads to the new one, change writes, then remove the old data, while keeping its services running throughout. Pramod Sadalage and Martin Fowler call the time when both shapes exist the transition phase, and it can last months. The contract step is the one teams skip, and the reason the old column is still there years later.
 
 ## The trap: waiting, not running
 

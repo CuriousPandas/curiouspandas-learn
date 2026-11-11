@@ -47,7 +47,7 @@ export const IN_NAME_ONLY: Deck = {
       answer: 'fine', source: 'Agile Manifesto principles (2001)',
     },
   ],
-  debrief: 'Three of the four teams ran every ritual and still were not doing what the rituals are for; the fourth ran fewer and was. The test that cuts through every one: does tested, integrated, working software reach users each Sprint, and does the team own how it works? A diagnosis that can only ever say "broken" is as useless as one that always says "fine".',
+  debrief: 'Three of the four teams ran every ritual and still were not doing what the rituals are for; the fourth was, and nobody needed its velocity to see it. The test that cuts through every one: does tested, integrated, working software reach users each Sprint, and does the team own how it works? A diagnosis that can only ever say "broken" is as useless as one that always says "fine".',
 };
 
 // The quoted sentences in this deck are from the 2020 Scrum Guide by Ken

@@ -105,6 +105,21 @@ test('fast-forward, then a clean three-way merge with the default message', () =
   w.done();
 });
 
+// The sandbox's `commit -a` ran `add .`, so it committed brand-new files, under a
+// callout saying git never does. No session here had an untracked file present
+// when -am ran, so parity passed.
+test('commit -am leaves a brand-new file out, as git does', () => {
+  const w = new Twin();
+  for (const s of [
+    { write: ['hello.txt', 'hello\n'] }, { git: ['add', '.'] }, { git: ['commit', '-m', 'first'] },
+    { write: ['hello.txt', 'hello\nmore\n'] }, { write: ['new.txt', 'x\n'] }, { git: ['commit', '-am', 'msg'] }, { check: 'tracked change only' },
+    { del: 'hello.txt' }, { git: ['commit', '-a', '-m', 'tracked deletion'] }, { check: 'deletion staged by -a' },
+  ] as Step[]) w.step(s);
+  assert.ok(!w.repo.index.has('new.txt'), 'new.txt is still untracked');
+  assert.match(w.real(['status', '--short']), /^\?\? new\.txt$/m);
+  w.done();
+});
+
 test('a conflict writes the same markers as git, and the resolution commits identically', () => {
   const w = new Twin();
   for (const s of [

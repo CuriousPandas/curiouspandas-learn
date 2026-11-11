@@ -20,7 +20,7 @@ This network has **no hidden layer**: just the inputs `x` and `y`, straight to t
 
 <NeuralPlayground challenge="nn-xor-lean" dataset="xor" hidden="" features="x,y" title="A straight line vs. a checkerboard" />
 
-It gets stuck, far short of solved: on this data it settles not much better than a coin flip. A line *could* do a bit better, tilting so that three of the four quarters land on the right side (about 75%). But that line is confidently wrong about the fourth quarter, and the loss punishes confident mistakes hard, so training settles for a nearly flat, unsure answer instead. Either way, no straight line solves it, and no amount of training changes that.
+It gets stuck, far short of solved: on this data it settles not much better than a coin flip. A line *could* do a bit better, cutting off one corner and calling everything else the other colour (about two-thirds right). But that line is confidently wrong about most of another quarter, and the loss punishes confident mistakes hard, so training settles for a nearly flat, unsure answer instead. Either way, no straight line solves it, and no amount of training changes that.
 
 There are two ways out.
 
@@ -53,7 +53,7 @@ Try two hidden layers (`8,8`), tick `sin x` and `sin y`, and be patient: the spi
   q="A network with no hidden layer is stuck far below solved on the checkerboard. Why won't more training fix it?"
   options={["The learning rate is too small", "It can only ever draw a straight boundary, and no straight line separates the checkerboard", "It needs more data"]}
   answer={1}
-  explain="The limit is the shape of the model, not the training. Every setting of its knobs draws a straight line, and no straight line separates the checkerboard: even the best one gets a whole quarter wrong. Change the model (hidden layer) or the inputs (xy); training harder changes nothing."
+  explain="The limit is the shape of the model, not the training. Every setting of its knobs draws a straight line, and no straight line separates the checkerboard: even the best one gets about a third of the dots wrong. Change the model (hidden layer) or the inputs (xy); training harder changes nothing."
 />
 
 <Quiz

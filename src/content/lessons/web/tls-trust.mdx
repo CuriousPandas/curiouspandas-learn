@@ -104,11 +104,11 @@ Without the platform, you can make both failures yourself with OpenSSL: a throwa
 
 ```bash
 d=$(mktemp -d) && cd "$d"
-openssl req -x509 -newkey rsa:2048 -nodes -quiet -keyout root.key -out root.pem -days 1 -subj "/CN=Test Root"
-openssl req -new -newkey rsa:2048 -nodes -quiet -keyout inter.key -out inter.csr -subj "/CN=Test Intermediate"
+openssl req -x509 -newkey rsa:2048 -nodes -keyout root.key -out root.pem -days 1 -subj "/CN=Test Root"
+openssl req -new -newkey rsa:2048 -nodes -keyout inter.key -out inter.csr -subj "/CN=Test Intermediate"
 printf 'basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n' > ca.cnf
 openssl x509 -req -in inter.csr -CA root.pem -CAkey root.key -CAcreateserial -out inter.pem -days 1 -extfile ca.cnf
-openssl req -new -newkey rsa:2048 -nodes -quiet -keyout leaf.key -out leaf.csr -subj "/CN=other.example"
+openssl req -new -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.csr -subj "/CN=other.example"
 printf 'subjectAltName=DNS:other.example\n' > leaf.cnf
 openssl x509 -req -in leaf.csr -CA inter.pem -CAkey inter.key -CAcreateserial -out leaf.pem -days 1 -extfile leaf.cnf
 # Serve the certificate and its intermediate, the way a real server should

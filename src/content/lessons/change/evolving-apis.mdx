@@ -43,7 +43,7 @@ Two ideas make additions safe:
 
 Stripe's answer to removing things is to never make clients notice. Each account is pinned to the API version it first used, and the API "walks back through time" applying a small module per version change until the response matches what that client expects. Stripe has kept this compatibility since 2011, and is open about the cost: every new version is more code to understand and maintain.
 
-Inside your own systems, AWS describes a **two-phase deployment** for changing a format that servers exchange. First deploy a version that can *read* the new format while still *writing* the old one; once that's everywhere, deploy the version that writes the new one. Readers go before writers while rolling forward. Their example is a heartbeat interval changing from 5 to 10 seconds: in a test environment with one server per service, the mixed fleet that breaks it never exists.
+Inside your own systems, AWS describes a **two-phase deployment** for changing a format that servers exchange. First deploy a version that can *read* the new format while still *writing* the old one; once that's everywhere, deploy the version that writes the new one. Readers go before writers while rolling forward. Their example is a service changing what it stores from XML to JSON. They also show how small the trigger can be: a heartbeat interval changed from 5 to 10 seconds breaks a fleet mid-deploy. And they note that in a test environment with one server per service, the mixed fleet that breaks it never exists.
 
 ## Try it
 

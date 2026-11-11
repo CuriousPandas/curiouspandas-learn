@@ -12,8 +12,8 @@ sources:
     url: https://martinfowler.com/bliki/OriginalStranglerFigApplication.html
   - title: Microsoft Azure Architecture Center - Strangler Fig pattern
     url: https://learn.microsoft.com/en-us/azure/architecture/patterns/strangler-fig
-  - title: AWS Prescriptive Guidance - Strangler fig pattern
-    url: https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/strangler-fig.html
+  - title: AWS Prescriptive Guidance - Strangler fig pattern (archived May 2026; AWS has since removed the page)
+    url: https://web.archive.org/web/20260527024532/https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/strangler-fig.html
   - title: Ian Cartwright, Rob Horn, James Lewis - Patterns of Legacy Displacement (2021, revised 2024)
     url: https://martinfowler.com/articles/patterns-legacy-displacement/
   - title: Martin Kleppmann - Using logs to build a solid data infrastructure (or why dual writes are a bad idea), Confluent (2015)
@@ -81,7 +81,7 @@ The Azure page's list of problems reads like a list of ways this goes quietly wr
 - "Make sure that the façade doesn't become a single point of failure or a performance bottleneck." Every request now passes through one more hop.
 - Data. Once legacy's tables are dropped, rolling back means "you must restore those objects and replay data changes. However, this process significantly increases effort and risk."
 
-Keeping two stores in step is the hardest part. Writing to both from the application looks simple, and Martin Kleppmann explains why it isn't: two writes can land in different orders in the two stores, and "you probably won't even notice that your database and your search indexes have gone out of sync, because no errors occurred." Azure's alternative is "change data capture processing", "reading the transaction log instead". AWS says to treat its own queue-based sync "as a tactical solution until you can establish a long-term solution". Whatever carries the data across is transitional too.
+Keeping two stores in step is the hardest part. Writing to both from the application looks simple, and Martin Kleppmann explains why it isn't: two writes can land in different orders in the two stores, and "you probably won't even notice that your database and your search indexes have gone out of sync, because no errors occurred." Azure's guidance syncs the two databases with "a change data capture (CDC) process", which reads the database's transaction log, not the application's writes. AWS says to treat its own queue-based sync "as a tactical solution until you can establish a long-term solution". Whatever carries the data across is transitional too.
 
 ## Try it: the Strangler Lab
 

@@ -49,7 +49,7 @@ One more you'll meet: an image whose Dockerfile names its user rather than givin
 
 ## Two gates
 
-Then there's a second, wider gate. **Pod Security admission** is built into the API server and checks every new pod in a namespace against one of three published levels: `privileged` (anything goes), `baseline` (blocks the known ways out, such as privileged containers) and `restricted` (the hardened settings above). You choose by labelling the namespace, in one of three modes. The docs:
+Then there's a second, wider gate. **Pod Security admission** is built into the API server and checks every new pod in a namespace against one of three published levels: `privileged` (anything goes), `baseline` (blocks the known ways out, such as privileged containers) and `restricted` (most of the hardened settings above; it does not ask for a read-only root filesystem). You choose by labelling the namespace, in one of three modes. The docs:
 
 > enforce Policy violations will cause the pod to be rejected.
 

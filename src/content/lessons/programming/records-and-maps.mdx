@@ -159,7 +159,7 @@ print(spots[(3, 4)])
 spots[[3, 4]] = "rock"
 `} />
 
-`unhashable type: 'list'`. **Hashable** roughly means "has a fixed fingerprint", which a value that can change doesn't. The first line worked because `(3, 4)` isn't a list. It's a tuple.
+`unhashable type: 'list'`. (Python 3.14 and later put `cannot use 'list' as a dict key` in front of it.) **Hashable** roughly means "has a fixed fingerprint", which a value that can change doesn't. The first line worked because `(3, 4)` isn't a list. It's a tuple.
 
 ## Tuples: a small fixed record
 

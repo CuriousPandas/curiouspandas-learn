@@ -95,7 +95,7 @@ export const DNS_MISSION: NetMission = {
       return byIp >= 0 && cs.slice(byIp + 1).some((c) => c.dnsReplicas > 0 && c.attempt.ok && !/^\d/.test(hostOf(c.url)));
     } },
   ],
-  debrief: 'A short name is tried against the search list of the pod\'s own namespace first, so web from tools asks for web.tools.svc.cluster.local and gets NXDOMAIN. web.shop works because the next search domain completes it. busybox\'s nslookup skips the search list for any name with a dot, which is why the full name is the one to test with. With CoreDNS gone the Service never stopped working: only the name did, and every client reported it as "could not resolve host".',
+  debrief: 'A short name is tried against the search list of the pod\'s own namespace first, so web from tools asks for web.tools.svc.cluster.local and gets NXDOMAIN. web.shop works because the next search domain completes it. busybox\'s nslookup skips the search list for any name with a dot, which is why the full name is the one to test with. With CoreDNS gone the Service never stopped working: only the name did, and every client failed at the name: "Could not resolve host", or "Resolving timed out" when -m ran out first.',
 };
 
 // ---- network-policies -------------------------------------------------------

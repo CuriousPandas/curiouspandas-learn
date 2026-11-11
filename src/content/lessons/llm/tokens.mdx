@@ -58,5 +58,5 @@ Real tokenizers learn from vastly more text, and most work on **bytes** rather t
 </Callout>
 
 <Callout kind="trap">
-Ask a model to count the letters in a word and it often gets it wrong. Part of the reason is right here: it doesn't see letters. ` strawberry` might reach it as two or three chunks, and the letters inside are something it has to *remember* about those chunks, not something it can look at.
+Ask a model to count the letters in a word and it often gets it wrong. Part of the reason is right here: it doesn't see letters. `strawberry` at the start of a text reaches OpenAI's tokenizers as three chunks (`st`, `raw`, `berry`), and the letters inside are something it has to *remember* about those chunks, not something it can look at.
 </Callout>

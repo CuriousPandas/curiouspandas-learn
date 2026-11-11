@@ -261,3 +261,29 @@ test('a #! line naming something that isn\'t there fails when the file is run di
   assert.equal(out(sh, 'bash s'), 'ran');
   assert.equal(sh.status, 0);
 });
+
+// The processes lesson's real-machine block kills %1, waits, starts a second
+// sleep and kills %1 again. The sandbox numbered the second job [2], so the
+// second half answered "no such job". bash reuses the number once it is free.
+test('a job number is free again after the job is waited for', () => {
+  const sh = world();
+  assert.match(out(sh, 'sleep 300 &'), /^\[1\] \d+$/);
+  sh.run('kill %1');
+  out(sh, 'wait %1');
+  assert.equal(sh.status, 143);
+  assert.match(out(sh, 'sleep 300 &'), /^\[1\] \d+$/);
+  sh.run('kill -9 %1');
+  out(sh, 'wait %1');
+  assert.equal(sh.status, 137);
+  sh.run('sleep 300 &');
+  assert.match(out(sh, 'sleep 300 &'), /^\[2\] \d+$/, 'two live jobs are 1 and 2');
+});
+
+// The scripts lesson says the sandbox names what it lacks. `f() {` got the
+// message about subshells and arrays instead.
+test('a function written as name() is refused as a function', () => {
+  const sh = world();
+  assert.match(out(sh, 'count_failures() {'), /count_failures\(\): real bash has it; this sandbox has no shell functions/);
+  assert.match(out(sh, 'f() { echo hi; }'), /no shell functions/);
+  assert.match(out(sh, 'echo $(date)'), /subshells and arrays/);
+});

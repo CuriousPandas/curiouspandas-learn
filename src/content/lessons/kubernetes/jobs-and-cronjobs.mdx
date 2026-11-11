@@ -33,7 +33,7 @@ A **CronJob** makes a Job on a **schedule**, written in cron's five fields: minu
 1. **suspend**. A CronJob has a field `spec.suspend`. Set it to `true`, during an incident say, and the controller makes no new Jobs. That's a valid, deliberate setting, so nothing ever reports it. The only sign is the SUSPEND column.
 2. **concurrencyPolicy: Forbid**. The docs: "if it is time for a new Job run and the previous Job run hasn't finished yet, the CronJob skips the new Job run." A run that gets slower than its interval silently skips every other slot. The only trace is a Normal event, `Not starting job because prior execution is running and concurrency policy is Forbid`.
 
-You may also read that a CronJob with **too many missed runs** stops. It doesn't, and it isn't quiet. When more than 100 scheduled times have passed since the last run, the v1.36 controller records a Warning event, `too many missed start times. Set or decrease .spec.startingDeadlineSeconds or check clock skew`, and then starts the most recent run anyway, unless a `startingDeadlineSeconds` you set has already passed for it (`pkg/controller/cronjob/utils.go`). The docs' sentence just before that message says "it does not start the Job", but the line just after it says what the source does: "This behavior is applicable for catch-up scheduling and does not mean the CronJob will stop running."
+You may also read that a CronJob with **too many missed runs** stops. It doesn't, and it isn't quiet. When more than 100 scheduled times have passed since the last run, the v1.36 controller records a Warning event, `too many missed start times. Set or decrease .spec.startingDeadlineSeconds or check clock skew`, and then starts the most recent run anyway, unless a `startingDeadlineSeconds` you set has already passed for it (`pkg/controller/cronjob/utils.go`). The docs say the same: the controller "still starts a Job for the most recent missed schedule", and "This behavior is applicable for catch-up scheduling and does not mean the CronJob will stop running."
 
 ## Find it, restart it, run it now
 
@@ -46,7 +46,7 @@ In this sandbox a tick is 5 seconds of cluster time, so an every-minute schedule
 </Callout>
 
 <Callout kind="trap">
-Resuming doesn't make up for lost time. The docs say that when suspend goes from true to false without a starting deadline, "the missed Jobs are scheduled immediately". On a kind v1.36.1 cluster, a CronJob suspended across one scheduled minute started exactly one Job the moment it was resumed, for the most recent missed minute. If each run covers "the day so far", that's fine. If each run covers one specific day, the skipped days are simply gone.
+Resuming doesn't make up for lost time. The docs say that when suspend goes from true to false without a starting deadline, "a Job for the most recent missed schedule is started immediately. Jobs for the earlier missed schedules are not started." On a kind v1.36.1 cluster that is what happened: a CronJob suspended across one scheduled minute started exactly one Job the moment it was resumed, for the most recent missed minute. If each run covers "the day so far", that's fine. If each run covers one specific day, the skipped days are simply gone.
 </Callout>
 
 <Quiz

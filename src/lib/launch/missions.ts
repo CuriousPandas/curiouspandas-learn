@@ -39,7 +39,7 @@ export const SCOPE_MISSION: Mission<ScopeState> = {
     { text: 'Cut it to two weeks (10 working days or less) - and still test whether owners will pay', hint: 'A plan that drops payment entirely ships fast and cannot answer the question. Keep one way to ask for money', done: (s) => s.plans.some((p) => p.days <= 10 && p.learns) },
     { text: 'Do the unscalable version: test the same assumption in 3 days or less', hint: 'Swap automation for things you do by hand: run the checks yourself, text the owner, send a payment link', done: (s) => s.plans.some((p) => p.days <= 3 && p.learns) },
   ],
-  debrief: 'The roadmap took ten weeks and every feature in it could be built - none of that was the risk. The risk was whether anyone pays to hear about outages, and three things test it: notice, tell, ask for money. Doing two of them by hand gets the answer in a day. If it is yes, you have customers waiting while you automate; if it is no, you saved ten weeks.',
+  debrief: 'The roadmap took ten weeks and every feature in it could be built - none of that was the risk. The risk was whether anyone pays to hear about outages, and three things test it: notice, tell, ask for money. Doing all three by hand gets the answer in a day. If it is yes, you have customers waiting while you automate; if it is no, you saved ten weeks.',
 };
 
 // ---- pricing --------------------------------------------------------------------

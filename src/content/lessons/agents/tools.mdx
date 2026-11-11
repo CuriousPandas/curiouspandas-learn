@@ -40,7 +40,7 @@ A vague description doesn't produce an error. It produces a confident wrong choi
 
 ## Every tool result is an open door
 
-Now the harder problem. The agent reads the support inbox, and whatever is in the email lands in its context, exactly like a tool result it asked for. If the email contains instructions, the model may follow them. OWASP calls this **indirect prompt injection**: it "occurs when an LLM accepts input from external sources, such as websites or files". It also says that "it is unclear if there are fool-proof methods of prevention for prompt injection".
+Now the harder problem. The agent reads the support inbox, and whatever is in the email lands in its context, exactly like a tool result it asked for. If the email contains instructions, the model may follow them. OWASP calls this **indirect prompt injection**: it occurs "when an LLM accepts input from external sources, such as websites or files". It also says that "it is unclear if there are fool-proof methods of prevention for prompt injection".
 
 That last sentence decides the design. If you can't reliably stop the model being fooled, you have to make being fooled survivable. OWASP's own list of mitigations comes down to two moves that don't depend on the model at all:
 

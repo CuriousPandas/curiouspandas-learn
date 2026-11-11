@@ -138,7 +138,7 @@ def longest_run(items):
 print(longest_run(["a", "a", "b"]))
 ```
 
-Run `python3 bug.py`. At the `(Pdb)` prompt, type `p current` to print a value, `n` for the next line, `c` to carry on to the next stop, and `q` to quit. Quitting prints a traceback ending in `bdb.BdbQuit`. That's normal: it's `pdb` stopping your program, and not a new bug. Python's docs list the rest.
+Run `python3 bug.py`. At the `(Pdb)` prompt, type `p current` to print a value, `n` for the next line, `c` to carry on to the next stop, and `q` to quit. On Python 3.14 and later, `q` asks `Quitting pdb will kill the process. Quit anyway? [y/n]`; answer `y` and the program ends. On 3.13 and earlier, quitting prints a traceback ending in `bdb.BdbQuit` instead. Either is normal: it's `pdb` stopping your program, and not a new bug. Python's docs list the rest.
 
 </DoItForReal>
 

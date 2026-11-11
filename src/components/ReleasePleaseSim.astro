@@ -72,9 +72,9 @@ const first = Object.values(CHANGES)[0];
           if (rec) {
             const li = el('li', { class: rec.brokeUsers ? 'bad' : 'ok' }, el('b', {}, `v${rec.version}`), ` ${rec.bump}`);
             li.append(el('span', { class: 'ra-why' }, rec.brokeUsers
-              ? `Everyone on ^${rec.from} installed this automatically - and the renamed field broke their code.`
+              ? `Everyone on ^${rec.from} got this on their next update without choosing it - and the renamed field broke their code.`
               : rec.bump === 'major' ? `Nobody on ^${rec.from} gets it by accident. They upgrade when they choose, and the changelog tells them what to change.`
-              : `Users on ^${rec.from} receive it on their next install.`));
+              : `Users on ^${rec.from} receive it on their next update.`));
             q('[data-releases]').append(li);
           }
           draw();

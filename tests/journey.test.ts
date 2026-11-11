@@ -37,6 +37,11 @@ test('a 401 arrived; a reset did not', () => {
   assert.equal(by('401').failedAt, 'http');
   assert.ok(by('401').status !== null, 'the application answered');
   assert.equal(by('reset').status, null, 'no HTTP answer at all');
+  // The reset scenario was marked as failing at tcp while its own trace showed
+  // the TLS handshake and the request line. Its stage must match its trace.
+  assert.equal(by('reset').failedAt, 'http');
+  assert.ok(by('reset').trace.some((l) => l.startsWith('> GET')), 'the request was sent before the reset');
+  for (const s of SCENARIOS) if (s.failedAt === 'tcp' || s.failedAt === 'dns') assert.ok(!s.trace.some((l) => l.startsWith('> ')), `${s.id} fails before a request is sent`);
 });
 
 test('every scenario explains itself', () => {

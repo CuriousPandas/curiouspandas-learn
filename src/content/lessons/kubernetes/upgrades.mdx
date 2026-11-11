@@ -121,7 +121,7 @@ docker exec tiltdev-control-plane kubeadm version -o short
 docker exec tiltdev-control-plane kubeadm upgrade plan
 ```
 
-Then the real upgrade on a throwaway cluster, as we ran it. It downloads about 150 MB of binaries from dl.k8s.io and pulls new control-plane images:
+Then the real upgrade on a throwaway cluster, as we ran it. It downloads about 210 MB of binaries from dl.k8s.io and pulls new control-plane images:
 
 ```bash
 kind create cluster --name ops-lab --image kindest/node:v1.35.0
