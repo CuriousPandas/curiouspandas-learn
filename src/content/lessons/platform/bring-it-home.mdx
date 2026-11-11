@@ -24,7 +24,7 @@ From the platform's own setup guide, measured rather than guessed:
 
 - **About 15 GB of free disk and 8 GB of RAM to spare.** With everything running (the heaviest profile, 50 pods) it measured **9.7 GB of images and 5.9 GB of memory**. The default profile uses less; that hasn't been measured separately.
 - **Admin rights** to install a container runtime. Docker Desktop is the tested default; Podman also works.
-- **The tools:** kind, Tilt, Helm, the Flux CLI, kubectl, Python 3 with PyYAML, OpenSSL and curl. The README's prerequisites table has the versions. You also need **Node.js with npm, and Google Chrome**, for the real-browser check that `platform.sh hello` and lab 01's grader run. The README's table doesn't list those yet.
+- **The tools:** kind, Tilt, Helm, the Flux CLI, kubectl, Python 3 with PyYAML, OpenSSL and curl. The README's prerequisites table has the versions. You also need **Node.js with npm, and Google Chrome**, for the real-browser check that `platform.sh hello` and lab 01's grader run. The README's table lists those too.
 - **bash.** On Windows that means **Git Bash**, which comes with Git for Windows. The scripts don't run in PowerShell or cmd.
 
 Not sure? [Check what this device can run](/machine/).
@@ -46,10 +46,10 @@ The first run downloads several gigabytes. Measured on a fast laptop with a fast
 Then prove it, rather than assuming:
 
 ```bash
-./scripts/student-check.sh     # tools, daemon, disk, version skew, and a real request
+./scripts/student-check.sh     # tools (node, npm and Chrome too), daemon, disk, version skew, and a real request
 ```
 
-"It finished with no errors" and "it works" are different claims. That script tells them apart. It doesn't check for Node.js or Chrome, so `node --version` and `npm --version` yourself.
+"It finished with no errors" and "it works" are different claims. That script tells them apart.
 
 ## Profiles: start small
 

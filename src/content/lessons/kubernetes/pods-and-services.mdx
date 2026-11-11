@@ -57,7 +57,7 @@ Two port numbers matter. `port` is what clients connect to on the Service. `targ
     { from: 'vip', to: 'pods' }, { from: 'np', to: 'pods' },
   ]}
   steps={[
-    { caption: 'Inside the cluster, clients use the ClusterIP. Every Service type has one, except a headless Service.', show: ['client', 'vip', 'pods', 'client->vip', 'vip->pods'], focus: ['vip'] },
+    { caption: 'Inside the cluster, clients use the ClusterIP. ClusterIP, NodePort and LoadBalancer Services all have one, unless the Service is headless.', show: ['client', 'vip', 'pods', 'client->vip', 'vip->pods'], focus: ['vip'] },
     { caption: 'NodePort adds a port on every node, so a machine that can reach a node can reach the Service.', show: ['outside', 'np', 'outside->np', 'np->pods'], focus: ['np'] },
     { caption: 'LoadBalancer adds one more piece: a load balancer that forwards to those node ports. Kubernetes doesn\'t ship one. If nothing provides it, EXTERNAL-IP stays <pending>.', show: [], focus: ['outside'] },
   ]}

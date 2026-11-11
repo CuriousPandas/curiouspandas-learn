@@ -115,7 +115,7 @@ Without the pipe, `grep -c` counts for you, and its status survives: 2 means it 
 
 ## On a real machine
 
-The sandbox stops here. Everything in this section is **real-machine material**: it doesn't run in the terminal above, and this site's tests run each of these scripts in real bash, so the output shown is real, error messages included. These scripts use bash features, so they start with that `#!/bin/bash` line. It matters: on Ubuntu, where plain `sh` isn't bash, `sh` stops at the next line with `Illegal option -o pipefail`. Running `bash a.sh` ignores the line and uses bash anyway.
+The sandbox stops here. Everything in this section is **real-machine material**: it doesn't run in the terminal above, and this site's tests run each of these scripts in real bash, so the output shown is real, error messages included. These scripts use bash features, so they start with that `#!/bin/bash` line. It matters: on Ubuntu 24.04 and older, where plain `sh` is dash, `sh` stops at the next line with `Illegal option -o pipefail`. Newer Ubuntu releases ship a dash that accepts that line, and it still isn't bash: the array script further down fails there. Running `bash a.sh` ignores the line and uses bash anyway.
 
 **Stop on the first failure.** Put this near the top of your real scripts. `set -e` stops the script when a command fails, `set -u` treats an unset variable as an error, and `set -o pipefail` makes a pipeline fail if any part of it fails. Saved as `a.sh` and run with `bash a.sh`:
 

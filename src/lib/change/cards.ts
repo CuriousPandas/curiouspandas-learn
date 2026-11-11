@@ -12,7 +12,7 @@ export const ONE_WAY_DOORS: Deck = {
       id: 'cutover', title: 'One weekend, every customer',
       body: 'A bank moves all of its customers from the old platform to the new one over a single weekend. Once the new platform is live, the plan has no way to move them back.',
       options: [
-        { id: 'reversible', text: 'Reversible: they can always restore last week\'s backup', why: 'A backup restores data, not a weekend of customers\' new transactions on the new system. The independent review of TSB found rollback was essentially impossible.' },
+        { id: 'reversible', text: 'Reversible: they can always restore last week\'s backup', why: 'A backup restores data, not a weekend of customers\' new transactions on the new system. The FCA\'s Final Notice says a roll-back plan was not possible for TSB.' },
         { id: 'oneway', text: 'A one-way door: once through, the only direction is forward', why: 'Supported. A largely single-event migration was not necessarily wrong, the TSB review said - but with no way back, everything rested on the checks before it.' },
         { id: 'fine', text: 'Fine, as long as the data migration itself succeeds', why: 'At TSB the data migration did succeed. The platform behind it was not ready for the full customer base, and that is what failed.' },
       ],
@@ -49,7 +49,7 @@ export const ONE_WAY_DOORS: Deck = {
       answer: 'oneway', source: 'Microsoft Azure Architecture Center, Strangler Fig pattern',
     },
   ],
-  debrief: 'Two of those four steps could be walked back and two could not. The expensive failures in this trail all sat at a one-way step that nobody had checked: TSB\'s cut-over after its testing was cut, Atlassian\'s permanent delete, Knight\'s unverified deploy. A rewrite is a plan to take one very large one-way step; every pattern after this lesson is a way to take many small ones instead.',
+  debrief: 'One of those four steps could be walked back, two could not, and one removed the check standing in front of a one-way step. The expensive failures in this trail all sat at a one-way step that nobody had checked: TSB\'s cut-over after its testing was cut, Atlassian\'s permanent delete, Knight\'s unverified deploy. A rewrite is a plan to take one very large one-way step; every pattern after this lesson is a way to take many small ones instead.',
 };
 
 export const GOLDEN_MASTER: Deck = {

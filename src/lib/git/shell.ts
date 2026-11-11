@@ -113,7 +113,10 @@ function git(repo: Repo, args: string[]): string {
     case 'rm': return repo.rm(rest.filter((a) => !a.startsWith('-')));
     case 'commit': {
       const i = rest.findIndex((a) => a === '-m' || a === '-am');
-      if (rest.includes('-a') || rest[i] === '-am') repo.add(['.']);
+      // -a stages what git already tracks, and nothing else. This used to be
+      // add('.'), which also committed brand-new files: the opposite of the
+      // lesson's own warning, in the sandbox beside it.
+      if ((rest.includes('-a') || rest[i] === '-am') && repo.index.size) repo.add([...repo.index.keys()]);
       if (i >= 0 && rest[i + 1] === undefined) throw new GitError("error: switch `m' requires a value");
       return repo.commitIndex(i >= 0 ? rest[i + 1] : undefined);
     }

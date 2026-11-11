@@ -14,8 +14,8 @@ sources:
     url: https://www.dma.unina.it/~murli/didattica/2005_2006/cp/p532-gustafson.pdf
   - title: Esmaeilzadeh et al. - Dark Silicon and the End of Multicore Scaling (ISCA 2011)
     url: https://cseweb.ucsd.edu/~hadi/doc/paper/2011-isca-dark_silicon.pdf
-  - title: NVIDIA - CUDA C++ Programming Guide
-    url: https://docs.nvidia.com/cuda/cuda-c-programming-guide/
+  - title: NVIDIA - CUDA C++ Programming Guide (v12.4.1, archived)
+    url: https://docs.nvidia.com/cuda/archive/12.4.1/cuda-c-programming-guide/index.html
   - title: Jouppi et al., Google - In-Datacenter Performance Analysis of a Tensor Processing Unit (2017)
     url: https://arxiv.org/abs/1704.04760
   - title: t0st - How I cut GTA Online loading times by 70% (2021)
@@ -79,7 +79,7 @@ The catch is in the second half of the lab above. All the lanes share one instru
 
 ## Why GPUs exist
 
-A **GPU** began as a chip for graphics, where the same small program runs on millions of pixels. That work typically has very little serial part and little branching, which is where Amdahl's law is kindest. NVIDIA's own programming guide puts the design choice this way: "The GPU is specialized for highly parallel computations and therefore designed such that more transistors are devoted to data processing rather than data caching and flow control."
+A **GPU** began as a chip for graphics, where the same small program runs on millions of pixels. That work typically has very little serial part and little branching, which is where Amdahl's law is kindest. NVIDIA's own programming guide put the design choice this way (the sentence has since been reworded): "The GPU is specialized for highly parallel computations and therefore designed such that more transistors are devoted to data processing rather than data caching and flow control."
 
 That sentence also says what gets given up. A CPU spends its transistors on guessing branches and on big caches, to make one thread fast on unpredictable code. A GPU spends them on arithmetic, and it's weak on the things it left out. Using one for non-graphics work is called **GPGPU**: general-purpose computing on GPUs. It's why neural networks moved to GPUs, since their work is mostly large, regular matrix multiplications.
 

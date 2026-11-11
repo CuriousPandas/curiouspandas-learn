@@ -34,7 +34,7 @@ Two corrections to the way the story is usually told. Spolsky's essay doesn't sa
 
 In April 2018 the UK bank TSB moved its customers to a new platform in a single weekend, and the result was months of disruption. The popular version is "the data migration failed" or "big bang was the mistake". The official documents say otherwise:
 
-- The Financial Conduct Authority's Final Notice says the data migration itself was successful. What failed was the new platform, which wasn't ready to support TSB's full customer base.
+- The Financial Conduct Authority's Final Notice says the data migration itself was successful. The independent review by Slaughter and May concluded that the new platform wasn't ready to support TSB's full customer base.
 - The independent review by Slaughter and May said a largely single-event migration would not necessarily have been the wrong approach, had the right mitigants been in place.
 - Rolling back was essentially impossible once customers were on the new platform.
 - Testing of the two data centres working together had been cut back, in a decision taken outside the forum that should have approved it. The FCA says that testing would likely have found the configuration problem that took online banking down.
@@ -55,10 +55,10 @@ Sort four real kinds of decision into the ones you could walk back and the ones 
 
 <Quiz
   id="change-rewrite-1"
-  q="According to the FCA, what failed in TSB's 2018 migration?"
+  q="According to the FCA and the independent review, what failed in TSB's 2018 migration?"
   options={["The data migration lost customer records", "The new platform wasn't ready to support the full customer base", "The old platform crashed during the move"]}
   answer={1}
-  explain="The FCA's Final Notice says the data migration itself succeeded. The platform it moved to, and the testing that should have proved it ready, are where things went wrong."
+  explain="The FCA's Final Notice says the data migration itself succeeded, and the independent review concluded the new platform was not ready. The platform it moved to, and the testing that should have proved it ready, are where things went wrong."
 />
 
 <Quiz

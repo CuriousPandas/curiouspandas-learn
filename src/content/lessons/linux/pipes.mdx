@@ -101,7 +101,7 @@ Your own shell keeps a history. Ask it which commands you use most:
 history | cut -c 8- | sort | uniq -c | sort -rn | head
 ```
 
-Then the classic "which files are biggest here?":
+Then the classic "what is taking the most space here?" (folders are listed too, with their totals):
 
 ```bash
 du -a . 2>/dev/null | sort -rn | head -5

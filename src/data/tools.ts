@@ -2,7 +2,9 @@
 // the core it always runs. `tilt` is the key in tilt-config.json, so the atlas
 // can say exactly how to switch each one on. CNCF maturity is NOT written here:
 // it comes from scripts/sync-cncf.mjs reading the CNCF's own landscape data, so
-// it cannot go stale silently or be remembered wrong.
+// it cannot be remembered wrong. It CAN go stale: nothing re-runs the sync, and
+// the atlas only prints the date it was read. Three projects changed level in
+// the 12 days after the 2026-10-29 snapshot before a review noticed.
 
 export type Tool = {
   id: string;

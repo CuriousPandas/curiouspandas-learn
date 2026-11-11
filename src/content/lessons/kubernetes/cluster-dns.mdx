@@ -46,14 +46,14 @@ The usual way to debug this is `nslookup` from a pod. On tilt, with `busybox:1.3
 | `hello.hello` | works | `server can't find hello.hello: NXDOMAIN` |
 | `hello.hello.svc.cluster.local` | works | works |
 
-busybox's nslookup applied the search list only to a name with no dot in it, and sent `hello.hello` as typed. It also printed NXDOMAIN lines for the search domains that missed, even when another one answered, and then exited with status 1. So test with the full name, and treat curl as the truth about what the app sees. The Kubernetes debugging guide uses a different image, `dnsutils`, whose nslookup we did not test.
+busybox's nslookup applied the search list only to a name with no dot in it, and sent `hello.hello` as typed. It also printed NXDOMAIN lines for the search domains that missed, even when another one answered, and then exited with status 1. So test with the full name, and treat curl as the truth about what the app sees. The Kubernetes debugging guide uses a different image (`agnhost`, in a pod it names `dnsutils`), whose nslookup we did not test.
 
 Now break it properly. You're in namespace `tools`; the `web` Service lives in `shop`.
 
 <NetSim mission="kube-net-dns" title="Names across namespaces, and a cluster without DNS" />
 
 <Callout kind="trap">
-With CoreDNS gone, every app reports the same thing: could not resolve host. Nothing in that message says "DNS server down" rather than "no such Service". Check both halves separately: `kubectl -n kube-system get pods -l k8s-app=kube-dns`, and a request to the Service's IP. If the IP works and the name doesn't, the Service is fine and DNS isn't.
+With CoreDNS gone, every app fails the same way, at the name: `Could not resolve host`, or `Resolving timed out` when curl's `-m` limit runs out first, as it does in the sandbox. Nothing in either message says "DNS server down" rather than "no such Service". Check both halves separately: `kubectl -n kube-system get pods -l k8s-app=kube-dns`, and a request to the Service's IP. If the IP works and the name doesn't, the Service is fine and DNS isn't.
 </Callout>
 
 <Callout kind="tip">

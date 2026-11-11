@@ -44,7 +44,7 @@ const dodMode = mission === 'definition-of-done';
         {dodMode && <div class="stat">stayed done, last {WINDOW} days<b data-stayed>0</b></div>}
         {dodMode && <div class="stat">fixes for work that came back<b data-rework>0</b></div>}
       </div>
-      {dodMode && <p class="fl-sle muted">Invented for this model: with the weak definition one finished item in three comes back eight days later as half-size rework; testing first costs a quarter more effort per item.</p>}
+      {dodMode && <p class="fl-sle muted">Invented for this model: with the weak definition one finished item in three comes back eight days later as half-size rework; testing first costs a quarter more effort per item, rounded up to a whole unit.</p>}
       <svg class="fl-scatter" data-scatter viewBox="0 0 320 120" role="img" aria-label="Cycle time of each finished item"></svg>
       <p class="fl-sle muted">Service level expectation: {SLE.percentile}% of items finish in {SLE.days} days or less.</p>
       <section class="fl-little">

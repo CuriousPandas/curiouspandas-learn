@@ -20,7 +20,7 @@ sources:
     url: https://mutmut.readthedocs.io/en/latest/
 ---
 
-In February 2014 Apple shipped a fix for a security bug in iPhones and Macs. The bug was in the code that checks a website's proof of identity when a secure connection starts. Adam Langley, who worked on the secure connections in Chromium, explained it the next day, with this code, shortened here:
+In February 2014 Apple shipped a fix for a security bug in iPhones. Macs had the same bug, and their fix came a few days later. The bug was in the code that checks a website's proof of identity when a secure connection starts. Adam Langley, who worked on the secure connections in Chromium, explained it the next day, with this code, shortened here:
 
 ```text
 if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)

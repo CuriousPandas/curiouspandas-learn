@@ -89,7 +89,7 @@ The keeper search builds its query the quick way: glue the name between two quot
 
 Then there's `O'Neil`, who is a real visitor, not an attacker. Their apostrophe breaks the glued query too. Injection isn't only a security hole. It's a bug that real names trigger by accident.
 
-Switch to **sends the name as a parameter**. The query text is now fixed, with a `?` where the value goes, and the value travels separately. OWASP's primary defence is exactly this: prepared statements with parameterised queries, which "treat bound values as data rather than SQL syntax". The attack string becomes a very strange name that matches nobody, and `O'Neil` just works.
+Switch to **sends the name as a parameter**. The query text is now fixed, with a `?` where the value goes, and the value travels separately. OWASP's preferred defence is exactly this: parameterized queries, which "define the SQL structure separately from its data values and bind those values through the database API". The attack string becomes a very strange name that matches nobody, and `O'Neil` just works.
 
 <Callout kind="real">
 Every mainstream database library supports parameters. The placeholder differs (`?`, `$1`, `:name`), and the rule doesn't: the query is a fixed string in your code, and anything from outside goes in as a parameter. Building a query from pieces of user input is the warning sign, even when it's tucked inside a helper.

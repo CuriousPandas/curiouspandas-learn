@@ -30,7 +30,7 @@ sources:
 
 A version number looks like decoration. It's a promise. [Semantic Versioning](https://semver.org/spec/v2.0.0.html) spells it out: bump the **MAJOR** version "when you make incompatible API changes", the **MINOR** version "when you add functionality in a backward compatible manner", and the **PATCH** version "when you make backward compatible bug fixes".
 
-People's tools act on that promise without asking. When you `npm install` a package, npm writes the dependency with a `^` in front by default. And `^1.4.2` means `>=1.4.2 <2.0.0`: every minor and patch release is accepted automatically, on the next install, by every project that depends on you. A major release is the only kind nobody gets by accident.
+People's tools act on that promise without asking. When you `npm install` a package, npm writes the dependency with a `^` in front by default. And `^1.4.2` means `>=1.4.2 <2.0.0`: every minor and patch release is accepted by that range automatically. A project with no lockfile gets it on its next install, and everyone else on their next routine update. A major release is the only kind nobody gets by accident.
 
 So the question that matters at release time is: *is anything in here breaking?* Answering it by hand, for every release, from memory, is how breaking changes ship as patches.
 
@@ -95,7 +95,7 @@ Types aren't case-sensitive, but `BREAKING CHANGE` must be uppercase (`BREAKING-
     { caption: 'release-please reads only the messages - never the code - and works out the next version: breaking beats feat, feat beats fix.', show: ['rp', 'commits->rp'], focus: ['rp'] },
     { caption: 'It keeps one release PR open and up to date: the new version number and the CHANGELOG entry, ready to review.', show: ['pr', 'rp->pr'], focus: ['pr'] },
     { caption: 'Nothing is released until you merge it. Then it tags the commit and creates a GitHub release.', show: ['merge', 'tag', 'pr->merge', 'merge->tag'], focus: ['merge', 'tag'] },
-    { caption: 'Publishing stays yours: a workflow that runs on the new release does the upload.', show: ['publish', 'tag->publish'], focus: ['publish'] },
+    { caption: 'Publishing stays yours: a step or workflow that runs when a release was created does the upload.', show: ['publish', 'tag->publish'], focus: ['publish'] },
   ]}
 />
 
@@ -108,7 +108,7 @@ Your package is at **v1.4.2**, and your users installed it with `^1.4.2`. Make f
 <ReleasePleaseSim />
 
 <Callout kind="trap">
-Renaming a field because the old name was wrong *feels* like a fix. To everyone whose code reads that field, it's a breaking change. Written as `fix:`, release-please does exactly what it was told: a patch, which every `^1.x` range installs on its next build. One `!` - `feat(api)!:` or `fix(api)!:` - and the same code ships as 2.0.0, with the break written at the top of the changelog.
+Renaming a field because the old name was wrong *feels* like a fix. To everyone whose code reads that field, it's a breaking change. Written as `fix:`, release-please does exactly what it was told: a patch, which every `^1.x` range accepts on its next update. One `!` - `feat(api)!:` or `fix(api)!:` - and the same code ships as 2.0.0, with the break written at the top of the changelog.
 </Callout>
 
 <Quiz
@@ -143,7 +143,7 @@ Renaming a field because the old name was wrong *feels* like a fix. To everyone 
 - **This site doesn't use it.** A website has no one pinning `^1.4` - visitors always get the latest page. Release automation pays off when other code depends on yours: libraries, CLIs, APIs, Helm charts.
 
 <Callout kind="real">
-By default the action uses the workflow's built-in `GITHUB_TOKEN`, and GitHub doesn't start new workflow runs for events that token creates - so your CI won't run on the release PR. The release-please-action README suggests a Personal Access Token stored as a secret if you need checks on it. You may also need to enable "Allow GitHub Actions to create and approve pull requests" under Settings > Actions > General.
+By default the action uses the workflow's built-in `GITHUB_TOKEN`, and GitHub doesn't start new workflow runs for events that token creates - so your CI won't run on the release PR. The same goes for the release itself: the README says workflows "normally triggered by `release.created` events will also not run", so a separate publish workflow would quietly never start. The README suggests a Personal Access Token stored as a secret, or you can publish in the same job, in a later step that runs only when the action's `release_created` output is true. You may also need to enable "Allow GitHub Actions to create and approve pull requests" under Settings > Actions > General.
 </Callout>
 
 <DoItForReal id="delivery-relauto-real" needs="terminal">

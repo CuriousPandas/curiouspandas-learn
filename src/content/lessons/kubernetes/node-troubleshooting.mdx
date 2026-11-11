@@ -49,7 +49,7 @@ When the node goes NotReady, the node controller puts a **taint** on it. A taint
 
 > automatically adds a toleration for node.kubernetes.io/not-ready and node.kubernetes.io/unreachable with tolerationSeconds=300
 
-So pods tolerate the problem for 300 seconds, five minutes, and are then evicted. You can see those two tolerations at the bottom of any `kubectl describe pod`. 50 seconds plus 300 is the 350 we saw.
+So pods tolerate the problem for 300 seconds, five minutes, and are then evicted. You can see those two tolerations at the bottom of any `kubectl describe pod`. 50 seconds plus 300 is 350, within a few seconds of the 355 to 361 we measured.
 
 ## What eviction can and can't do
 

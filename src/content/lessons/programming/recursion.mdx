@@ -111,7 +111,7 @@ print(depth(make_nested(10)))
 print(depth(make_nested(5000)))
 `} />
 
-Whoever controls the input controls how deep your function goes. That's what the jackson-databind entry is describing, and it's not only a Java problem. On real Python's own JSON reader, `json.loads` of `"[" * n + "]" * n` raised `RecursionError` on our test machine at 1,000 levels on Python 3.11, and at 20,000 on 3.12, where 5,000 still worked. So those exact numbers change by version, while the principle doesn't. Python's docs tell you to "Be cautious when parsing JSON data from untrusted sources."
+Whoever controls the input controls how deep your function goes. That's what the jackson-databind entry is describing, and it's not only a Java problem. On real Python's own JSON reader, `json.loads` of `"[" * n + "]" * n` raised `RecursionError` on our test machine at 1,000 levels on Python 3.11, and at 20,000 on 3.12, where 5,000 still worked. On Windows the same 3.12 gave up just under 3,000. So those exact numbers change by version and by operating system, while the principle doesn't. Python's docs tell you to "Be cautious when parsing JSON data from untrusted sources."
 
 The `RecursionError` you just saw is the good version of this failure. It's loud and clean, and you can catch it and refuse the input. In languages like C, running out of stack can crash the program outright, or worse.
 

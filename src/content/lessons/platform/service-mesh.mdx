@@ -42,8 +42,8 @@ kubectl -n hello get pod -l app.kubernetes.io/name=hello \
 #   (empty)   -> not in the mesh
 ```
 
-<Callout kind="trap" title="Two sources disagree - check, don't trust">
-Istio's documentation says "there is no need to restart applications to add them to the mesh". Its traffic-redirection page adds that the CNI agent also enrolls a pod that is "already running". Tilt lab 03 restarts the pod after labelling the namespace anyway, and says capture is decided when the pod starts. We haven't measured which holds on the platform. The check above settles it on your cluster: after labelling, read the annotation, and restart the pod only if it doesn't say `enabled`.
+<Callout kind="trap" title="No restart needed - check, don't trust">
+Istio's documentation says "there is no need to restart applications to add them to the mesh". Its traffic-redirection page adds that the CNI agent also enrolls a pod that is "already running". Tilt lab 03 agrees: "Unlike sidecar mode, joining or leaving needs no restart", and it calls its own restarts "harmless, not required". We haven't measured it on the platform ourselves. The check above settles it on your cluster: after labelling, read the annotation. If it doesn't say `enabled` without a restart, that is the finding.
 </Callout>
 
 <Quiz

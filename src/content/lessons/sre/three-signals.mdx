@@ -1,6 +1,6 @@
 ---
 title: Logs, metrics and traces
-summary: One in twenty checkouts takes two seconds, and every dashboard average says all is well. Use each signal for the question it can answer, and follow one request across five services to the line that explains it.
+summary: One in twenty checkouts takes two seconds, and every dashboard average says all is well. Use each signal for the question it can answer, and follow one request across six services to the line that explains it.
 minutes: 17
 xp: 40
 tiers: [browser, machine]
@@ -40,7 +40,7 @@ p99 tells you *that* something's slow. It can't tell you *which* service, becaus
 
 ## Traces follow one request
 
-A **trace** gives "the big picture of what happens when a request is made". It's made of **spans**, where each span "represents a unit of work or operation" and carries a name, start and end times, the id of its parent span, and the trace id it belongs to. When a service calls the next one, it passes that context along in a header (W3C `traceparent`). That's **context propagation**, "the core concept that enables Distributed Tracing": spans written by five different services join up into one tree.
+A **trace** gives "the big picture of what happens when a request is made". It's made of **spans**, where each span "represents a unit of work or operation" and carries a name, start and end times, the id of its parent span, and the trace id it belongs to. When a service calls the next one, it passes that context along in a header (W3C `traceparent`). That's **context propagation**, "the core concept that enables Distributed Tracing": spans written by different services join up into one tree.
 
 <Diagram
   id="sre-trace-path"

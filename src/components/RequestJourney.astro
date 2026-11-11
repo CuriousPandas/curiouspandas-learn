@@ -38,7 +38,7 @@ const { only = '', start = 'ok', checks = true, title = 'Break one stage of a re
       for (const b of root.querySelectorAll<HTMLButtonElement>('[data-pick]')) b.setAttribute('aria-pressed', String(b.dataset.pick === s.id));
       const failIdx = s.failedAt ? STAGES.findIndex((x) => x.id === s.failedAt) : -1;
       q('[data-stages]').replaceChildren(...STAGES.map((st, i) => {
-        const state = failIdx < 0 || i < failIdx ? 'pass' : i === failIdx ? (s.failedAt === 'http' ? 'answer' : 'fail') : 'skip';
+        const state = failIdx < 0 || i < failIdx ? 'pass' : i === failIdx ? (s.failedAt === 'http' && s.status !== null ? 'answer' : 'fail') : 'skip';
         const li = el('li', `st-${state}`);
         li.append(el('span', 'dot', state === 'pass' ? '✓' : state === 'fail' ? '✗' : state === 'answer' ? '!' : '·'), el('span', '', st.label));
         return li;

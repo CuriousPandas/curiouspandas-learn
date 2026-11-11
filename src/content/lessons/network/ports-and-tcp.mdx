@@ -56,7 +56,7 @@ How the handshake *fails* is the useful part, because each failure has its own s
   ]}
 />
 
-When the SYN gets no answer, the client sends it again. Classic TCP waits one second and doubles each wait after that (RFC 6298), and that is the schedule the simulator above shows. Since Linux 6.5 the first few retries are one second apart and only then start doubling (`tcp_syn_linear_timeouts`, default 4). Either way, with the default `tcp_syn_retries` an attempt to a silent address takes about two minutes to fail (131 seconds on current kernels). That's why a dropped connection without a `--connect-timeout` can hang for two minutes.
+When the SYN gets no answer, the client sends it again. Classic TCP waits one second and doubles each wait after that (RFC 6298), and that is the schedule the simulator below shows. Since Linux 6.5 the first few retries are one second apart and only then start doubling (`tcp_syn_linear_timeouts`, default 4). Either way, with the default `tcp_syn_retries` an attempt to a silent address takes about two minutes to fail (131 seconds on current kernels). That's why a dropped connection without a `--connect-timeout` can hang for two minutes.
 
 ## Works on my machine
 
