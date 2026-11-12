@@ -42,8 +42,8 @@ kubectl -n hello get pod -l app.kubernetes.io/name=hello \
 #   (empty)   -> not in the mesh
 ```
 
-<Callout kind="trap" title="No restart needed - check, don't trust">
-Istio's documentation says "there is no need to restart applications to add them to the mesh". Its traffic-redirection page adds that the CNI agent also enrolls a pod that is "already running". Tilt lab 03 agrees: "Unlike sidecar mode, joining or leaving needs no restart", and it calls its own restarts "harmless, not required". We haven't measured it on the platform ourselves. The check above settles it on your cluster: after labelling, read the annotation. If it doesn't say `enabled` without a restart, that is the finding.
+<Callout kind="trap" title="No restart needed - we measured it">
+Istio's documentation says "there is no need to restart applications to add them to the mesh". Its traffic-redirection page adds that the CNI agent also enrolls a pod that is "already running". Tilt lab 03 agrees: "Unlike sidecar mode, joining or leaving needs no restart", and it calls its own restarts "harmless, not required". We ran it on tilt without the restart, on a kind cluster with Istio 1.28.3 in ambient mode. With the label removed, the running pod's annotation was gone within 2 seconds. With the label put back, it said `enabled` again in under a second. It was the same pod each time, with the same start time and a restart count of 0. The video below is that run. That's one cluster and one version, so the check above is still how you settle it on yours: after labelling, read the annotation. If it doesn't say `enabled` without a restart, that is the finding.
 </Callout>
 
 <Quiz
@@ -69,6 +69,8 @@ Istio's documentation says "there is no need to restart applications to add them
   answer={1}
   explain="ztunnel handles encryption and connection telemetry. Request-level (L7) features live in waypoints, which is why Flagger in lab 06 needs one to read a success rate."
 />
+
+<Watch lesson="platform/service-mesh" />
 
 <DoItForReal id="platform-mesh-real" lab="03-join-the-mesh" profile="observability">
 
