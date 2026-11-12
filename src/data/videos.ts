@@ -24,7 +24,7 @@ export type Video = {
 export const VIDEOS: Video[] = [
   {
     lesson: 'platform/observability',
-    youtube: 'XjiB_p7YNuM',
+    youtube: 'pzIKS2L--CE',
     title: 'The dashboard that lies, on a real cluster',
     poster: '/video/platform-observability.jpg',
     minutes: 2,
@@ -32,11 +32,19 @@ export const VIDEOS: Video[] = [
   },
   {
     lesson: 'kubernetes/restarts',
-    youtube: 'Qcycel3b8Aw',
+    youtube: '71pV2dyBWmY',
     title: 'Why did it restart?, on a real cluster',
     poster: '/video/kubernetes-restarts.jpg',
     minutes: 2,
     about: 'Tilt lab 09 on a real cluster. Two pods crash-loop with the same exit code, 137. The termination reason and the events show one ran out of memory and the other was killed by its own health check, and each gets a different fix.',
+  },
+  {
+    lesson: 'platform/service-mesh',
+    youtube: 'HVx9IU8jwp0',
+    title: 'In the mesh, or not?, on a real cluster',
+    poster: '/video/platform-service-mesh.jpg',
+    minutes: 2,
+    about: 'Tilt lab 03 on a real cluster. One label comes off a namespace and a running pod leaves the mesh in about two seconds, with the same name, the same start time and no restart. Kubernetes shows nothing wrong, and Kiali is the only dashboard that changes.',
   },
 ];
 
