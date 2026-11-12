@@ -24,7 +24,7 @@ export type Video = {
 export const VIDEOS: Video[] = [
   {
     lesson: 'platform/observability',
-    youtube: 'pzIKS2L--CE',
+    youtube: 'FdmrItMGvBU',
     title: 'The dashboard that lies, on a real cluster',
     poster: '/video/platform-observability.jpg',
     minutes: 2,
