@@ -46,6 +46,14 @@ export const VIDEOS: Video[] = [
     minutes: 2,
     about: 'Tilt lab 03 on a real cluster. One label comes off a namespace and a running pod leaves the mesh in about two seconds, with the same name, the same start time and no restart. Kubernetes shows nothing wrong, and Kiali is the only dashboard that changes.',
   },
+  {
+    lesson: 'delivery/release-strategies',
+    youtube: 'aRiHnqR5w20',
+    title: 'The release nobody saw, on a real cluster',
+    poster: '/video/delivery-release-strategies.jpg',
+    minutes: 3,
+    about: 'Tilt lab 06 on a real cluster. Flagger moves a good release to a quarter of the traffic, then half, then promotes it. A release with an image that does not exist is marked failed while the page keeps serving the old version, and it takes a new good release to clear it.',
+  },
 ];
 
 export function videoFor(lesson: string): Video {
