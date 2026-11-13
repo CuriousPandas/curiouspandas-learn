@@ -99,6 +99,8 @@ None of them prevented the bad version from meeting users. They decide how many 
 A canary nobody calls has no success rate to judge. Tilt's lab 06 runs a load tester for exactly that reason, and notes that without it the analysis fails and every release rolls back - which looks like a bad version and is really missing tooling. The first analysis round can also log `no values found for custom metric` while the rate builds up; that's normal, and only a problem if it never stops.
 </Callout>
 
+<Watch lesson="delivery/release-strategies" />
+
 <DoItForReal id="delivery-release-real" lab="06-canary" profile="gitops">
 
 Follow the lab's setup (waypoint, metric template, load tester, Canary), then ship a good version and a bad one:
@@ -113,6 +115,10 @@ kubectl -n hello describe canary hello | tail -15
 ```
 
 The bad version here is a different failure from the widget's v3: its image doesn't exist, so the pod never becomes Ready and Flagger fails the release at `progressDeadlineSeconds`, before it shifts any traffic. The widget's v3 is Ready and still wrong, which only the success-rate check can catch.
+
+We ran this on tilt with Flagger 1.45.0, and the video above is that run. The good version went to 25% of traffic after 24 seconds, to 50% after another 45, and was promoted 48 seconds later. The bad one was marked `Failed` after 2 minutes 4 seconds, and the page said "canary v2" the whole time, served by the same primary pod. Those are one cluster's timings, so expect yours to differ.
+
+One thing the lab doesn't say: putting the old image back doesn't clear the `Failed`. In our rehearsal the Canary sat at `Failed` for 90 seconds after we restored the image, and the lab check kept failing. Our reading is that the Deployment then matches what the primary already runs, so Flagger has no new release to analyse. We didn't confirm that in Flagger's source. Shipping a real next version did clear it: a new message with the right image was promoted, and the check passed again.
 
 Read the lab's "Leaving the lab" section before you move on: deleting the Canary alone leaves the route pointing at services that no longer exist.
 
