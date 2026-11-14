@@ -37,9 +37,19 @@ if ! gh api "repos/$repo/environments/github-pages/deployment-branch-policies" -
   gh api -X POST "repos/$repo/environments/github-pages/deployment-branch-policies" -f name=main -f type=branch > /dev/null
 fi
 
+# Workflows may open pull requests. The weekly freshness check
+# (.github/workflows/freshness.yml) opens one when the CNCF snapshot changes;
+# with this off, its `gh pr create` fails with "GitHub Actions is not permitted
+# to create or approve pull requests". The default token stays read-only: each
+# workflow asks for what it needs in its own `permissions`. This does not let
+# a workflow merge anything: main still needs "verify", and there are zero
+# required approvals for it to supply.
+gh api -X PUT "repos/$repo/actions/permissions/workflow"   -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true > /dev/null
+
 # Read back what GitHub actually holds, so a silently ignored field shows up.
 echo "merges:    $(gh api "repos/$repo" --jq '"squash=\(.allow_squash_merge) merge=\(.allow_merge_commit) rebase=\(.allow_rebase_merge) delete_branch_on_merge=\(.delete_branch_on_merge)"')"
 echo "ruleset:   $(gh api "repos/$repo/rules/branches/main" --jq '[.[].type] | join(", ")')"
 echo "checks:    $(gh api "repos/$repo/rules/branches/main" --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | join(", ")')"
 echo "bypass:    $(gh api "repos/$repo/rulesets/$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name == "main") | .id')" --jq '.bypass_actors | length') actor(s)"
+echo "workflows: $(gh api "repos/$repo/actions/permissions/workflow" --jq '"default token=\(.default_workflow_permissions) may open pull requests=\(.can_approve_pull_request_reviews)"')"
 echo "pages:     deploys from $(gh api "repos/$repo/environments/github-pages/deployment-branch-policies" --jq '[.branch_policies[].name] | join(", ")')"
