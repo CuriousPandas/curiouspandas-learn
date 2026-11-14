@@ -24,7 +24,10 @@ import { parse } from 'yaml';
 
 const LESSONS = 'src/content/lessons';
 
-/** Every cited URL, with the lessons that cite it. */
+/**
+ * Every cited URL, with the lessons that cite it.
+ * @returns {Map<string, string[]>}
+ */
 export function citedUrls(dir = LESSONS) {
   const cited = new Map();
   for (const track of readdirSync(dir)) for (const file of readdirSync(join(dir, track))) {
@@ -68,6 +71,9 @@ function sameSource(url, finalUrl) {
  * What one answer means. `error` is a fetch failure's code or name. `accepted`
  * maps a cited URL to the reason its redirect is expected
  * (scripts/link-check-accept.json).
+ * @param {{ url: string, status?: number, finalUrl?: string, error?: string }} answer
+ * @param {Record<string, string>} [accepted]
+ * @returns {{ kind: 'ok' | 'moved' | 'gone' | 'unchecked', why: string }}
  */
 export function classify({ url, status, finalUrl, error }, accepted = {}) {
   if (error) {
@@ -133,6 +139,11 @@ async function pooled(items, job, { total = 12, perHost = 2 } = {}) {
   return out;
 }
 
+/**
+ * @param {{ url: string, kind: string, why: string }[]} results
+ * @param {Map<string, string[]>} cited
+ * @param {string} when
+ */
 export function report(results, cited, when) {
   const by = (k) => results.filter((r) => r.kind === k).sort((a, b) => a.url.localeCompare(b.url));
   const line = (r) => `- ${r.url}\n  - ${r.why}\n  - cited in: ${cited.get(r.url).map((l) => `\`${l}\``).join(', ')}`;

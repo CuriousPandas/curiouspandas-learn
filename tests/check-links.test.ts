@@ -4,7 +4,6 @@
 // "ok" reports every such source as checked when nobody looked at it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-// @ts-expect-error a plain .mjs script with no types
 import { citedUrls, classify, report } from '../scripts/check-links.mjs';
 
 const url = 'https://example.org/docs/page/';
