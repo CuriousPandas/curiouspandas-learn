@@ -2,12 +2,28 @@
 import Base from '../layouts/Base.astro';
 import TrackCard from '../components/TrackCard.astro';
 import Panda from '../components/Panda.astro';
-import { curriculum, totals } from '../lib/curriculum.ts';
+import ExpeditionBadge from '../components/ExpeditionBadge.astro';
+import { curriculum, expeditions, hours, totals } from '../lib/curriculum.ts';
 import { TIERS, TRACK_GROUPS, groupOf } from '../data/tracks.ts';
-import { EXPEDITIONS } from '../data/expeditions.ts';
+import { VIDEOS } from '../data/videos.ts';
 const tracks = await curriculum();
-// Named from the data, so opening a fifth expedition cannot leave this list stale.
-const openExpeditions = new Intl.ListFormat('en', { type: 'disjunction' }).format(EXPEDITIONS.filter((e) => e.status === 'ready').map((e) => e.title));
+// The ways in. An expedition is the site's own answer to "where do I start":
+// a route for one kind of learner. That answer used to be one text link under
+// a list of 37 trails, and the only button above it assumed a beginner. Read
+// from the data, so opening another expedition adds its card here.
+const waysIn = (await expeditions()).filter((e) => e.status === 'ready');
+if (waysIn.length < 2) throw new Error(`The home page offers expeditions as ways in, and only ${waysIn.length} is ready`);
+// The recordings are the proof that the labs are real. Linked, not embedded:
+// the posters are our own files, so the page still asks Google for nothing.
+const lessonOf = new Map(tracks.flatMap((tr) => tr.lessons.map((l) => [l.id, l])));
+const videos = VIDEOS.map((v) => {
+  const lesson = lessonOf.get(v.lesson);
+  if (!lesson?.entry) throw new Error(`src/data/videos.ts: "${v.lesson}" is not a ready lesson`);
+  const name = v.title.replace(/, on a real cluster$/, '');
+  // Two of the videos are named after their lesson; "from" then says it twice.
+  const from = lesson.entry.data.title.replace(/[?.]$/, '') === name.replace(/[?.]$/, '') ? '' : ` · from ${lesson.entry.data.title}`;
+  return { ...v, name, from };
+});
 const t = totals(tracks);
 // Someone who has never written code is who this button is for. It still looks
 // for a written lesson, because when Linux & the Shell went first with every lesson
@@ -33,6 +49,7 @@ if (!gitFirst || gitFirst.status !== 'ready') throw new Error('The home page lin
           <a class="btn" href="/playground/">Just let me play</a>
         </div>
         <p class="muted small">{t.ready} lessons ready, {t.lessons - t.ready} more being written. Nothing to install.</p>
+        <p class="small already">Already write code? <a href="#ways-in">Pick a route by where you want to end up.</a></p>
       </div>
       <div class="card toy" data-hash-toy>
         <div class="toy-head"><Panda size={26} /><strong>Type anything</strong></div>
@@ -44,6 +61,23 @@ if (!gitFirst || gitFirst.status !== 'ready') throw new Error('The home page lin
     </div>
   </section>
 
+  <section class="wrap ways" id="ways-in">
+    <h2>Where do you want to start?</h2>
+    <p class="muted">Each of these is a route across the trails for one kind of learner, in an order where nothing is used before it is taught.</p>
+    <div class="grid three">
+      {waysIn.map((e) => (
+        <a class="way card" href={e.href} style={`--hue:${e.hue}`}>
+          <ExpeditionBadge id={e.id} icon={e.icon} hue={e.hue} size={44} />
+          <span class="way-txt">
+            <span class="who">"{e.who}"</span>
+            <strong>{e.title}</strong>
+            <span class="facts">{e.steps.length} lessons · about {hours(e.minutes)}</span>
+          </span>
+        </a>
+      ))}
+    </div>
+  </section>
+
   <section class="wrap how">
     <div class="grid three">
       <div class="step"><span>1</span><strong>Play in the browser</strong><p>Real-hash git, a cluster that self-heals and crashes, a neural network you can watch learn, a model server you can overload.</p></div>
@@ -52,9 +86,22 @@ if (!gitFirst || gitFirst.status !== 'ready') throw new Error('The home page lin
     </div>
   </section>
 
+  <section class="wrap seen">
+    <h2>Watch it happen on a real cluster</h2>
+    <p class="muted">{videos.length} short recordings of the real labs, each from a lesson where you break the same thing yourself. <a href="/videos/">All videos →</a></p>
+    <div class="grid four">
+      {videos.map((v) => (
+        <a class="vid card" href={`/videos/#${v.lesson.replace('/', '-')}`}>
+          <img src={v.poster} alt="" width="1280" height="720" loading="lazy" decoding="async" />
+          <span class="vid-txt"><strong>{v.name}</strong><span class="facts">{v.minutes} min{v.from}</span></span>
+        </a>
+      ))}
+    </div>
+  </section>
+
   <section class="wrap">
     <h2>{t.tracksWord} trails</h2>
-    <p class="muted">Not sure where to start? An <a href="/expeditions/">expedition</a> picks a route across them for you - {openExpeditions}.</p>
+    <p class="muted">Or pick a subject. An <a href="/expeditions/">expedition</a> crosses several of these; a trail is one.</p>
     {TRACK_GROUPS.map((g) => {
       const group = tracks.filter((tr) => groupOf(tr) === g.id);
       return (
@@ -105,6 +152,22 @@ if (!gitFirst || gitFirst.status !== 'ready') throw new Error('The home page lin
   .hash { display: block; font-size: 0.95rem; padding: 10px 12px; border-radius: 10px; background: var(--term-bg); color: var(--term-hint); word-break: break-all; }
   .hash.flash { animation: flash .4s ease-out; }
   @keyframes flash { from { color: #fff; } }
+  .already { margin: 6px 0 0; color: var(--ink-2); }
+  /* Arrived at by the hero's link: clear of the sticky header, which is up
+     to 124px tall on a phone. Without this the heading landed under it. */
+  .ways { margin-top: 8px; scroll-margin-top: 130px; }
+  .ways h2, .seen h2 { margin-top: 1.2em; }
+  .way { display: flex; gap: 14px; align-items: flex-start; padding: 16px; text-decoration: none; color: var(--ink); min-width: 0; }
+  a.way:hover, a.vid:hover { border-color: var(--bamboo); }
+  .way-txt, .vid-txt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .way .who { font-size: 1.02rem; font-weight: 650; line-height: 1.35; }
+  .way strong { font-size: 0.9rem; color: var(--bamboo); }
+  .facts { font-size: 0.84rem; color: var(--muted); }
+  .grid.four { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .vid { display: flex; flex-direction: column; text-decoration: none; color: var(--ink); overflow: hidden; min-width: 0; }
+  .vid img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-bottom: 1px solid var(--line); }
+  .vid-txt { padding: 10px 14px 12px; }
+  .vid strong { font-size: 0.98rem; line-height: 1.3; }
   .how { margin-top: 24px; }
   .step { padding: 4px 0; }
   .step span { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--sun-soft); color: var(--sun-text); font-weight: 800; margin-bottom: 6px; }
