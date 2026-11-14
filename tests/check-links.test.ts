@@ -76,3 +76,17 @@ test('links: an accepted redirect is fine and says why; an unlisted one is still
   assert.equal(r.kind, 'ok');
   assert.match(r.why, /on purpose/);
 });
+
+// The check's first "gone" was the GDPR text on eur-lex. It was not gone:
+// eur-lex sent every address we tried, including an unrelated regulation, to
+// its front page. One false alarm a week teaches people to ignore the issue.
+test('links: a site that bounces every script is "unchecked", whatever it answered', () => {
+  const walls = { 'eur-lex.europa.eu': 'sends every script to its front page' };
+  const a = { url: 'https://eur-lex.europa.eu/eli/reg/2016/679/oj', status: 200, finalUrl: 'https://eur-lex.europa.eu/' };
+  assert.equal(classify(a).kind, 'gone', 'without the list this is what it looks like');
+  const r = classify(a, {}, walls);
+  assert.equal(r.kind, 'unchecked');
+  assert.match(r.why, /cannot be checked by a script/);
+  // Only that host: another site's front-page redirect is still gone.
+  assert.equal(classify({ url: 'https://example.org/a/b', status: 200, finalUrl: 'https://example.org/' }, {}, walls).kind, 'gone');
+});
