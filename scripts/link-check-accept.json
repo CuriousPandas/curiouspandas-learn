@@ -1,0 +1,4 @@
+{
+  "https://www.unicode.org/versions/latest/core-spec/chapter-2/": "'latest' is cited on purpose; it redirects to whichever version is newest",
+  "https://www.uber.com/blog/piranha/": "redirects to a regional copy of the same post (/ca/en/ from here); the region depends on where the check runs"
+}

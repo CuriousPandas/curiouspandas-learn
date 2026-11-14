@@ -2,6 +2,8 @@ node_modules/
 dist/
 .astro/
 .site-check/
+# Written by scripts/check-links.mjs: the last link report.
+.freshness/
 *.log
 .DS_Store
 # Parallel writers work in git worktrees here; each is a full copy of the repo.

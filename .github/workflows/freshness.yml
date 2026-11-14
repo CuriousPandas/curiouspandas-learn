@@ -1,0 +1,141 @@
+name: freshness
+
+# Once a week, ask the outside world whether the lessons are still right about
+# it. The lessons quote other people's pages and record other people's facts
+# (which CNCF projects have graduated), and those change without telling us.
+# The review on 2026-11-11 found 60 problems, most of that kind, and nothing
+# was watching. This does two things and files what it finds:
+#
+#   CNCF maturity   a pull request, when a tool's standing has changed
+#   cited sources   one issue, labelled "freshness", kept up to date
+#
+# It never changes main itself.
+
+on:
+  schedule:
+    # Mondays, 06:17 UTC. Off the hour, when scheduled runs queue worst.
+    # GitHub turns scheduled workflows off after 60 days with no activity in
+    # the repository and says so only by email. If the weekly summary stops
+    # appearing under Actions, that is why: re-enable it there.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write        # push the snapshot branch
+  pull-requests: write   # open the snapshot pull request
+  issues: write          # file and close the sources issue
+  actions: write         # start ci on the snapshot branch (see below)
+
+concurrency:
+  group: freshness
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # The branch this run was started on. A scheduled run is always main; a
+      # manual run on another branch files its pull request against that
+      # branch, which is how this workflow is tested without touching main.
+      BASE: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      - name: CNCF maturity
+        id: cncf
+        run: |
+          set -euo pipefail
+          before=$(node -e "console.log(JSON.stringify(require('./src/data/cncf-snapshot.json').tools))")
+          # Fails the job if the landscape cannot be fetched or parsed, rather
+          # than writing an empty snapshot (scripts/sync-cncf.mjs).
+          npm run --silent sync:cncf > cncf.log
+          after=$(node -e "console.log(JSON.stringify(require('./src/data/cncf-snapshot.json').tools))")
+          {
+            echo "## CNCF maturity"
+            echo
+            if [ "$before" = "$after" ]; then
+              # The sync rewrites the date every time. A snapshot that differs
+              # only by its date is not a change worth a pull request, so it
+              # is put back and the summary says it was looked at.
+              git checkout -- src/data/cncf-snapshot.json
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "Checked against the CNCF landscape: no tool has changed standing."
+            else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "Changed since the snapshot in the repository:"
+              echo
+              echo '```'
+              grep '(was ' cncf.log || echo "(a field other than maturity changed; see the pull request diff)"
+              echo '```'
+            fi
+            echo
+          } | tee -a "$GITHUB_STEP_SUMMARY" > cncf-summary.md
+
+      - name: Open a pull request for the new snapshot
+        if: steps.cncf.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          branch=freshness/cncf-snapshot
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add src/data/cncf-snapshot.json
+          git commit -q -m "chore(cncf): the landscape's maturity levels have changed" -m "$(cat cncf-summary.md)"
+          # One branch, replaced each week: an unmerged snapshot from last
+          # week is superseded by this one, not stacked under it.
+          git push -q --force origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --base "$BASE" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --head "$branch" --base "$BASE" \
+              --title "chore(cncf): the landscape's maturity levels have changed" \
+              --body "$(cat cncf-summary.md)
+          Opened by the weekly freshness check. Read the diff, then check the Tool Atlas and any lesson that states the old level before merging."
+          fi
+          # A pull request opened with the workflow's own token does not start
+          # workflows: GitHub blocks that to stop loops. Left there, the
+          # required "verify" check would never run and the pull request could
+          # never merge, with nothing on the page to say why. Starting ci by
+          # hand on the branch is the one thing that token is allowed to do,
+          # and its "verify" lands on the same commit.
+          gh workflow run ci.yml --ref "$branch"
+
+      - name: Cited sources
+        id: links
+        run: |
+          set -euo pipefail
+          # Fails the job, without a report, if most sources could not be
+          # reached: that is this runner's network, not their pages.
+          node scripts/check-links.mjs > /dev/null
+          {
+            echo "## Cited sources"
+            echo
+            cat .freshness/report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "attention=$(node -e "const c=require('./.freshness/links.json').counts;console.log(c.gone+c.moved)")" >> "$GITHUB_OUTPUT"
+
+      - name: File the sources that need a look
+        run: |
+          set -euo pipefail
+          gh label create freshness --color 0E8A16 --description "Filed by the weekly freshness check" --force
+          issue=$(gh issue list --label freshness --state open --json number --jq '.[0].number // empty')
+          {
+            cat .freshness/report.md
+            echo
+            echo "---"
+            echo "Kept up to date by the [weekly freshness check]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). It closes itself when nothing is gone or moved. To keep citing a redirect as it is, add it to \`scripts/link-check-accept.json\` with the reason."
+          } > issue.md
+          if [ "${{ steps.links.outputs.attention }}" != "0" ]; then
+            title="Cited sources: ${{ steps.links.outputs.attention }} gone or moved"
+            if [ -n "$issue" ]; then
+              gh issue edit "$issue" --title "$title" --body-file issue.md
+            else
+              gh issue create --label freshness --title "$title" --body-file issue.md
+            fi
+          elif [ -n "$issue" ]; then
+            gh issue close "$issue" --comment "Checked $(date -u +%F): no cited source is gone or moved."
+          fi
