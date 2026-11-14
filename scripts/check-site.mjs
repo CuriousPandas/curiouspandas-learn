@@ -17,8 +17,13 @@ import { AxeBuilder } from '@axe-core/playwright';
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { parseShard } from './lib/shard.mjs';
 
 const ENGINE = process.env.BROWSER ?? 'chromium';
+// SHARD=2/3 runs the second third of the pages and of the scenarios, so CI
+// can run the thirds as separate jobs at once. Unset runs everything.
+const SHARD = parseShard(process.env.SHARD);
+const ran = { pages: 0, pagesSkipped: 0, scenarios: 0, scenariosSkipped: 0 };
 if (!['chromium', 'webkit', 'firefox'].includes(ENGINE)) throw new Error(`BROWSER must be chromium, webkit or firefox, not ${ENGINE}`);
 // One folder per engine, so a WebKit run never overwrites Chromium's evidence.
 const OUT = join('.site-check', ENGINE);
@@ -74,7 +79,9 @@ async function visit(path, { dark = false, width = 1280 } = {}) {
 // A page's requests all succeeding says nothing about where its links go. Every
 // internal link must name a built page (or a file in public/).
 const known = new Set([...pages('dist'), '/favicon.svg']);
-for (const path of pages('dist')) {
+for (const [nth, path] of pages('dist').entries()) {
+  if (!SHARD.mine(nth)) { ran.pagesSkipped++; continue; }
+  ran.pages++;
   // A redirect page has no content of its own to check; what matters is that
   // it lands on a real page rather than forwarding a bookmark into a 404.
   const html = readFileSync(join('dist', path === '/404.html' ? path : path + 'index.html'), 'utf8');
@@ -179,6 +186,9 @@ for (const path of pages('dist')) {
 // ---- drive the widgets --------------------------------------------------
 
 async function scenario(name, path, fn, opts) {
+  // Counted in the order the file calls them, which is the same in every job.
+  if (!SHARD.mine(ran.scenarios + ran.scenariosSkipped)) { ran.scenariosSkipped++; return; }
+  ran.scenarios++;
   const { ctx, page, errors } = await visit(path, opts);
   try {
     await fn(page);
@@ -4956,7 +4966,12 @@ for (const deck of Object.values(DECKS).filter((d) => d.id.startsWith('tool-')))
 await browser.close();
 server?.kill();
 
-writeFileSync(join(OUT, 'report.json'), JSON.stringify({ base, failures, report }, null, 2));
+// A part that checked nothing would pass with nothing to fail. With fewer
+// items than parts that could happen honestly, but not on this site, so it is
+// treated as the split having gone wrong.
+if (!ran.pages || !ran.scenarios) fail('shard', `${SHARD.label} ran ${ran.pages} pages and ${ran.scenarios} scenarios`);
+console.log(`${ENGINE}, ${SHARD.label}: ${ran.pages} pages checked (${ran.pagesSkipped} left to other parts), ${ran.scenarios} scenarios run (${ran.scenariosSkipped} left to other parts)`);
+writeFileSync(join(OUT, 'report.json'), JSON.stringify({ base, shard: SHARD.label, ran, failures, report }, null, 2));
 for (const r of report) {
   if (r.redirect) console.log(`↪ ${r.path.padEnd(36)} redirects to ${r.redirect}`);
   else if (r.path) console.log(`${r.errors.length || r.failed.length || r.overflow > 1 || !r.h1 ? '✗' : '✓'} ${r.path.padEnd(36)} h1=${JSON.stringify(r.h1)} text=${r.chars} errors=${r.errors.length} failed=${r.failed.length}`);
