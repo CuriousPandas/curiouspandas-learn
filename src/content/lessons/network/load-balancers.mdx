@@ -12,9 +12,9 @@ sources:
   - title: Kubernetes Gateway API - HTTPRoute
     url: https://gateway-api.sigs.k8s.io/reference/api-types/httproute/
   - title: Kubernetes - Liveness, Readiness and Startup Probes
-    url: https://kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes/
+    url: https://kubernetes.io/docs/concepts/workloads/pods/probes/
   - title: RFC 9110 - HTTP Semantics (Host, request target)
-    url: https://www.rfc-editor.org/rfc/rfc9110
+    url: https://www.rfc-editor.org/rfc/rfc9110.html
 ---
 
 A popular site isn't one server. It's one **address** in front of many servers, with a load balancer or reverse proxy deciding which server gets each request. Clients never see the decision. That's the point, and it's also why a bad decision is so hard to spot from outside.

@@ -73,9 +73,15 @@ function sameSource(url, finalUrl) {
  * (scripts/link-check-accept.json).
  * @param {{ url: string, status?: number, finalUrl?: string, error?: string }} answer
  * @param {Record<string, string>} [accepted]
+ * @param {Record<string, string>} [unscriptable] hostname to the reason (scripts/link-check-unscriptable.json)
  * @returns {{ kind: 'ok' | 'moved' | 'gone' | 'unchecked', why: string }}
  */
-export function classify({ url, status, finalUrl, error }, accepted = {}) {
+export function classify({ url, status, finalUrl, error }, accepted = {}, unscriptable = {}) {
+  // A site known to send every script to its front page (or a challenge)
+  // whatever was asked for. Its answer says nothing, so it is not "gone" and
+  // it is certainly not "ok".
+  const wall = unscriptable[new URL(url).hostname];
+  if (wall) return { kind: 'unchecked', why: `this site cannot be checked by a script: ${wall}` };
   if (error) {
     // The host itself is gone. Anything else (reset, timeout, TLS) is a
     // failure to ask, not an answer.
@@ -168,7 +174,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   // Redirects someone has looked at and decided to keep citing as they are.
   const accepted = JSON.parse(readFileSync('scripts/link-check-accept.json', 'utf8'));
   for (const u of Object.keys(accepted)) if (!cited.has(u)) throw new Error(`scripts/link-check-accept.json accepts ${u}, which no lesson cites any more; remove it`);
-  const results = answers.map((a) => ({ ...a, ...classify(a, accepted) }));
+  const unscriptable = JSON.parse(readFileSync('scripts/link-check-unscriptable.json', 'utf8'));
+  const hosts = new Set([...cited.keys()].map((u) => new URL(u).hostname));
+  for (const h of Object.keys(unscriptable)) if (!hosts.has(h)) throw new Error(`scripts/link-check-unscriptable.json lists ${h}, which no lesson cites any more; remove it`);
+  const results = answers.map((a) => ({ ...a, ...classify(a, accepted, unscriptable) }));
   const when = new Date().toISOString().slice(0, 10);
   const { text, counts } = report(results, cited, when);
   // If most of the web could not be reached, the runner had no network, and a

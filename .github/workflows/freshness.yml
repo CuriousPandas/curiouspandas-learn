@@ -127,7 +127,7 @@ jobs:
             cat .freshness/report.md
             echo
             echo "---"
-            echo "Kept up to date by the [weekly freshness check]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). It closes itself when nothing is gone or moved. To keep citing a redirect as it is, add it to \`scripts/link-check-accept.json\` with the reason."
+            echo "Kept up to date by the [weekly freshness check]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). It closes itself when nothing is gone or moved. To keep citing a redirect as it is, add it to \`scripts/link-check-accept.json\` with the reason. A site that sends every script to its front page goes in \`scripts/link-check-unscriptable.json\`."
           } > issue.md
           if [ "${{ steps.links.outputs.attention }}" != "0" ]; then
             title="Cited sources: ${{ steps.links.outputs.attention }} gone or moved"
