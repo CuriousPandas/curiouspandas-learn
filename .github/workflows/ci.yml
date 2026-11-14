@@ -42,12 +42,17 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # One job per engine, side by side. They used to run one after another in a
-  # single job: 17.3 + 17.6 + 13.7 minutes of a 52 minute run, twice per change
-  # (once on the pull request, once on main before the deploy).
+  # One job per engine and per third of the check, side by side: nine jobs.
+  # The engines used to run one after another in a single job (17.3 + 17.6 +
+  # 13.7 minutes of a 52 minute run). Side by side, one engine was still 15 to
+  # 17 minutes and set the length of the whole run, about 20 minutes, twice
+  # per change (once on the pull request, once on main before the deploy).
+  # Each engine's check is now dealt into SHARDS parts (scripts/lib/shard.mjs).
   browsers:
     needs: build
     runs-on: ubuntu-24.04
+    env:
+      SHARDS: 3
     strategy:
       # A WebKit failure is still worth seeing when Chromium has failed too.
       fail-fast: false
@@ -56,7 +61,15 @@ jobs:
         # on an iPhone; it caught pod clicks that Chromium's faster synthetic
         # clicks slipped past.
         engine: [chromium, webkit, firefox]
+        # Must list every part from 1 to SHARDS. The first step refuses a
+        # list that does not.
+        shard: [1, 2, 3]
     steps:
+      # Three engines times SHARDS parts is the number of jobs there must be.
+      # With `shard: [1, 2]` and SHARDS still 3, every job would pass and a
+      # third of the site would be checked by nobody.
+      - name: The job list covers every part
+        run: test "${{ strategy.job-total }}" = "$((3 * SHARDS))"
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
@@ -71,7 +84,9 @@ jobs:
       # Renders every page and drives every widget. A green build with a page
       # whose scripts throw is exactly what this exists to catch.
       - run: npm run check:site
-        env: { BROWSER: "${{ matrix.engine }}" }
+        env:
+          BROWSER: ${{ matrix.engine }}
+          SHARD: ${{ matrix.shard }}/${{ env.SHARDS }}
       - uses: actions/upload-artifact@v7
         if: always()
         # Screenshots are evidence, not a gate. This step failing on GitHub's
@@ -79,7 +94,7 @@ jobs:
         # a merged change sat undeployed. The checks above decide the result.
         continue-on-error: true
         with:
-          name: site-check-${{ matrix.engine }}
+          name: site-check-${{ matrix.engine }}-${{ matrix.shard }}
           path: .site-check/
           # A dot-directory is "hidden" and upload-artifact skips hidden files
           # by default - the first run uploaded nothing and only warned.
