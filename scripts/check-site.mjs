@@ -106,6 +106,17 @@ for (const path of pages('dist')) {
     // Innermost only: every ancestor of the culprit overflows too, and filled the list.
     .filter((e, _, all) => !all.some((o) => o !== e && e.contains(o)))
     .slice(0, 4).map((e) => `${e.tagName.toLowerCase()}.${[...e.classList].join('.')} right=${Math.round(e.getBoundingClientRect().left + Math.max(e.scrollWidth, e.getBoundingClientRect().width))}`)) : [];
+  // Every link in the top bar has to be on screen at phone width. The bar used
+  // to scroll sideways with its scrollbar hidden, so "Videos" and "Progress"
+  // sat off the right edge on every page, and "scrolls sideways" above never
+  // saw it: the page did not scroll, only the bar inside it. Still at 375px.
+  const navLost = await page.evaluate(() => {
+    const links = [...document.querySelectorAll('header.site nav a')];
+    if (links.length < 4) return [`only ${links.length} links found in header.site nav`];
+    const nav = links[0].parentElement.getBoundingClientRect();
+    return links.filter((a) => { const b = a.getBoundingClientRect(); return b.width < 1 || b.right > Math.min(nav.right, innerWidth) + 1 || b.left < Math.max(nav.left, 0) - 1; })
+      .map((a) => a.textContent.trim());
+  });
   report.push({ path, h1, chars: text.length, errors, failed, overflow, wide, shot });
   // Accessibility, in both colour schemes: the site shipped 73 serious axe
   // violations (gold text at 2.6:1, links nested in links) that no other check
@@ -127,6 +138,7 @@ for (const path of pages('dist')) {
   if (errors.length) fail(path, `console errors: ${errors.join(' | ')}`);
   if (failed.length) fail(path, `failed requests: ${failed.join(' | ')}`);
   if (overflow > 1) fail(path, `scrolls sideways by ${overflow}px at 375px wide: ${wide.join(', ')}`);
+  if (navLost.length) fail(path, `top bar links off screen at 375px wide: ${navLost.join(', ')}`);
   // Videos (<Watch>): the poster must have loaded and the player must not be
   // there yet. The play button is deliberately not pressed: that is the one
   // request to Google the site makes, and only on the learner's say-so, so
