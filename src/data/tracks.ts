@@ -90,7 +90,7 @@ export const TRACKS: Track[] = [
       { slug: 'restarts', title: 'Why did it restart?', status: 'ready' },
       { slug: 'config-and-secrets', title: 'You changed the ConfigMap and nothing changed', status: 'ready' },
       { slug: 'init-and-sidecars', title: 'The Job that never finished', status: 'ready' },
-      { slug: 'admission', title: 'The pods that were never born', status: 'ready' },
+      { slug: 'admission', title: 'The pods that were never created', status: 'ready' },
       { slug: 'security-context', title: 'Run as non-root, refuse to start', status: 'ready' },
       { slug: 'rollouts', title: 'A typo is not an outage', status: 'ready' },
       { slug: 'jobs-and-cronjobs', title: 'The nightly job that stopped running', status: 'ready' },

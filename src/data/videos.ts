@@ -54,6 +54,14 @@ export const VIDEOS: Video[] = [
     minutes: 3,
     about: 'Tilt lab 06 on a real cluster. Flagger moves a good release to a quarter of the traffic, then half, then promotes it. A release with an image that does not exist is marked failed while the page keeps serving the old version, and it takes a new good release to clear it.',
   },
+  {
+    lesson: 'kubernetes/admission',
+    youtube: 'GrL_MMLPbpM',
+    title: 'Six asked for, three running, on a real cluster',
+    poster: '/video/kubernetes-admission.jpg',
+    minutes: 2,
+    about: 'Tilt lab 10 on a real cluster. A deployment is asked for six copies and shows three of six, with every pod healthy. The refusal is found in the events, in the conditions of the deployment and in the quota, and after the quota is raised the missing pods take 57 seconds to appear.',
+  },
 ];
 
 export function videoFor(lesson: string): Video {
