@@ -179,7 +179,7 @@ export const KUBE_MISSIONS: Record<string, Mission<KubeState>> = {
     debrief: '137 is 128 + 9: SIGKILL. It says something killed the process, never what. OOMKilled means the kernel did it for memory; a Liveness event means the kubelet did it because a probe gave up. Same number, opposite fixes - and the wrong fix (more memory for impatient) never helps. The startup probe needs a budget, too: 5 s x 24 gives it two minutes, where the defaults (10 s x 3) would have killed it at 30.',
   },
   'kube-quota': {
-    id: 'kube-quota', title: 'The pods that were never born', xp: 70,
+    id: 'kube-quota', title: 'The pods that were never created', xp: 70,
     setup: kubeSetup(['kubectl create quota pandas --hard=pods=3', 'kubectl create deployment quota-demo --image=panda/hello:1.0 --replicas=6'], 8),
     steps: [
       { text: 'The deployment wants 6. Count what exists', hint: 'kubectl get deploy  then  kubectl get pods', done: (s) => ran(s.history, /get (deploy|deployments?)\b/) },

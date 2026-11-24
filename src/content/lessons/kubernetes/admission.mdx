@@ -1,5 +1,5 @@
 ---
-title: The pods that were never born
+title: The pods that were never created
 summary: The deployment wants six and has three. Nothing is crashing, nothing is Pending, and there's no broken pod to look at. Find where the refusal is written down.
 minutes: 16
 xp: 40
@@ -33,7 +33,13 @@ Deleting the quota also "works": six healthy pods. It also deletes the guardrail
 
 The docs say it plainly: changes to a quota don't affect resources that already exist. Lower a quota below what's running and nothing is evicted. The namespace just sits over its limit and looks normal. A quota governs what gets **in**, never what's already there.
 
-There's also a wait you should experience once. After repeated refusals the ReplicaSet **backs off**. On the tilt platform, raising the quota was followed by **over three minutes of nothing happening** before the missing pods appeared. That pause isn't a second bug. It's the reason "I fixed it and nothing changed" is so often premature.
+There's also a wait you should experience once. After repeated refusals the ReplicaSet **backs off**, and raising the quota doesn't wake it. That pause isn't a second bug. It's the reason "I fixed it and nothing changed" is so often premature.
+
+<Callout kind="real">
+How long the pause lasts is mostly luck. We measured it on the tilt platform: the missing pods appeared **57 to 77 seconds** after the break on four runs, and **10 minutes 36 seconds** after it on a fifth. The pause doubles with each refused attempt, and the attempts all happen in the first few seconds, so it's counted from the break and not from your fix. On the long run, raising the quota changed nothing for nine minutes.
+
+You don't have to sit it out. The ReplicaSet tries again as soon as anything touches it. `kubectl -n lab10 annotate rs -l app=quota-demo lab10/nudge=1` brought six pods up in 4 seconds, after 30 seconds of nothing with the quota already raised.
+</Callout>
 
 ## The change nobody announced
 
@@ -58,6 +64,8 @@ The tilt lab has one more lesson worth knowing about. A **LimitRange** in the na
 <Callout kind="real">
 Admission is a whole pipeline. Besides quotas there are LimitRanges, Pod Security admission, and webhooks such as Kyverno (see the platform track) that can mutate or reject anything. They share one property: the object you look at afterwards may not be the one you sent, or may not exist at all.
 </Callout>
+
+<Watch lesson="kubernetes/admission" />
 
 <DoItForReal id="kube-admission-real" lab="10-why-wont-it-schedule">
 
